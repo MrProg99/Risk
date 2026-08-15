@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071219">
+    <meta name="description" content="Frontières — prototype de conquête stratégique en temps réel.">
+    <title>Frontières — Conquête en temps réel</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-block">
+                <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+                <div>
+                    <p class="eyebrow">Simulation stratégique</p>
+                    <h1>FRONTIÈRES</h1>
+                </div>
+            </div>
+
+            <section class="commander-status" aria-label="État de votre faction">
+                <div class="faction-badge">
+                    <span class="faction-dot" id="player-faction-dot"></span>
+                    <div>
+                        <span class="status-label">Commandement</span>
+                        <strong id="player-faction-name">Empire</strong>
+                    </div>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="top-stat">
+                    <span class="status-label">Territoires</span>
+                    <strong id="territory-count">1</strong>
+                </div>
+                <div class="top-stat">
+                    <span class="status-label">Armée totale</span>
+                    <strong id="total-units">20</strong>
+                </div>
+                <div class="top-stat accent-stat">
+                    <span class="status-label">Production</span>
+                    <strong id="production-rate">+12/min</strong>
+                </div>
+            </section>
+
+            <div class="top-actions">
+                <button class="button button-secondary" id="toggle-pause" type="button" aria-pressed="false">
+                    <span class="button-icon" id="pause-icon">Ⅱ</span>
+                    <span id="pause-label">Pause</span>
+                </button>
+                <button class="button button-primary" id="new-map" type="button">
+                    <span class="button-icon">↻</span>
+                    Nouvelle carte
+                </button>
+            </div>
+        </header>
+
+        <main class="game-layout">
+            <section class="map-card" aria-label="Carte stratégique">
+                <canvas id="game-canvas" aria-label="Carte des territoires générée aléatoirement"></canvas>
+
+                <div class="map-corner map-meta">
+                    <span class="live-dot"></span>
+                    <span id="simulation-status">SIMULATION ACTIVE</span>
+                    <span class="meta-separator">•</span>
+                    <span id="map-seed">CARTE #000000</span>
+                </div>
+
+                <div class="map-corner map-help" id="map-help">
+                    <span class="mouse-icon" aria-hidden="true"></span>
+                    <span>Glisser : déplacer · molette : zoom · clic droit : renfort</span>
+                </div>
+
+                <div class="map-legend" aria-label="Légende des factions" id="faction-legend"></div>
+                <div class="map-navigation" aria-label="Navigation de la carte">
+                    <button id="zoom-out" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
+                    <span id="zoom-level">72 %</span>
+                    <button id="zoom-in" type="button" title="Zoomer" aria-label="Zoomer">+</button>
+                    <button id="center-map" type="button" title="Recentrer sur l’Empire" aria-label="Recentrer sur l’Empire">⌖</button>
+                </div>
+                <div class="toast" id="toast" role="status" aria-live="polite"></div>
+            </section>
+
+            <aside class="side-panel" aria-label="Informations du territoire">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">Renseignement</p>
+                        <h2 id="territory-name">Aucun territoire</h2>
+                    </div>
+                    <span class="territory-id" id="territory-id">—</span>
+                </div>
+
+                <div id="empty-selection" class="empty-state">
+                    <div class="radar-visual" aria-hidden="true">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <h3>En attente d’ordres</h3>
+                    <p>Cliquez sur un territoire coloré pour afficher ses renseignements et préparer une offensive.</p>
+                </div>
+
+                <div id="territory-details" class="territory-details" hidden>
+                    <div class="owner-row">
+                        <span class="owner-swatch" id="owner-swatch"></span>
+                        <div>
+                            <span class="detail-label">Contrôle</span>
+                            <strong id="owner-name">Neutre</strong>
+                        </div>
+                        <div class="unit-total">
+                            <span class="detail-label">Unités</span>
+                            <strong id="selected-units">0</strong>
+                        </div>
+                    </div>
+
+                    <div class="detail-grid">
+                        <div class="detail-card">
+                            <span class="detail-icon" id="terrain-icon">◇</span>
+                            <span class="detail-label">Terrain</span>
+                            <strong id="terrain-name">Plaine</strong>
+                        </div>
+                        <div class="detail-card">
+                            <span class="detail-icon">◆</span>
+                            <span class="detail-label">Ressource</span>
+                            <strong id="resource-name">Aucune</strong>
+                        </div>
+                    </div>
+
+                    <section class="bonus-section">
+                        <div class="section-title-row">
+                            <h3>Avantages locaux</h3>
+                            <span class="production-chip" id="territory-production">+0/min</span>
+                        </div>
+                        <ul class="bonus-list" id="bonus-list"></ul>
+                    </section>
+
+                    <section class="neighbors-section">
+                        <div class="section-title-row">
+                            <h3>Frontières</h3>
+                            <span id="neighbor-count">0 voisins</span>
+                        </div>
+                        <div class="neighbor-list" id="neighbor-list"></div>
+                    </section>
+
+                    <section class="active-route-panel" id="active-route-panel" hidden>
+                        <div class="section-title-row">
+                            <h3>Flux logistique actif</h3>
+                            <span class="route-status" id="active-route-status">EN LIGNE</span>
+                        </div>
+                        <div class="active-route-line">
+                            <span id="active-route-source">—</span>
+                            <span>⇢</span>
+                            <strong id="active-route-target">—</strong>
+                        </div>
+                        <div class="route-stats">
+                            <span><strong id="route-dispatched">0</strong> expédiées</span>
+                            <span><strong id="route-delivered">0</strong> livrées</span>
+                        </div>
+                        <button class="stop-route-button" id="stop-route-button" type="button">Arrêter le flux</button>
+                    </section>
+
+                    <section class="attack-panel" id="attack-panel" hidden>
+                        <div class="attack-route">
+                            <div>
+                                <span class="detail-label">Origine</span>
+                                <strong id="attack-source">—</strong>
+                            </div>
+                            <span class="route-arrow" id="route-arrow">⟶</span>
+                            <div class="route-target">
+                                <span class="detail-label">Cible</span>
+                                <strong id="attack-target">—</strong>
+                            </div>
+                        </div>
+                        <div class="route-summary" id="route-summary" hidden></div>
+                        <label class="continuous-control" id="continuous-control" hidden>
+                            <input type="checkbox" id="continuous-route">
+                            <span class="continuous-switch" aria-hidden="true"></span>
+                            <span>
+                                <strong>Flux continu</strong>
+                                <small>Transmettre chaque nouvelle unité produite</small>
+                            </span>
+                        </label>
+                        <div id="unit-send-controls">
+                            <label class="unit-control" for="attack-units">
+                                <span>Unités à envoyer</span>
+                                <output id="attack-output">1</output>
+                            </label>
+                            <input type="range" id="attack-units" min="1" max="1" value="1">
+                            <div class="range-labels"><span>1</span><span id="attack-max">1 max.</span></div>
+                        </div>
+                        <button class="button attack-button" id="attack-button" type="button">
+                            Lancer l’offensive <span>⟶</span>
+                        </button>
+                    </section>
+
+                    <div class="selection-tip" id="selection-tip">
+                        <span>⌖</span>
+                        <p>Clic gauche sur un voisin pour agir, ou clic droit sur un territoire allié éloigné pour tracer un convoi.</p>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <section class="event-console" aria-label="Journal des événements">
+            <div class="console-title">
+                <span class="console-pulse"></span>
+                <div>
+                    <p class="eyebrow">Canal tactique</p>
+                    <h2>Journal des événements</h2>
+                </div>
+            </div>
+            <div class="event-list" id="event-list" aria-live="polite"></div>
+        </section>
+    </div>
+
+    <script defer src="js/data/territoryTypes.js"></script>
+    <script defer src="js/data/factions.js"></script>
+    <script defer src="js/utils/geometry.js"></script>
+    <script defer src="js/game/Territory.js"></script>
+    <script defer src="js/game/Faction.js"></script>
+    <script defer src="js/game/Army.js"></script>
+    <script defer src="js/game/ReinforcementRoute.js"></script>
+    <script defer src="js/game/GameState.js"></script>
+    <script defer src="js/game/MapGenerator.js"></script>
+    <script defer src="js/game/CombatSystem.js"></script>
+    <script defer src="js/game/AISystem.js"></script>
+    <script defer src="js/game/Game.js"></script>
+    <script defer src="js/render/MapRenderer.js"></script>
+    <script defer src="js/input/InputManager.js"></script>
+    <script defer src="js/ui/UIController.js"></script>
+    <script defer src="js/main.js"></script>
+</body>
+</html>

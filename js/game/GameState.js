@@ -1,0 +1,61 @@
+(function (C) {
+    "use strict";
+
+    class GameState {
+        constructor() {
+            this.seed = 0;
+            this.mapWidth = 2200;
+            this.mapHeight = 1400;
+            this.islandPolygon = [];
+            this.territories = [];
+            this.factions = [];
+            this.armies = [];
+            this.reinforcementRoutes = [];
+            this.events = [];
+            this.elapsedMs = 0;
+            this.nextArmyId = 1;
+            this.nextReinforcementRouteId = 1;
+            this.revision = 0;
+        }
+
+        getTerritory(id) {
+            return this.territories.find((territory) => territory.id === Number(id)) || null;
+        }
+
+        getFaction(id) {
+            return this.factions.find((faction) => faction.id === Number(id)) || null;
+        }
+
+        getReinforcementRoute(id) {
+            return this.reinforcementRoutes.find((route) => route.id === Number(id)) || null;
+        }
+
+        getTerritoriesOwnedBy(factionId) {
+            return this.territories.filter((territory) => territory.ownerId === Number(factionId));
+        }
+
+        touch() {
+            this.revision += 1;
+        }
+
+        toJSON() {
+            return {
+                seed: this.seed,
+                mapWidth: this.mapWidth,
+                mapHeight: this.mapHeight,
+                islandPolygon: this.islandPolygon,
+                territories: this.territories.map((territory) => territory.toJSON()),
+                factions: this.factions.map((faction) => faction.toJSON()),
+                armies: this.armies.map((army) => army.toJSON()),
+                reinforcementRoutes: this.reinforcementRoutes.map((route) => route.toJSON()),
+                events: this.events.slice(),
+                elapsedMs: this.elapsedMs,
+                nextArmyId: this.nextArmyId,
+                nextReinforcementRouteId: this.nextReinforcementRouteId,
+                revision: this.revision
+            };
+        }
+    }
+
+    C.GameState = GameState;
+})(window.Conquest = window.Conquest || {});
