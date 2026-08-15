@@ -60,6 +60,39 @@
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id)[0].units === 20), "chaque faction commence avec 20 unités");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
 
+        const lobbyFactionIds = C.LobbyController.buildActiveFactionIds(3, 2);
+        check(lobbyFactionIds.join(",") === "3,4", "le lobby compose le bon nombre de factions à partir de la race choisie");
+        const lobbyFixture = document.createElement("div");
+        lobbyFixture.innerHTML = `
+            <section id="game-lobby">
+                <form id="lobby-form">
+                    <input type="radio" name="playerCount" value="2">
+                    <input type="radio" name="playerCount" value="3" checked>
+                    <input type="radio" name="playerCount" value="4">
+                    <div id="lobby-factions"></div>
+                    <p id="lobby-summary"></p>
+                    <button id="start-game" type="submit"></button>
+                </form>
+            </section>
+            <div id="game-app"></div>`;
+        document.body.append(lobbyFixture);
+        const lobbyController = new C.LobbyController();
+        const technocratChoice = lobbyFixture.querySelector('input[name="playerFaction"][value="2"]');
+        technocratChoice.checked = true;
+        technocratChoice.dispatchEvent(new Event("change", { bubbles: true }));
+        let submittedLobbyConfiguration = null;
+        lobbyController.onStart((configuration) => { submittedLobbyConfiguration = configuration; });
+        lobbyController.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        check(Boolean(submittedLobbyConfiguration && submittedLobbyConfiguration.playerId === 2 && submittedLobbyConfiguration.playerCount === 3), "le formulaire du lobby transmet la race et le nombre de joueurs sélectionnés");
+        check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
+        lobbyController.close();
+        lobbyFixture.remove();
+        const duelGame = new C.Game({ playerId: 4, activeFactionIds: [4, 1], enableAI: true, timeScale: 1 });
+        duelGame.newGame(565656);
+        check(duelGame.state.factions.map((faction) => faction.id).join(",") === "4,1", "une partie peut démarrer avec seulement deux factions choisies dans le lobby");
+        check(duelGame.aiSystem.factionIds.length === 1 && duelGame.aiSystem.factionIds[0] === 1, "l’ordinateur contrôle tous les participants sauf la faction du joueur");
+        check(duelGame.state.getTerritoriesOwnedBy(4).length === 1 && duelGame.state.getTerritoriesOwnedBy(1).length === 1, "chaque participant du lobby reçoit un territoire de départ");
+
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
         const initialUnits = playerStart.units;
         for (let tick = 0; tick < 5; tick += 1) game.update(1000);
@@ -194,9 +227,106 @@
             army.ownerId === 3 && !army.reinforcementRouteId && army.toTerritoryId !== hordeSource.id),
         "les convois automatiques ne bloquent plus les attaques de l’IA");
 
+        const concentrationGame = new C.Game({
+            playerId: 1,
+            activeFactionIds: [1, 2],
+            enableAI: true,
+            timeScale: 1
+        });
+        concentrationGame.newGame(626262);
+        const concentrationState = concentrationGame.state;
+        let concentrationChain = null;
+        for (const staging of concentrationState.territories) {
+            const openNeighbors = staging.neighbors
+                .map((territoryId) => concentrationState.getTerritory(territoryId))
+                .filter((territory) => territory && !staging.isPathBlocked(territory.id));
+            if (openNeighbors.length >= 2) {
+                concentrationChain = [openNeighbors[0], staging, openNeighbors[1]];
+                break;
+            }
+        }
+        const [concentrationDonor, concentrationFront, concentrationTarget] = concentrationChain;
+        concentrationState.territories.forEach((territory) => {
+            territory.ownerId = 1;
+            territory.units = 1000;
+            territory.productionProgress = 0;
+        });
+        concentrationDonor.ownerId = 2;
+        concentrationDonor.units = 100;
+        concentrationFront.ownerId = 2;
+        concentrationFront.units = 100;
+        concentrationTarget.ownerId = 1;
+        concentrationTarget.units = 150;
+        concentrationTarget.terrain = "plain";
+        concentrationTarget.rareSite = null;
+        concentrationGame.aiSystem.reset();
+        const concentratedTotalBefore = concentrationGame.getFactionStats(2).totalUnits;
+        concentrationGame.aiSystem.think(2);
+        const offensivePlan = concentrationGame.aiSystem.offensivePlans.get(2);
+        const gatheringArmy = offensivePlan && concentrationState.armies.find((army) =>
+            army.ownerId === 2 && army.isConvoy && army.finalTerritoryId === offensivePlan.stagingTerritoryId);
+        check(Boolean(offensivePlan && gatheringArmy && gatheringArmy.units >= 70), "l’IA rassemble une grande armée lorsqu’aucun territoire isolé ne peut vaincre la cible");
+        check(concentrationGame.getFactionStats(2).totalUnits === concentratedTotalBefore, "le rassemblement de l’IA déplace les unités sans en créer artificiellement");
+        const armiesWhileGathering = concentrationState.armies.length;
+        concentrationGame.aiSystem.think(2);
+        check(concentrationState.armies.length === armiesWhileGathering && !concentrationState.armies.some((army) => !army.isConvoy && army.toTerritoryId === offensivePlan.targetTerritoryId), "l’IA n’attaque pas avant l’arrivée du convoi de rassemblement");
+        concentrationGame.aiSystem.enabled = false;
+        for (let tick = 0; tick < 12 && concentrationState.armies.some((army) => army.id === gatheringArmy.id); tick += 1) {
+            concentrationGame.update(1000);
+        }
+        concentrationGame.aiSystem.think(2);
+        const coordinatedAttack = concentrationState.armies.find((army) =>
+            army.ownerId === 2 && !army.isConvoy && army.toTerritoryId === offensivePlan.targetTerritoryId);
+        check(Boolean(coordinatedAttack && coordinatedAttack.units > concentrationTarget.units), "l’IA attend les renforts puis attaque les 150 unités avec sa force combinée");
+        check(concentrationGame.aiSystem.coordinatedAttacksLaunched === 1 && !concentrationGame.aiSystem.offensivePlans.has(2), "le plan offensif se termine lorsque l’attaque coordonnée est lancée");
+
         check(typeof C.InputManager.prototype.onTerritoryRightClick === "function", "l’interface expose la sélection de destination au clic droit");
+        check(typeof C.InputManager.prototype.onQuickTransfer === "function", "l’interface expose le transfert rapide par glisser droit");
+        check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
+        check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function", "la caméra expose le déplacement et le zoom de la grande carte");
+
+        const gestureCanvas = document.createElement("canvas");
+        const gestureTerritories = [{ id: 1 }, { id: 2 }];
+        let previewUpdates = 0;
+        const previewModes = [];
+        let previewCleared = false;
+        const gestureRenderer = {
+            game: {
+                state: {
+                    getTerritory: (territoryId) => gestureTerritories.find((territory) => territory.id === territoryId)
+                }
+            },
+            getTerritoryAt: (clientX) => clientX < 50 ? gestureTerritories[0] : gestureTerritories[1],
+            setHovered: () => {},
+            setTransferPreview: (_sourceId, _x, _y, _targetId, mode) => {
+                previewUpdates += 1;
+                previewModes.push(mode);
+            },
+            clearTransferPreview: () => { previewCleared = true; },
+            panByScreenDelta: () => {},
+            zoomAt: () => {}
+        };
+        const gestureInput = new C.InputManager(gestureCanvas, gestureRenderer);
+        let quickGesture = null;
+        let continuousGesture = null;
+        let regularRightClicks = 0;
+        gestureInput.onQuickTransfer((source, target) => { quickGesture = [source.id, target.id]; });
+        gestureInput.onContinuousTransfer((source, target) => { continuousGesture = [source.id, target.id]; });
+        gestureInput.onTerritoryRightClick(() => { regularRightClicks += 1; });
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, ctrlKey: true, clientX: 10, clientY: 10, pointerId: 41 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));
+        gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, ctrlKey: true, clientX: 90, clientY: 10 }));
+        gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, clientX: 90, clientY: 10 }));
+        check(Boolean(quickGesture && quickGesture[0] === 1 && quickGesture[1] === 2 && previewUpdates >= 2 && previewCleared), "Ctrl + glisser droit produit un ordre entre l’origine et la destination");
+        check(regularRightClicks === 1, "le clic droit simple reste disponible après un transfert rapide");
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, altKey: true, clientX: 10, clientY: 10, pointerId: 42 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, altKey: true, clientX: 90, clientY: 10, pointerId: 42 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, altKey: true, clientX: 90, clientY: 10, pointerId: 42 }));
+        gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, altKey: true, clientX: 90, clientY: 10 }));
+        check(Boolean(continuousGesture && continuousGesture[0] === 1 && continuousGesture[1] === 2 && previewModes.includes("continuous")), "Alt + glisser droit produit un ordre de flux continu distinct");
 
         const cameraCanvas = document.createElement("canvas");
         cameraCanvas.style.width = "800px";
@@ -272,6 +402,29 @@
             playerId: flowGame.playerId,
             routeId: redirectedFlow.route.id
         });
+        flowSource.units = 21;
+        const quickTransferArmyId = flowState.nextArmyId;
+        let quickTransferCleared = false;
+        let quickTransferToast = "";
+        C.UIController.prototype.handleQuickTransfer.call({
+            game: flowGame,
+            clearSelection: () => { quickTransferCleared = true; },
+            showToast: (message) => { quickTransferToast = message; }
+        }, flowSource, flowDestination);
+        const quickTransferArmy = flowState.armies.find((army) => army.id === quickTransferArmyId);
+        check(Boolean(quickTransferArmy && quickTransferArmy.units === 10 && quickTransferArmy.finalTerritoryId === flowDestination.id), "le transfert rapide envoie 50 % des unités disponibles sur le trajet allié");
+        check(flowSource.units === 11 && quickTransferCleared && quickTransferToast.includes(flowDestination.name), "le transfert rapide laisse une garnison puis désélectionne le territoire");
+        const continuousTransferRouteId = flowState.nextReinforcementRouteId;
+        let continuousTransferCleared = false;
+        let continuousTransferToast = "";
+        C.UIController.prototype.handleContinuousTransfer.call({
+            game: flowGame,
+            clearSelection: () => { continuousTransferCleared = true; },
+            showToast: (message) => { continuousTransferToast = message; }
+        }, flowSource, flowDestination);
+        const continuousTransferRoute = flowState.getReinforcementRoute(continuousTransferRouteId);
+        check(Boolean(continuousTransferRoute && continuousTransferRoute.active && continuousTransferRoute.toTerritoryId === flowDestination.id), "Alt + glisser droit crée une ligne de renfort continue sur le trajet allié");
+        check(continuousTransferCleared && continuousTransferToast.includes(flowDestination.name), "la création rapide du flux confirme la destination puis désélectionne le territoire");
         check(Boolean(JSON.stringify(flowState.toJSON())), "les lignes continues sont incluses dans l’état sérialisable");
 
         document.getElementById("result").textContent = `PASS — ${results.length} tests\n${results.join("\n")}`;

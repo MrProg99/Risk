@@ -10,6 +10,7 @@
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.hoveredTerritoryId = null;
+            this.transferPreview = null;
             this.capturePulses = [];
             this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             this.minZoom = 0.42;
@@ -116,6 +117,7 @@
             this.drawMountainBarriers(ctx, state);
             this.drawTerritoryMarkers(ctx, state);
             this.drawArmies(ctx, state, now);
+            this.drawTransferPreview(ctx, state, now);
             this.drawCapturePulses(ctx, now);
             ctx.restore();
         }
@@ -461,6 +463,99 @@
             });
         }
 
+        drawTransferPreview(ctx, state, now) {
+            if (!this.transferPreview) return;
+            const source = state.getTerritory(this.transferPreview.fromTerritoryId);
+            if (!source) return;
+
+            const isContinuous = this.transferPreview.mode === "continuous";
+            const target = state.getTerritory(this.transferPreview.targetTerritoryId);
+            const hasDestination = Boolean(target && target.id !== source.id);
+            const isAlliedDestination = hasDestination &&
+                source.ownerId === this.game.playerId &&
+                target.ownerId === this.game.playerId;
+            const path = isAlliedDestination
+                ? this.game.findOwnedPath(this.game.playerId, source.id, target.id)
+                : null;
+            const units = source.units > 1
+                ? Math.max(1, Math.floor((source.units - 1) * 0.5))
+                : 0;
+            const isValid = Boolean(path && path.length > 1 && (isContinuous || units > 0));
+            const color = !hasDestination
+                ? isContinuous ? "#8beee8" : "#7ae8df"
+                : isValid
+                    ? isContinuous ? "#4ed7d0" : "#d8ff68"
+                    : "#ff766d";
+            const route = path
+                ? path.map((territoryId) => state.getTerritory(territoryId)).filter(Boolean)
+                : [source, target || { center: this.transferPreview.pointer }];
+            const end = route[route.length - 1].center;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(route[0].center.x, route[0].center.y);
+            for (let index = 1; index < route.length; index += 1) {
+                ctx.lineTo(route[index].center.x, route[index].center.y);
+            }
+            ctx.strokeStyle = C.Geometry.rgba(color, .92);
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.setLineDash([11, 7]);
+            ctx.lineDashOffset = -(now / 55) % 18;
+            ctx.shadowColor = C.Geometry.rgba(color, .55);
+            ctx.shadowBlur = 10;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.shadowBlur = 0;
+
+            if (route.length > 1) {
+                const beforeEnd = route[route.length - 2].center;
+                const angle = Math.atan2(end.y - beforeEnd.y, end.x - beforeEnd.x);
+                ctx.save();
+                ctx.translate(end.x, end.y);
+                ctx.rotate(angle);
+                ctx.beginPath();
+                ctx.moveTo(18, 0);
+                ctx.lineTo(-7, -10);
+                ctx.lineTo(-3, 0);
+                ctx.lineTo(-7, 10);
+                ctx.closePath();
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            if (hasDestination) {
+                this.tracePolygon(ctx, target.polygon);
+                ctx.strokeStyle = C.Geometry.rgba(color, .96);
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+
+            const label = !hasDestination
+                ? isContinuous ? "ALT · FLUX CONTINU" : "CTRL · TRANSFERT"
+                : isValid
+                    ? isContinuous ? "FLUX CONTINU" : `${units} UNITÉ${units > 1 ? "S" : ""}`
+                    : !isContinuous && units < 1
+                        ? "AUCUNE UNITÉ DISPONIBLE"
+                        : "DESTINATION INVALIDE";
+            ctx.font = "700 12px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const labelWidth = ctx.measureText(label).width + 18;
+            const labelX = end.x;
+            const labelY = end.y - 35;
+            ctx.fillStyle = "rgba(4, 13, 16, .9)";
+            ctx.fillRect(labelX - labelWidth / 2, labelY - 12, labelWidth, 24);
+            ctx.strokeStyle = C.Geometry.rgba(color, .78);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(labelX - labelWidth / 2, labelY - 12, labelWidth, 24);
+            ctx.fillStyle = color;
+            ctx.fillText(label, labelX, labelY + 1);
+            ctx.restore();
+        }
+
         drawCapturePulses(ctx, now) {
             this.capturePulses = this.capturePulses.filter((pulse) => now - pulse.startedAt < 1200);
             this.capturePulses.forEach((pulse) => {
@@ -510,6 +605,19 @@
 
         setHovered(territoryId) {
             this.hoveredTerritoryId = territoryId;
+        }
+
+        setTransferPreview(fromTerritoryId, clientX, clientY, targetTerritoryId = null, mode = "quick") {
+            this.transferPreview = {
+                fromTerritoryId,
+                targetTerritoryId,
+                mode,
+                pointer: this.screenToWorld(clientX, clientY)
+            };
+        }
+
+        clearTransferPreview() {
+            this.transferPreview = null;
         }
 
         pulseTerritory(territoryId, color) {

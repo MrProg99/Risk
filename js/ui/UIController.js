@@ -78,6 +78,8 @@
         bindEvents() {
             this.input.onTerritoryClick((territory) => this.handleTerritoryClick(territory));
             this.input.onTerritoryRightClick((territory) => this.handleTerritoryRightClick(territory));
+            this.input.onQuickTransfer((source, target) => this.handleQuickTransfer(source, target));
+            this.input.onContinuousTransfer((source, target) => this.handleContinuousTransfer(source, target));
 
             this.elements.newMap.addEventListener("click", () => {
                 this.clearSelection();
@@ -187,7 +189,7 @@
                     this.syncSelection();
                     this.showToast("Origine sélectionnée. Faites un clic droit sur la destination alliée.");
                 } else {
-                    this.showToast("Sélectionnez d’abord un territoire de l’Empire.");
+                    this.showToast(`Sélectionnez d’abord un territoire de la faction ${this.getPlayerFactionName()}.`);
                 }
                 return;
             }
@@ -213,12 +215,78 @@
             this.syncSelection();
         }
 
+        handleQuickTransfer(source, target) {
+            if (!source || !target || source.id === target.id) return;
+            if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
+                this.showToast(`Le transfert rapide doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
+                return;
+            }
+            if (source.units <= 1) {
+                this.showToast("Ce territoire n’a aucune unité disponible à transférer.");
+                return;
+            }
+
+            const path = this.game.findOwnedPath(this.game.playerId, source.id, target.id);
+            if (!path) {
+                this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
+                return;
+            }
+
+            const units = Math.max(1, Math.floor((source.units - 1) * 0.5));
+            const result = this.game.executeCommand({
+                type: "SEND_REINFORCEMENT_ROUTE",
+                playerId: this.game.playerId,
+                fromTerritoryId: source.id,
+                toTerritoryId: target.id,
+                units
+            });
+            if (!result.ok) {
+                this.showToast(result.error);
+                return;
+            }
+
+            this.clearSelection();
+            this.showToast(`${units} unité${units > 1 ? "s" : ""} transférée${units > 1 ? "s" : ""} vers ${target.name}.`);
+        }
+
+        handleContinuousTransfer(source, target) {
+            if (!source || !target || source.id === target.id) return;
+            if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
+                this.showToast(`Le flux continu doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
+                return;
+            }
+
+            const path = this.game.findOwnedPath(this.game.playerId, source.id, target.id);
+            if (!path) {
+                this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
+                return;
+            }
+
+            const previousRoute = this.game.state.reinforcementRoutes.find((route) =>
+                route.active && route.ownerId === this.game.playerId && route.fromTerritoryId === source.id);
+            const result = this.game.executeCommand({
+                type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+                playerId: this.game.playerId,
+                fromTerritoryId: source.id,
+                toTerritoryId: target.id
+            });
+            if (!result.ok) {
+                this.showToast(result.error);
+                return;
+            }
+
+            this.clearSelection();
+            this.showToast(previousRoute
+                ? `Flux continu redirigé vers ${target.name}.`
+                : `Flux continu activé vers ${target.name}.`);
+        }
+
         chooseNeighbor(territoryId) {
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
             const target = this.game.state.getTerritory(territoryId);
             if (!source || !target) return;
             if (source.ownerId !== this.game.playerId) {
-                this.showToast("Sélectionnez d’abord un territoire de l’Empire.");
+                this.showToast(`Sélectionnez d’abord un territoire de la faction ${this.getPlayerFactionName()}.`);
                 return;
             }
             if (source.isPathBlocked(target.id)) {
@@ -289,6 +357,8 @@
             this.elements.playerFactionName.textContent = player.name;
             this.elements.playerFactionDot.style.background = player.color;
             this.elements.playerFactionDot.style.color = player.color;
+            this.elements.centerMap.title = `Recentrer sur ${player.name}`;
+            this.elements.centerMap.setAttribute("aria-label", `Recentrer sur ${player.name}`);
             this.elements.mapSeed.textContent = `CARTE #${String(this.game.state.seed).padStart(6, "0")}`;
             this.renderLegend();
             this.renderPauseState();
@@ -499,6 +569,11 @@
             this.elements.toast.textContent = message;
             this.elements.toast.classList.add("visible");
             this.toastTimer = setTimeout(() => this.elements.toast.classList.remove("visible"), 2400);
+        }
+
+        getPlayerFactionName() {
+            const faction = this.game.state.getFaction(this.game.playerId);
+            return faction ? faction.name : "votre faction";
         }
 
         formatNumber(value) {

@@ -3,7 +3,15 @@
 
     class Game {
         constructor(options = {}) {
-            this.playerId = options.playerId || 1;
+            const availableFactionIds = C.FACTION_DEFINITIONS.map((definition) => definition.id);
+            const requestedPlayerId = Number(options.playerId);
+            this.playerId = availableFactionIds.includes(requestedPlayerId) ? requestedPlayerId : availableFactionIds[0];
+            const requestedFactionIds = Array.isArray(options.activeFactionIds)
+                ? options.activeFactionIds.map(Number)
+                : availableFactionIds;
+            this.activeFactionIds = [...new Set(requestedFactionIds)]
+                .filter((factionId) => availableFactionIds.includes(factionId));
+            if (!this.activeFactionIds.includes(this.playerId)) this.activeFactionIds.unshift(this.playerId);
             this.state = new C.GameState();
             this.mapGenerator = new C.MapGenerator(this.state.mapWidth, this.state.mapHeight);
             this.listeners = new Set();
@@ -11,7 +19,10 @@
             this.paused = false;
             this.timeScale = C.Geometry.clamp(Number(options.timeScale ?? 0.72), 0.25, 2);
             this.productionIntervalMs = 5000;
-            this.aiSystem = new C.AISystem(this, { enabled: options.enableAI !== false });
+            this.aiSystem = new C.AISystem(this, {
+                enabled: options.enableAI !== false,
+                factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
+            });
         }
 
         newGame(seed = this.createSeed()) {
@@ -21,7 +32,10 @@
             state.seed = normalizedSeed;
             state.islandPolygon = generated.islandPolygon;
             state.territories = generated.territories;
-            state.factions = C.FACTION_DEFINITIONS.map((definition) => new C.Faction(definition));
+            state.factions = this.activeFactionIds.map((factionId) => {
+                const definition = C.FACTION_DEFINITIONS.find((candidate) => candidate.id === factionId);
+                return new C.Faction(definition);
+            });
             this.state = state;
             this.random = C.Geometry.seededRandom((normalizedSeed ^ 0x9E3779B9) >>> 0);
             this.paused = false;
@@ -29,8 +43,18 @@
             this.assignStartingTerritories();
             this.assignRareSites();
             this.aiSystem.reset();
-            this.addEvent("Le commandement impérial est opérationnel.", "info");
-            if (this.aiSystem.enabled) this.addEvent("Technocrates, Horde et Nomades sont contrôlés par l’ordinateur.", "info");
+            const playerFaction = state.getFaction(this.playerId);
+            const computerFactions = state.factions.filter((faction) => faction.id !== this.playerId);
+            this.addEvent(`Le commandement de la faction ${playerFaction.name} est opérationnel.`, "info");
+            if (this.aiSystem.enabled && computerFactions.length) {
+                const names = computerFactions.map((faction) => faction.name);
+                const list = names.length > 1
+                    ? `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`
+                    : names[0];
+                this.addEvent(names.length > 1
+                    ? `Les factions ${list} sont contrôlées par l’ordinateur.`
+                    : `La faction ${list} est contrôlée par l’ordinateur.`, "info");
+            }
             this.addEvent(`Carte générée : ${state.territories.length} territoires reliés.`, "info");
             this.notify({ type: "NEW_GAME", seed: normalizedSeed });
             return state;

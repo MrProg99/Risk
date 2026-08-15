@@ -9,7 +9,61 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="app-shell">
+    <section class="lobby-overlay" id="game-lobby" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
+        <div class="lobby-orbit lobby-orbit-one" aria-hidden="true"></div>
+        <div class="lobby-orbit lobby-orbit-two" aria-hidden="true"></div>
+        <div class="lobby-panel">
+            <header class="lobby-header">
+                <div class="lobby-brand">
+                    <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+                    <div>
+                        <p class="eyebrow">Salle de commandement</p>
+                        <span>FRONTIÈRES</span>
+                    </div>
+                </div>
+                <p class="lobby-kicker">Nouvelle campagne</p>
+                <h1 id="lobby-title">Choisissez votre conflit</h1>
+                <p class="lobby-intro">Définissez le nombre de factions en présence et prenez le commandement de celle qui correspond à votre stratégie.</p>
+            </header>
+
+            <form id="lobby-form" class="lobby-form">
+                <fieldset class="lobby-section">
+                    <legend><span>01</span> Nombre de joueurs</legend>
+                    <p>Une faction humaine, les autres sont dirigées par l’ordinateur.</p>
+                    <div class="player-count-choices">
+                        <label class="player-count-choice">
+                            <input type="radio" name="playerCount" value="2">
+                            <strong>2</strong>
+                            <span>Vous + 1 IA</span>
+                        </label>
+                        <label class="player-count-choice">
+                            <input type="radio" name="playerCount" value="3">
+                            <strong>3</strong>
+                            <span>Vous + 2 IA</span>
+                        </label>
+                        <label class="player-count-choice">
+                            <input type="radio" name="playerCount" value="4" checked>
+                            <strong>4</strong>
+                            <span>Vous + 3 IA</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="lobby-section faction-section">
+                    <legend><span>02</span> Votre faction</legend>
+                    <p>Chaque faction possède un avantage qui change votre manière de conquérir.</p>
+                    <div class="faction-choices" id="lobby-factions"></div>
+                </fieldset>
+
+                <footer class="lobby-footer">
+                    <p id="lobby-summary" aria-live="polite"></p>
+                    <button class="button button-primary lobby-start" id="start-game" type="submit">Lancer la partie</button>
+                </footer>
+            </form>
+        </div>
+    </section>
+
+    <div class="app-shell" id="game-app" inert aria-hidden="true">
         <header class="topbar">
             <div class="brand-block">
                 <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
@@ -67,7 +121,7 @@
 
                 <div class="map-corner map-help" id="map-help">
                     <span class="mouse-icon" aria-hidden="true"></span>
-                    <span>Glisser : déplacer · molette : zoom · clic droit : renfort</span>
+                    <span>Clic droit : convoi · Ctrl + glisser droit : transfert · Alt + glisser droit : flux</span>
                 </div>
 
                 <div class="map-legend" aria-label="Légende des factions" id="faction-legend"></div>
@@ -75,7 +129,7 @@
                     <button id="zoom-out" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
                     <span id="zoom-level">72 %</span>
                     <button id="zoom-in" type="button" title="Zoomer" aria-label="Zoomer">+</button>
-                    <button id="center-map" type="button" title="Recentrer sur l’Empire" aria-label="Recentrer sur l’Empire">⌖</button>
+                    <button id="center-map" type="button" title="Recentrer sur votre faction" aria-label="Recentrer sur votre faction">⌖</button>
                 </div>
                 <div class="toast" id="toast" role="status" aria-live="polite"></div>
             </section>
@@ -192,7 +246,7 @@
 
                     <div class="selection-tip" id="selection-tip">
                         <span>⌖</span>
-                        <p>Clic gauche sur un voisin pour agir, ou clic droit sur un territoire allié éloigné pour tracer un convoi.</p>
+                        <p>Clic gauche sur un voisin pour agir. Ctrl + glisser droit transfère des unités ; Alt + glisser droit crée un flux continu.</p>
                     </div>
                 </div>
             </aside>
@@ -224,6 +278,7 @@
     <script defer src="js/game/Game.js"></script>
     <script defer src="js/render/MapRenderer.js"></script>
     <script defer src="js/input/InputManager.js"></script>
+    <script defer src="js/ui/LobbyController.js"></script>
     <script defer src="js/ui/UIController.js"></script>
     <script defer src="js/main.js"></script>
 </body>

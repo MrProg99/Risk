@@ -1,13 +1,17 @@
 (function (C) {
     "use strict";
 
-    function start() {
+    function launchGame(configuration, lobby) {
         const canvas = document.getElementById("game-canvas");
-        const game = new C.Game({ playerId: 1 });
+        const game = new C.Game({
+            playerId: configuration.playerId,
+            activeFactionIds: configuration.activeFactionIds
+        });
         const renderer = new C.MapRenderer(canvas, game);
         const input = new C.InputManager(canvas, renderer);
         const ui = new C.UIController(game, renderer, input);
         game.newGame();
+        lobby.close();
 
         let lastFrame = performance.now();
         let lastUiRefresh = 0;
@@ -24,7 +28,13 @@
         }
         requestAnimationFrame(frame);
 
-        window.frontieres = { game, renderer, input, ui };
+        window.frontieres = { game, renderer, input, ui, lobby, configuration };
+    }
+
+    function start() {
+        const lobby = new C.LobbyController();
+        lobby.onStart((configuration) => launchGame(configuration, lobby));
+        window.frontieres = { lobby };
     }
 
     if (document.readyState === "loading") {
