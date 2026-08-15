@@ -16,6 +16,9 @@
             this.production = production;
             this.productionProgress = 0;
             this.rareSite = null;
+            this.installation = null;
+            this.installationProgressMs = 0;
+            this.isImpassable = false;
         }
 
         isNeighbor(territoryId) {
@@ -40,7 +43,10 @@
                 resource: this.resource,
                 production: this.production,
                 productionProgress: this.productionProgress,
-                rareSite: this.rareSite
+                rareSite: this.rareSite,
+                installation: this.installation,
+                installationProgressMs: this.installationProgressMs,
+                isImpassable: this.isImpassable
             };
         }
     }

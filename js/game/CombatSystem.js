@@ -7,8 +7,10 @@
             const rareDefense = territory.rareSite ? territory.rareSite.defenseMultiplier : 1;
             const attackerCombat = attackerFaction ? attackerFaction.bonuses.combatMultiplier : 1;
             const defenderCombat = defenderFaction ? defenderFaction.bonuses.combatMultiplier : 1;
-            const attackMultiplier = (attackerFaction ? attackerFaction.bonuses.attackMultiplier : 1) * attackerCombat;
-            const defenseMultiplier = territoryType.defenseMultiplier * rareDefense * defenderCombat;
+            const attackTechnology = 1 + C.getFactionTechnologyBonus(attackerFaction, "attackMultiplier");
+            const defenseTechnology = 1 + C.getFactionTechnologyBonus(defenderFaction, "defenseMultiplier");
+            const attackMultiplier = (attackerFaction ? attackerFaction.bonuses.attackMultiplier : 1) * attackerCombat * attackTechnology;
+            const defenseMultiplier = territoryType.defenseMultiplier * rareDefense * defenderCombat * defenseTechnology;
             const attackRoll = 0.88 + random() * 0.24;
             const defenseRoll = 0.88 + random() * 0.24;
             const attackPower = army.units * attackMultiplier * attackRoll;

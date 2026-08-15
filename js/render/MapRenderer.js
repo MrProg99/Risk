@@ -11,6 +11,7 @@
             this.plannedRoute = [];
             this.hoveredTerritoryId = null;
             this.transferPreview = null;
+            this.cannonShots = [];
             this.capturePulses = [];
             this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             this.minZoom = 0.42;
@@ -112,11 +113,15 @@
             ctx.setTransform(this.viewScale, 0, 0, this.viewScale, this.offsetX, this.offsetY);
             this.drawIslandShadow(ctx, state);
             this.drawTerritories(ctx, state, now);
+            this.drawLakeSurfaces(ctx, state, now);
             this.drawReinforcementRoutes(ctx, state, now);
             this.drawSelection(ctx, state, now);
             this.drawMountainBarriers(ctx, state);
             this.drawTerritoryMarkers(ctx, state);
+            this.drawWorldEvents(ctx, state, now);
+            this.drawCannonInstallations(ctx, state, now);
             this.drawArmies(ctx, state, now);
+            this.drawCannonShots(ctx, now);
             this.drawTransferPreview(ctx, state, now);
             this.drawCapturePulses(ctx, now);
             ctx.restore();
@@ -176,14 +181,18 @@
                 const faction = state.getFaction(territory.ownerId);
                 const ownerColor = faction ? faction.color : "#53636a";
                 const terrainMix = faction ? 0.24 : 0.34;
-                const fill = C.Geometry.mixColors(ownerColor, type.color, terrainMix);
+                const fill = territory.isImpassable
+                    ? C.Geometry.mixColors("#092c39", type.color, 0.72)
+                    : C.Geometry.mixColors(ownerColor, type.color, terrainMix);
 
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = fill;
                 ctx.fill();
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.fillStyle = territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
+                ctx.fillStyle = territory.isImpassable
+                    ? "rgba(27, 112, 132, .13)"
+                    : territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
                 ctx.fill();
 
                 if (territory.id === this.hoveredTerritoryId) {
@@ -193,13 +202,13 @@
                 }
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.strokeStyle = "rgba(4, 12, 15, .72)";
+                ctx.strokeStyle = territory.isImpassable ? "rgba(4, 26, 34, .92)" : "rgba(4, 12, 15, .72)";
                 ctx.lineWidth = 2.1;
                 ctx.lineJoin = "round";
                 ctx.stroke();
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.strokeStyle = "rgba(196, 222, 222, .13)";
+                ctx.strokeStyle = territory.isImpassable ? "rgba(105, 210, 220, .34)" : "rgba(196, 222, 222, .13)";
                 ctx.lineWidth = 0.8;
                 ctx.stroke();
             });
@@ -213,23 +222,49 @@
             ctx.shadowBlur = 0;
         }
 
+        drawLakeSurfaces(ctx, state, now) {
+            state.territories.filter((territory) => territory.isImpassable).forEach((lake, lakeIndex) => {
+                const center = lake.center;
+                const shimmer = Math.sin(now / 850 + lakeIndex) * 3;
+                ctx.save();
+                this.tracePolygon(ctx, lake.polygon);
+                ctx.clip();
+                ctx.lineWidth = 1.4;
+                ctx.strokeStyle = "rgba(116, 220, 226, .24)";
+                for (let row = -2; row <= 2; row += 1) {
+                    const y = center.y + row * 12 + shimmer;
+                    ctx.beginPath();
+                    for (let x = center.x - 54; x <= center.x + 54; x += 6) {
+                        const waveY = y + Math.sin((x + now * 0.025) / 14 + row) * 2.2;
+                        if (x === center.x - 54) ctx.moveTo(x, waveY);
+                        else ctx.lineTo(x, waveY);
+                    }
+                    ctx.stroke();
+                }
+                ctx.restore();
+            });
+        }
+
         drawSelection(ctx, state, now) {
             const selected = state.getTerritory(this.selectedTerritoryId);
             if (!selected) return;
 
-            selected.neighbors.forEach((id) => {
-                const neighbor = state.getTerritory(id);
-                if (!neighbor || neighbor.id === this.targetTerritoryId) return;
-                if (selected.isPathBlocked(neighbor.id)) return;
-                this.tracePolygon(ctx, neighbor.polygon);
-                ctx.strokeStyle = neighbor.ownerId === selected.ownerId
-                    ? "rgba(115, 224, 205, .5)"
-                    : "rgba(255, 188, 123, .48)";
-                ctx.lineWidth = 2;
-                ctx.setLineDash([6, 6]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            });
+            if (!selected.isImpassable) {
+                selected.neighbors.forEach((id) => {
+                    const neighbor = state.getTerritory(id);
+                    if (!neighbor || neighbor.id === this.targetTerritoryId) return;
+                    if (neighbor.isImpassable) return;
+                    if (selected.isPathBlocked(neighbor.id)) return;
+                    this.tracePolygon(ctx, neighbor.polygon);
+                    ctx.strokeStyle = neighbor.ownerId === selected.ownerId
+                        ? "rgba(115, 224, 205, .5)"
+                        : "rgba(255, 188, 123, .48)";
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 6]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                });
+            }
 
             const pulse = (Math.sin(now / 240) + 1) / 2;
             this.tracePolygon(ctx, selected.polygon);
@@ -357,6 +392,18 @@
                 const type = C.TERRITORY_TYPES[territory.terrain];
                 const center = territory.center;
 
+                if (territory.isImpassable) {
+                    ctx.fillStyle = "rgba(167, 232, 232, .86)";
+                    ctx.font = "700 19px Georgia, serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(type.icon, center.x, center.y - 1);
+                    ctx.fillStyle = "rgba(187, 226, 226, .62)";
+                    ctx.font = "600 7px sans-serif";
+                    ctx.fillText("INFRANCHISSABLE", center.x, center.y + 14);
+                    return;
+                }
+
                 if (territory.rareSite) {
                     ctx.beginPath();
                     ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
@@ -404,9 +451,170 @@
             });
         }
 
+        drawCannonInstallations(ctx, state, now) {
+            const definition = C.INSTALLATION_TYPES.cannon;
+            state.territories.forEach((territory) => {
+                if (territory.installation?.type !== definition.id) return;
+                const faction = state.getFaction(territory.ownerId);
+                const active = Boolean(faction);
+                const x = territory.center.x + 25;
+                const y = territory.center.y - 21;
+                const pulse = active ? (Math.sin(now / 300) + 1) / 2 : 0;
+
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.beginPath();
+                ctx.arc(0, 0, 11, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(5, 12, 15, .93)";
+                ctx.fill();
+                ctx.strokeStyle = active ? C.Geometry.rgba(faction.accent, .88) : "rgba(190, 200, 194, .62)";
+                ctx.lineWidth = 1.6;
+                ctx.shadowColor = active ? faction.color : "transparent";
+                ctx.shadowBlur = active ? 5 + pulse * 5 : 0;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                ctx.rotate(-Math.PI * 0.18);
+                ctx.strokeStyle = active ? faction.accent : "#aeb8b3";
+                ctx.lineWidth = 4;
+                ctx.lineCap = "round";
+                ctx.beginPath();
+                ctx.moveTo(-2, -1);
+                ctx.lineTo(11, -1);
+                ctx.stroke();
+                ctx.fillStyle = active ? faction.color : "#778681";
+                ctx.fillRect(-7, -5, 9, 8);
+                ctx.fillRect(-8, 4, 13, 3);
+                ctx.restore();
+
+                if (active) {
+                    const progress = C.Geometry.clamp(territory.installationProgressMs / definition.fireIntervalMs, 0, 1);
+                    ctx.beginPath();
+                    ctx.arc(x, y, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                    ctx.strokeStyle = C.Geometry.rgba(faction.accent, .72);
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        drawWorldEvents(ctx, state, now) {
+            state.worldEvents.forEach((worldEvent, eventIndex) => {
+                const definition = C.WORLD_EVENT_DEFINITIONS[worldEvent.type];
+                if (!definition) return;
+                worldEvent.territoryIds.forEach((territoryId, targetIndex) => {
+                    const territory = state.getTerritory(territoryId);
+                    if (!territory) return;
+                    const center = territory.center;
+                    const pulse = (Math.sin(now / 230 + eventIndex + targetIndex) + 1) / 2;
+
+                    if (worldEvent.type === "famine") {
+                        const durationMs = Math.max(1, worldEvent.endsAtMs - worldEvent.startedAtMs);
+                        const remainingRatio = C.Geometry.clamp((worldEvent.endsAtMs - state.elapsedMs) / durationMs, 0, 1);
+                        const x = center.x - 26;
+                        const y = center.y - 23;
+                        ctx.beginPath();
+                        ctx.arc(x, y, 12, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(29, 23, 13, .93)";
+                        ctx.fill();
+                        ctx.strokeStyle = C.Geometry.rgba(definition.color, .72);
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        ctx.fillStyle = definition.color;
+                        ctx.font = "700 14px Georgia, serif";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(definition.icon, x, y + 0.5);
+                        ctx.beginPath();
+                        ctx.arc(x, y, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * remainingRatio);
+                        ctx.strokeStyle = C.Geometry.rgba(definition.color, .82);
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        return;
+                    }
+
+                    if (worldEvent.type === "wildfire") {
+                        ctx.save();
+                        for (let flame = 0; flame < 8; flame += 1) {
+                            const angle = flame * 2.2 + eventIndex;
+                            const distance = 9 + (flame % 3) * 8;
+                            const rise = ((now / 75 + flame * 7) % 22);
+                            const x = center.x + Math.cos(angle) * distance;
+                            const y = center.y + 18 - rise;
+                            ctx.beginPath();
+                            ctx.arc(x, y, 2.5 + (flame % 2), 0, Math.PI * 2);
+                            ctx.fillStyle = flame % 2
+                                ? `rgba(255, 194, 73, ${.38 + pulse * .35})`
+                                : `rgba(255, 100, 51, ${.45 + pulse * .4})`;
+                            ctx.shadowColor = definition.color;
+                            ctx.shadowBlur = 8;
+                            ctx.fill();
+                        }
+                        ctx.restore();
+                        return;
+                    }
+
+                    if (worldEvent.type === "barbarianRaid") {
+                        ctx.beginPath();
+                        ctx.arc(center.x, center.y + 1, 28 + pulse * 7, 0, Math.PI * 2);
+                        ctx.strokeStyle = C.Geometry.rgba(definition.color, .38 + pulse * .38);
+                        ctx.lineWidth = 3;
+                        ctx.setLineDash([5, 7]);
+                        ctx.lineDashOffset = -(now / 55) % 12;
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                });
+            });
+        }
+
+        drawCannonShots(ctx, now) {
+            const durationMs = 900;
+            this.cannonShots = this.cannonShots.filter((shot) => now - shot.startedAt < durationMs);
+            this.cannonShots.forEach((shot) => {
+                const progress = C.Geometry.clamp((now - shot.startedAt) / durationMs, 0, 1);
+                const previousProgress = Math.max(0, progress - 0.09);
+                const positionAt = (value) => ({
+                    x: C.Geometry.lerp(shot.start.x, shot.end.x, value),
+                    y: C.Geometry.lerp(shot.start.y, shot.end.y, value) - Math.sin(value * Math.PI) * 58
+                });
+                const position = positionAt(progress);
+                const previous = positionAt(previousProgress);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(previous.x, previous.y);
+                ctx.lineTo(position.x, position.y);
+                ctx.strokeStyle = C.Geometry.rgba(shot.color, .55);
+                ctx.lineWidth = 3;
+                ctx.lineCap = "round";
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(position.x, position.y, 3.8, 0, Math.PI * 2);
+                ctx.fillStyle = "#fff5c2";
+                ctx.shadowColor = shot.color;
+                ctx.shadowBlur = 13;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                if (progress > 0.72) {
+                    const impactProgress = (progress - 0.72) / 0.28;
+                    ctx.beginPath();
+                    ctx.arc(shot.end.x, shot.end.y, 5 + impactProgress * 25, 0, Math.PI * 2);
+                    ctx.strokeStyle = shot.hit
+                        ? `rgba(255, 211, 112, ${1 - impactProgress})`
+                        : `rgba(173, 190, 188, ${(1 - impactProgress) * .5})`;
+                    ctx.lineWidth = shot.hit ? 4 : 2;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            });
+        }
+
         drawArmies(ctx, state, now) {
             state.armies.forEach((army) => {
-                const faction = state.getFaction(army.ownerId);
+                const faction = army.isBarbarian ? C.BARBARIAN_FACTION : state.getFaction(army.ownerId);
+                if (!faction) return;
                 const progress = army.progress;
                 const x = C.Geometry.lerp(army.start.x, army.end.x, progress);
                 const y = C.Geometry.lerp(army.start.y, army.end.y, progress);
@@ -623,6 +831,20 @@
         pulseTerritory(territoryId, color) {
             const territory = this.game.state.getTerritory(territoryId);
             if (territory) this.capturePulses.push({ center: { ...territory.center }, color, startedAt: performance.now() });
+        }
+
+        fireCannon(fromTerritoryId, targetTerritoryId, hit) {
+            const source = this.game.state.getTerritory(fromTerritoryId);
+            const target = this.game.state.getTerritory(targetTerritoryId);
+            if (!source || !target) return;
+            const faction = this.game.state.getFaction(source.ownerId);
+            this.cannonShots.push({
+                start: { x: source.center.x + 25, y: source.center.y - 21 },
+                end: { ...target.center },
+                color: faction ? faction.accent : "#d5c38c",
+                hit: Boolean(hit),
+                startedAt: performance.now()
+            });
         }
     }
 

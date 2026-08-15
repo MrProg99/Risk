@@ -2,6 +2,17 @@
     "use strict";
 
     C.TERRITORY_TYPES = {
+        lake: {
+            id: "lake",
+            name: "Lac",
+            icon: "≈",
+            resource: "Eau profonde",
+            weight: 0,
+            color: "#1d5968",
+            productionMultiplier: 0,
+            defenseMultiplier: 1,
+            bonuses: ["Zone naturelle totalement infranchissable"]
+        },
         plain: {
             id: "plain",
             name: "Plaine",

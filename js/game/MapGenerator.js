@@ -10,6 +10,10 @@
         "des Brumes", "du Nord", "Émeraude", "des Pins", "du Faucon", "de Verre", "des Orages",
         "du Ponant", "Rouge", "des Échos", "d’Ivoire", "du Sable"
     ];
+    const LAKE_NAMES = [
+        "Lac des Brumes", "Lac d’Azur", "Lac Sombre", "Lac du Croissant", "Lac des Échos",
+        "Lac Boréal", "Lac de Verre", "Lac d’Onyx", "Lac du Levant", "Lac Émeraude"
+    ];
 
     class MapGenerator {
         constructor(width = 1200, height = 760) {
@@ -38,6 +42,7 @@
             });
 
             this.detectNeighbors(territories);
+            this.createLakes(territories, random);
             this.createMountainBarriers(territories, random);
             return { islandPolygon, territories };
         }
@@ -128,12 +133,44 @@
             }
         }
 
+        createLakes(territories, random) {
+            const targetCount = C.Geometry.randomInt(random, 3, 5);
+            const mapCenter = { x: this.width / 2, y: this.height / 2 };
+            const names = C.Geometry.shuffle(LAKE_NAMES, random);
+            const candidates = C.Geometry.shuffle(territories.filter((territory) =>
+                territory.neighbors.length >= 4 &&
+                C.Geometry.distance(territory.center, mapCenter) < this.width * 0.34), random);
+            const selected = [];
+
+            candidates.sort((a, b) => b.neighbors.length - a.neighbors.length);
+            for (const candidate of candidates) {
+                if (selected.some((lake) => lake.isNeighbor(candidate.id))) continue;
+                candidate.isImpassable = true;
+                if (!this.isTraversableGraphConnected(territories)) {
+                    candidate.isImpassable = false;
+                    continue;
+                }
+
+                candidate.name = names[selected.length] || `Lac intérieur ${selected.length + 1}`;
+                candidate.terrain = "lake";
+                candidate.resource = "Eau profonde";
+                candidate.production = 0;
+                candidate.productionProgress = 0;
+                candidate.ownerId = null;
+                candidate.units = 0;
+                selected.push(candidate);
+                if (selected.length >= targetCount) break;
+            }
+        }
+
         createMountainBarriers(territories, random) {
             const edges = [];
             territories.forEach((territory) => {
+                if (territory.isImpassable) return;
                 territory.neighbors.forEach((neighborId) => {
                     if (territory.id >= neighborId) return;
                     const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                    if (!neighbor || neighbor.isImpassable) return;
                     const segment = C.Geometry.sharedEdgeSegment(territory.polygon, neighbor.polygon);
                     if (!segment || segment.length < 25) return;
                     edges.push({
@@ -180,19 +217,21 @@
         }
 
         isTraversableGraphConnected(territories) {
-            if (!territories.length) return true;
+            const traversableTerritories = territories.filter((territory) => !territory.isImpassable);
+            if (!traversableTerritories.length) return true;
             const visited = new Set();
-            const pending = [territories[0].id];
+            const pending = [traversableTerritories[0].id];
             while (pending.length) {
                 const id = pending.pop();
                 if (visited.has(id)) continue;
                 visited.add(id);
                 const territory = territories.find((candidate) => candidate.id === id);
                 territory.neighbors.forEach((neighborId) => {
-                    if (!territory.isPathBlocked(neighborId) && !visited.has(neighborId)) pending.push(neighborId);
+                    const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                    if (neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighborId) && !visited.has(neighborId)) pending.push(neighborId);
                 });
             }
-            return visited.size === territories.length;
+            return visited.size === traversableTerritories.length;
         }
 
         pickTerritoryType(random) {

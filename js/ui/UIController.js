@@ -12,6 +12,7 @@
             this.lastRouteKey = null;
             this.lastEventId = null;
             this.toastTimer = null;
+            this.researchTreeKey = null;
             this.elements = this.collectElements();
             this.bindEvents();
             this.unsubscribe = game.subscribe((change) => this.handleGameChange(change));
@@ -25,6 +26,18 @@
                 territoryCount: byId("territory-count"),
                 totalUnits: byId("total-units"),
                 productionRate: byId("production-rate"),
+                openResearch: byId("open-research"),
+                researchTopStatus: byId("research-top-status"),
+                researchScreen: byId("research-screen"),
+                closeResearch: byId("close-research"),
+                researchTree: byId("research-tree"),
+                researchCurrentIcon: byId("research-current-icon"),
+                researchCurrentName: byId("research-current-name"),
+                researchCurrentDetail: byId("research-current-detail"),
+                researchProgressTime: byId("research-progress-time"),
+                researchProgressPercent: byId("research-progress-percent"),
+                researchProgressBar: byId("research-progress-bar"),
+                researchRate: byId("research-rate"),
                 newMap: byId("new-map"),
                 togglePause: byId("toggle-pause"),
                 pauseIcon: byId("pause-icon"),
@@ -98,6 +111,14 @@
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
+            this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
+            this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
+            this.elements.researchScreen.addEventListener("click", (event) => {
+                if (event.target === this.elements.researchScreen) this.closeResearchScreen();
+            });
+            document.addEventListener("keydown", (event) => {
+                if (event.key === "Escape" && !this.elements.researchScreen.hidden) this.closeResearchScreen();
+            });
             this.elements.zoomIn.addEventListener("click", () => {
                 this.renderer.zoomBy(1.2);
                 this.renderZoomLevel();
@@ -112,6 +133,8 @@
         handleGameChange(change) {
             if (change.type === "NEW_GAME") {
                 this.clearSelection();
+                this.closeResearchScreen(false);
+                this.researchTreeKey = null;
                 const playerStart = this.game.state.getTerritoriesOwnedBy(this.game.playerId)[0];
                 if (playerStart) this.renderer.focusTerritory(playerStart.id, 0.72);
                 this.renderStaticGameInfo();
@@ -125,16 +148,179 @@
             } else if (change.type === "ATTACK_REPELLED" || change.type === "ARMY_ARRIVED" || change.type === "ARMY_ROUTE_STOPPED") {
                 this.renderer.pulseTerritory(change.territoryId, "#e9f1f0");
                 this.refreshDynamic();
+            } else if (change.type === "CANNON_FIRED") {
+                this.renderer.fireCannon(change.fromTerritoryId, change.targetTerritoryId, change.hit);
+                if (change.hit) this.renderer.pulseTerritory(change.targetTerritoryId, "#ffd36f");
+                this.refreshDynamic();
+            } else if (change.type === "WORLD_EVENT_WARNING") {
+                const definition = C.WORLD_EVENT_DEFINITIONS[change.eventType];
+                if (definition) this.showToast(`ALERTE : ${definition.name} imminente.`);
+            } else if (change.type === "WORLD_EVENT_STARTED") {
+                const definition = C.WORLD_EVENT_DEFINITIONS[change.worldEvent.type];
+                change.worldEvent.territoryIds.forEach((territoryId) =>
+                    this.renderer.pulseTerritory(territoryId, definition ? definition.color : "#ff844d"));
+                if (definition) this.showToast(`${definition.name} — consultez le journal tactique.`);
+                this.refreshDynamic();
+            } else if (change.type === "WORLD_EVENT_ENDED" || change.type === "BARBARIAN_RAID_RESOLVED") {
+                this.refreshDynamic();
             } else if (change.type.startsWith("REINFORCEMENT_ROUTE_")) {
                 this.refreshDynamic();
+            } else if (change.type === "RESEARCH_STARTED" || change.type === "RESEARCH_COMPLETED") {
+                this.researchTreeKey = null;
+                this.refreshResearchStatus();
+                if (change.type === "RESEARCH_COMPLETED" && change.factionId === this.game.playerId) {
+                    const technology = C.TECHNOLOGIES[change.technologyId];
+                    if (technology) this.showToast(`Recherche terminée : ${technology.name}.`);
+                }
             } else if (change.type === "PAUSE_CHANGED" || change.type === "TIME_SCALE_CHANGED") {
                 this.renderPauseState();
             }
         }
 
+        openResearchScreen() {
+            this.elements.researchScreen.hidden = false;
+            document.body.classList.add("research-open");
+            this.researchTreeKey = null;
+            this.refreshResearchStatus();
+            this.elements.closeResearch.focus();
+        }
+
+        closeResearchScreen(restoreFocus = true) {
+            this.elements.researchScreen.hidden = true;
+            document.body.classList.remove("research-open");
+            if (restoreFocus) this.elements.openResearch.focus();
+        }
+
+        startResearch(technologyId) {
+            const result = this.game.executeCommand({
+                type: "START_RESEARCH",
+                playerId: this.game.playerId,
+                technologyId
+            });
+            if (!result.ok) {
+                this.showToast(result.error);
+                return;
+            }
+            this.researchTreeKey = null;
+            this.refreshResearchStatus();
+        }
+
+        refreshResearchStatus() {
+            const status = this.game.getResearchState(this.game.playerId);
+            if (!status) return;
+            const { faction, activeTechnology, progressMs, rate } = status;
+            const completed = faction.research.completedTechnologyIds.length;
+            const total = Object.keys(C.TECHNOLOGIES).length;
+            const treeKey = `${completed}|${faction.research.activeTechnologyId || "none"}`;
+            if (treeKey !== this.researchTreeKey) {
+                this.researchTreeKey = treeKey;
+                this.renderResearchTree(faction);
+            }
+
+            this.elements.researchRate.textContent = `Vitesse scientifique ×${rate.toFixed(2).replace(".", ",")}`;
+            if (!activeTechnology) {
+                this.elements.researchTopStatus.textContent = completed === total ? "Arbre complété" : "Disponible";
+                this.elements.researchCurrentIcon.textContent = completed === total ? "✓" : "⌬";
+                this.elements.researchCurrentName.textContent = completed === total
+                    ? "Toutes les technologies sont débloquées"
+                    : "Aucune recherche sélectionnée";
+                this.elements.researchCurrentDetail.textContent = completed === total
+                    ? `${completed}/${total} technologies terminées.`
+                    : "Choisissez un palier disponible dans l’un des trois axes.";
+                this.elements.researchProgressTime.textContent = "EN ATTENTE";
+                this.elements.researchProgressPercent.textContent = `${completed}/${total}`;
+                this.elements.researchProgressBar.style.width = "0%";
+                return;
+            }
+
+            const branch = C.TECHNOLOGY_BRANCHES.find((candidate) => candidate.id === activeTechnology.branchId);
+            const progress = C.Geometry.clamp(progressMs / activeTechnology.durationMs, 0, 1);
+            const remainingMs = Math.max(0, (activeTechnology.durationMs - progressMs) / Math.max(rate, 0.01));
+            this.elements.researchTopStatus.textContent = `${Math.floor(progress * 100)} % · ${activeTechnology.name}`;
+            this.elements.researchCurrentIcon.textContent = branch ? branch.icon : "⌬";
+            this.elements.researchCurrentName.textContent = activeTechnology.name;
+            this.elements.researchCurrentDetail.textContent = `${branch ? branch.name : "Recherche"} · ${activeTechnology.effectLabel}`;
+            this.elements.researchProgressTime.textContent = `${this.formatDuration(remainingMs)} RESTANT`;
+            this.elements.researchProgressPercent.textContent = `${Math.floor(progress * 100)} %`;
+            this.elements.researchProgressBar.style.width = `${progress * 100}%`;
+        }
+
+        renderResearchTree(faction) {
+            const completed = faction.research.completedTechnologyIds;
+            const activeId = faction.research.activeTechnologyId;
+            this.elements.researchTree.replaceChildren();
+
+            C.TECHNOLOGY_BRANCHES.forEach((branch) => {
+                const column = document.createElement("section");
+                column.className = `research-branch research-branch-${branch.id}`;
+                column.style.setProperty("--branch-color", branch.color);
+
+                const header = document.createElement("header");
+                header.className = "research-branch-header";
+                const icon = document.createElement("span");
+                icon.textContent = branch.icon;
+                const heading = document.createElement("div");
+                heading.innerHTML = `<h3>${branch.name}</h3><p>${branch.description}</p>`;
+                header.append(icon, heading);
+                column.append(header);
+
+                const track = document.createElement("div");
+                track.className = "research-branch-track";
+                branch.technologyIds.forEach((technologyId) => {
+                    const technology = C.TECHNOLOGIES[technologyId];
+                    const isCompleted = completed.includes(technology.id);
+                    const isActive = technology.id === activeId;
+                    const isUnlocked = !technology.prerequisiteId || completed.includes(technology.prerequisiteId);
+                    const isAvailable = !activeId && !isCompleted && isUnlocked;
+                    const node = document.createElement("article");
+                    node.className = "technology-node";
+                    if (isCompleted) node.classList.add("completed");
+                    else if (isActive) node.classList.add("active");
+                    else if (isAvailable) node.classList.add("available");
+                    else if (isUnlocked) node.classList.add("waiting");
+                    else node.classList.add("locked");
+
+                    const statusLabel = isCompleted ? "DÉBLOQUÉE" : isActive ? "EN COURS" : isAvailable ? "DISPONIBLE" : isUnlocked ? "EN ATTENTE" : "VERROUILLÉE";
+                    node.innerHTML = `
+                        <div class="technology-node-heading">
+                            <span>PALIER ${technology.tier}</span>
+                            <strong>${statusLabel}</strong>
+                        </div>
+                        <h4>${technology.name}</h4>
+                        <p>${technology.description}</p>
+                        <div class="technology-effect">${technology.effectLabel}</div>
+                        <div class="technology-meta">
+                            <span>⌛ ${this.formatDuration(technology.durationMs)}</span>
+                            <span>${isCompleted ? "✓ Acquise" : isActive ? "◉ Laboratoire actif" : isUnlocked ? "Prête" : "Prérequis requis"}</span>
+                        </div>`;
+
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "technology-start";
+                    button.textContent = isCompleted ? "Débloquée" : isActive ? "Recherche en cours" : isAvailable ? "Lancer la recherche" : isUnlocked ? "Laboratoire occupé" : "Verrouillée";
+                    button.disabled = !isAvailable;
+                    if (isAvailable) button.addEventListener("click", () => this.startResearch(technology.id));
+                    node.append(button);
+                    track.append(node);
+                });
+                column.append(track);
+                this.elements.researchTree.append(column);
+            });
+        }
+
         handleTerritoryClick(territory) {
             if (!territory) {
                 this.clearSelection();
+                return;
+            }
+
+            if (territory.isImpassable) {
+                this.selectedTerritoryId = territory.id;
+                this.targetTerritoryId = null;
+                this.plannedRoute = [];
+                this.lastRouteKey = null;
+                this.syncSelection();
+                this.showToast(`${territory.name} est infranchissable.`);
                 return;
             }
 
@@ -285,6 +471,10 @@
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
             const target = this.game.state.getTerritory(territoryId);
             if (!source || !target) return;
+            if (target.isImpassable) {
+                this.showToast(`${target.name} est infranchissable.`);
+                return;
+            }
             if (source.ownerId !== this.game.playerId) {
                 this.showToast(`Sélectionnez d’abord un territoire de la faction ${this.getPlayerFactionName()}.`);
                 return;
@@ -378,10 +568,22 @@
                 item.append(dot, document.createTextNode(`${faction.name}${controlLabel}`));
                 this.elements.factionLegend.append(item);
             });
+            const barbarians = document.createElement("span");
+            barbarians.className = "legend-item";
+            barbarians.innerHTML = `<span class="legend-dot" style="background:${C.BARBARIAN_FACTION.color}"></span> Barbares`;
+            this.elements.factionLegend.append(barbarians);
             const mountains = document.createElement("span");
             mountains.className = "legend-item";
             mountains.innerHTML = '<span class="legend-mountain">▲</span> Montagnes';
             this.elements.factionLegend.append(mountains);
+            const lakes = document.createElement("span");
+            lakes.className = "legend-item";
+            lakes.innerHTML = '<span class="legend-lake">≈</span> Lac infranchissable';
+            this.elements.factionLegend.append(lakes);
+            const cannon = document.createElement("span");
+            cannon.className = "legend-item";
+            cannon.innerHTML = '<span class="legend-cannon">✹</span> Canon';
+            this.elements.factionLegend.append(cannon);
         }
 
         renderTerritoryPanel() {
@@ -401,14 +603,16 @@
             this.elements.territoryDetails.hidden = false;
             this.elements.territoryName.textContent = territory.name;
             this.elements.territoryId.textContent = `T-${String(territory.id).padStart(2, "0")}`;
-            this.elements.ownerName.textContent = faction ? faction.name : "Forces neutres";
+            this.elements.ownerName.textContent = territory.isImpassable ? "Zone infranchissable" : faction ? faction.name : "Forces neutres";
             this.elements.ownerSwatch.style.background = ownerColor;
             this.elements.ownerSwatch.style.color = ownerColor;
-            this.elements.selectedUnits.textContent = territory.units;
+            this.elements.selectedUnits.textContent = territory.isImpassable ? "—" : territory.units;
             this.elements.terrainIcon.textContent = type.icon;
             this.elements.terrainName.textContent = type.name;
             this.elements.resourceName.textContent = territory.resource || "Aucune";
-            this.elements.territoryProduction.textContent = territory.ownerId === null
+            this.elements.territoryProduction.textContent = territory.isImpassable
+                ? "Impossible"
+                : territory.ownerId === null
                 ? "Inactive"
                 : `+${this.formatNumber(this.game.getTerritoryProductionPerMinute(territory))}/min`;
 
@@ -439,6 +643,28 @@
         renderBonuses(territory, type, faction) {
             this.elements.bonusList.replaceChildren();
             const entries = type.bonuses.map((label) => ({ label, rare: false }));
+            this.game.state.worldEvents
+                .filter((worldEvent) => worldEvent.territoryIds.includes(territory.id))
+                .forEach((worldEvent) => {
+                    const definition = C.WORLD_EVENT_DEFINITIONS[worldEvent.type];
+                    if (!definition) return;
+                    const remainingSeconds = Math.max(0, Math.ceil((worldEvent.endsAtMs - this.game.state.elapsedMs) / 1000));
+                    const effect = worldEvent.type === "famine"
+                        ? `production suspendue · ${remainingSeconds} s`
+                        : worldEvent.type === "wildfire"
+                            ? `${worldEvent.data.damage || 0} unités détruites`
+                            : `raid en approche · ${remainingSeconds} s`;
+                    entries.unshift({ label: `${definition.name} : ${effect}`, rare: false, worldEvent: true });
+                });
+            if (territory.installation) {
+                const installation = C.INSTALLATION_TYPES[territory.installation.type];
+                if (installation) {
+                    entries.unshift(
+                        { label: `Installation : ${installation.name}`, rare: true },
+                        { label: installation.bonusLabel, rare: true }
+                    );
+                }
+            }
             if (territory.rareSite) {
                 entries.unshift({ label: `Site rare : ${territory.rareSite.name}`, rare: true });
                 territory.rareSite.bonuses.forEach((label) => entries.push({ label, rare: true }));
@@ -447,6 +673,7 @@
             entries.forEach((entry) => {
                 const item = document.createElement("li");
                 if (entry.rare) item.className = "rare";
+                if (entry.worldEvent) item.className = "world-event";
                 item.textContent = entry.label;
                 this.elements.bonusList.append(item);
             });
@@ -464,12 +691,15 @@
                 if (neighbor.ownerId !== territory.ownerId) button.classList.add("hostile");
                 if (neighbor.id === this.targetTerritoryId) button.classList.add("targeted");
                 const blocked = territory.isPathBlocked(neighbor.id);
-                if (blocked) button.classList.add("blocked");
-                button.textContent = `${blocked ? "▲ " : ""}${neighbor.name} · ${neighbor.units}`;
-                button.title = blocked
+                const impassable = neighbor.isImpassable;
+                if (territory.isImpassable || blocked || impassable) button.classList.add("blocked");
+                button.textContent = `${impassable ? "≈ " : blocked ? "▲ " : ""}${neighbor.name}${impassable ? "" : ` · ${neighbor.units}`}`;
+                button.title = impassable
+                    ? `${neighbor.name} — lac infranchissable`
+                    : blocked
                     ? `${neighbor.name} — passage bloqué par les montagnes`
                     : `${neighbor.name} — ${neighbor.units} unités`;
-                button.disabled = blocked;
+                button.disabled = territory.isImpassable || blocked || impassable;
                 button.addEventListener("click", () => this.chooseNeighbor(neighbor.id));
                 this.elements.neighborList.append(button);
             });
@@ -560,6 +790,7 @@
             this.elements.territoryCount.textContent = stats.territoryCount;
             this.elements.totalUnits.textContent = stats.totalUnits;
             this.elements.productionRate.textContent = `+${this.formatNumber(stats.productionPerMinute)}/min`;
+            this.refreshResearchStatus();
             this.renderZoomLevel();
             if (this.selectedTerritoryId) this.renderTerritoryPanel();
         }
@@ -585,6 +816,13 @@
             const minutes = Math.floor(totalSeconds / 60);
             const seconds = totalSeconds % 60;
             return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+        }
+
+        formatDuration(milliseconds) {
+            const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}:${String(seconds).padStart(2, "0")}`;
         }
     }
 

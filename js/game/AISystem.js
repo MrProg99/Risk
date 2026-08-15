@@ -51,6 +51,7 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.researchChoicesMade = 0;
             this.reset();
         }
 
@@ -59,6 +60,7 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.researchChoicesMade = 0;
             this.thinkTimers.clear();
             this.offensivePlans.clear();
             this.factionIds.forEach((factionId, index) => {
@@ -89,6 +91,8 @@
             const faction = state.getFaction(factionId);
             const owned = state.getTerritoriesOwnedBy(factionId);
             if (!faction || !owned.length) return false;
+
+            this.chooseResearch(faction);
 
             const plannedAction = this.advanceOffensivePlan(faction, owned);
             if (plannedAction !== null) return plannedAction;
@@ -135,6 +139,7 @@
             const target = state.getTerritory(plan.targetTerritoryId);
             const planExpired = state.elapsedMs >= plan.expiresAt;
             const frontStillOpen = staging && target &&
+                !target.isImpassable &&
                 staging.ownerId === faction.id &&
                 target.ownerId !== faction.id &&
                 staging.isNeighbor(target.id) &&
@@ -210,7 +215,7 @@
             owned.forEach((staging) => {
                 staging.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
-                    if (!target || target.ownerId === faction.id || staging.isPathBlocked(target.id)) return;
+                    if (!target || target.isImpassable || target.ownerId === faction.id || staging.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id && !army.isConvoy && army.toTerritoryId === target.id)) return;
 
@@ -253,6 +258,7 @@
                 const hostileNeighbors = territory.neighbors
                     .map((neighborId) => state.getTerritory(neighborId))
                     .filter((neighbor) => neighbor &&
+                        !neighbor.isImpassable &&
                         neighbor.ownerId !== faction.id &&
                         !territory.isPathBlocked(neighbor.id));
                 const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3);
@@ -266,7 +272,8 @@
 
         getCoordinatedAttackRequirement(faction, target) {
             const profile = this.getProfile(faction.id);
-            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier;
+            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
+                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
             const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
             const coordinationSafety = C.Geometry.clamp(profile.safety, 1.08, 1.18);
             return Math.ceil((defensePower / Math.max(attackMultiplier, 0.1)) * coordinationSafety) + 1;
@@ -305,7 +312,7 @@
                         if (!path) return null;
                         const exposedBorders = territory.neighbors.filter((neighborId) => {
                             const neighbor = state.getTerritory(neighborId);
-                            return neighbor && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id);
+                            return neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id);
                         }).length;
                         const production = this.game.getProductionMultiplier(territory);
                         const score = production * 12 + territory.units * 0.06 - exposedBorders * 5 - path.length * 0.35;
@@ -326,7 +333,7 @@
             return owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id));
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id));
                 if (!hostileNeighbors.length) return null;
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 const danger = hostileStrength / Math.max(1, territory.units);
@@ -353,7 +360,8 @@
         findBestAttack(faction, owned) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
-            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier;
+            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
+                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
             const candidates = [];
 
             owned.forEach((source) => {
@@ -362,7 +370,7 @@
 
                 source.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
-                    if (!target || target.ownerId === faction.id) return;
+                    if (!target || target.isImpassable || target.ownerId === faction.id) return;
                     if (source.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id &&
@@ -404,7 +412,7 @@
             const borderTerritories = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && neighbor.ownerId !== faction.id);
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id);
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 return { territory, hostileNeighbors, hostileStrength };
             }).filter((entry) => entry.hostileNeighbors.length > 0);
@@ -446,6 +454,36 @@
                 units
             });
             if (result.ok) this.ordersIssued += 1;
+            return result.ok;
+        }
+
+        chooseResearch(faction) {
+            if (faction.research.activeTechnologyId) return false;
+            const completed = faction.research.completedTechnologyIds;
+            const available = Object.values(C.TECHNOLOGIES).filter((technology) =>
+                !completed.includes(technology.id) &&
+                (!technology.prerequisiteId || completed.includes(technology.prerequisiteId)));
+            if (!available.length) return false;
+
+            const preferredBranch = {
+                1: "attack",
+                2: "construction",
+                3: "attack",
+                4: "defense"
+            }[faction.id] || "construction";
+            available.sort((a, b) => {
+                const score = (technology) =>
+                    (technology.branchId === preferredBranch ? 20 : 0) +
+                    technology.tier * 3 + this.randomBetween(0, 2);
+                return score(b) - score(a);
+            });
+
+            const result = this.game.executeCommand({
+                type: "START_RESEARCH",
+                playerId: faction.id,
+                technologyId: available[0].id
+            });
+            if (result.ok) this.researchChoicesMade += 1;
             return result.ok;
         }
 

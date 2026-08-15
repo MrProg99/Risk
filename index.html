@@ -63,6 +63,42 @@
         </div>
     </section>
 
+    <section class="research-overlay" id="research-screen" role="dialog" aria-modal="true" aria-labelledby="research-title" hidden>
+        <div class="research-panel">
+            <header class="research-header">
+                <div>
+                    <p class="eyebrow">Direction scientifique</p>
+                    <h2 id="research-title">Arbre de recherche</h2>
+                    <p>Une seule technologie peut être étudiée à la fois. Les avantages débloqués sont permanents et cumulatifs.</p>
+                </div>
+                <button class="research-close" id="close-research" type="button" aria-label="Fermer l’écran de recherche">×</button>
+            </header>
+
+            <section class="research-current" aria-live="polite">
+                <div class="research-current-icon" id="research-current-icon">⌬</div>
+                <div class="research-current-copy">
+                    <span class="status-label">Recherche en cours</span>
+                    <strong id="research-current-name">Aucune recherche sélectionnée</strong>
+                    <span id="research-current-detail">Choisissez un premier palier dans l’un des trois axes.</span>
+                </div>
+                <div class="research-progress-block">
+                    <div class="research-progress-labels">
+                        <span id="research-progress-time">EN ATTENTE</span>
+                        <strong id="research-progress-percent">0 %</strong>
+                    </div>
+                    <div class="research-progress-track"><span id="research-progress-bar"></span></div>
+                    <small id="research-rate">Vitesse scientifique ×1,00</small>
+                </div>
+            </section>
+
+            <div class="research-tree" id="research-tree"></div>
+            <footer class="research-footer">
+                <span class="live-dot"></span>
+                La simulation et les recherches des autres factions continuent pendant que cet écran est ouvert.
+            </footer>
+        </div>
+    </section>
+
     <div class="app-shell" id="game-app" inert aria-hidden="true">
         <header class="topbar">
             <div class="brand-block">
@@ -97,6 +133,10 @@
             </section>
 
             <div class="top-actions">
+                <button class="button button-secondary research-button" id="open-research" type="button">
+                    <span class="button-icon">⌬</span>
+                    <span>Recherche<small id="research-top-status">Disponible</small></span>
+                </button>
                 <button class="button button-secondary" id="toggle-pause" type="button" aria-pressed="false">
                     <span class="button-icon" id="pause-icon">Ⅱ</span>
                     <span id="pause-label">Pause</span>
@@ -266,6 +306,9 @@
 
     <script defer src="js/data/territoryTypes.js"></script>
     <script defer src="js/data/factions.js"></script>
+    <script defer src="js/data/installations.js"></script>
+    <script defer src="js/data/technologies.js"></script>
+    <script defer src="js/data/worldEvents.js"></script>
     <script defer src="js/utils/geometry.js"></script>
     <script defer src="js/game/Territory.js"></script>
     <script defer src="js/game/Faction.js"></script>
@@ -274,6 +317,7 @@
     <script defer src="js/game/GameState.js"></script>
     <script defer src="js/game/MapGenerator.js"></script>
     <script defer src="js/game/CombatSystem.js"></script>
+    <script defer src="js/game/EventSystem.js"></script>
     <script defer src="js/game/AISystem.js"></script>
     <script defer src="js/game/Game.js"></script>
     <script defer src="js/render/MapRenderer.js"></script>

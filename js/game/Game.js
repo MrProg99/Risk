@@ -23,6 +23,9 @@
                 enabled: options.enableAI !== false,
                 factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
             });
+            this.eventSystem = new C.EventSystem(this, {
+                enabled: options.enableWorldEvents !== false
+            });
         }
 
         newGame(seed = this.createSeed()) {
@@ -42,7 +45,9 @@
 
             this.assignStartingTerritories();
             this.assignRareSites();
+            this.assignInstallations();
             this.aiSystem.reset();
+            this.eventSystem.reset();
             const playerFaction = state.getFaction(this.playerId);
             const computerFactions = state.factions.filter((faction) => faction.id !== this.playerId);
             this.addEvent(`Le commandement de la faction ${playerFaction.name} est opérationnel.`, "info");
@@ -55,7 +60,10 @@
                     ? `Les factions ${list} sont contrôlées par l’ordinateur.`
                     : `La faction ${list} est contrôlée par l’ordinateur.`, "info");
             }
-            this.addEvent(`Carte générée : ${state.territories.length} territoires reliés.`, "info");
+            const lakeCount = state.territories.filter((territory) => territory.isImpassable).length;
+            this.addEvent(`Carte générée : ${state.territories.length - lakeCount} territoires et ${lakeCount} lacs infranchissables.`, "info");
+            const cannonCount = state.territories.filter((territory) => territory.installation?.type === "cannon").length;
+            this.addEvent(`${cannonCount} canons de campagne sont disséminés sur la carte.`, "info");
             this.notify({ type: "NEW_GAME", seed: normalizedSeed });
             return state;
         }
@@ -70,7 +78,7 @@
         }
 
         assignStartingTerritories() {
-            const territories = this.state.territories;
+            const territories = this.state.territories.filter((territory) => !territory.isImpassable);
             const starts = [];
             const firstIndex = C.Geometry.randomInt(this.random, 0, territories.length - 1);
             starts.push(territories[firstIndex]);
@@ -90,10 +98,10 @@
                 starts.push(best);
             }
 
-            territories.forEach((territory) => {
+            this.state.territories.forEach((territory) => {
                 territory.ownerId = null;
-                territory.units = C.Geometry.randomInt(this.random, 3, 12);
-                territory.productionProgress = this.random() * 0.8;
+                territory.units = territory.isImpassable ? 0 : C.Geometry.randomInt(this.random, 3, 12);
+                territory.productionProgress = territory.isImpassable ? 0 : this.random() * 0.8;
             });
             starts.forEach((territory, index) => {
                 territory.ownerId = this.state.factions[index].id;
@@ -109,8 +117,8 @@
                 if (startIds.has(territory.id)) territory.neighbors.forEach((id) => forbiddenIds.add(id));
             });
 
-            let candidates = this.state.territories.filter((territory) => !forbiddenIds.has(territory.id) && territory.neighbors.length >= 4);
-            if (candidates.length < 4) candidates = this.state.territories.filter((territory) => !startIds.has(territory.id));
+            let candidates = this.state.territories.filter((territory) => !territory.isImpassable && !forbiddenIds.has(territory.id) && territory.neighbors.length >= 4);
+            if (candidates.length < 4) candidates = this.state.territories.filter((territory) => !territory.isImpassable && !startIds.has(territory.id));
             candidates = C.Geometry.shuffle(candidates, this.random);
             const chosen = [];
 
@@ -133,6 +141,36 @@
             });
         }
 
+        assignInstallations() {
+            const definition = C.INSTALLATION_TYPES.cannon;
+            const candidates = C.Geometry.shuffle(this.state.territories.filter((territory) =>
+                !territory.isImpassable &&
+                territory.ownerId === null &&
+                !territory.rareSite &&
+                territory.neighbors.length >= 3), this.random);
+            if (!candidates.length) return;
+
+            candidates.sort((a, b) => b.neighbors.length - a.neighbors.length);
+            const selected = [candidates.shift()];
+            while (selected.length < definition.maximumPerMap && candidates.length) {
+                candidates.sort((a, b) => {
+                    const distanceFromSelected = (territory) => Math.min(...selected.map((site) =>
+                        C.Geometry.squaredDistance(territory.center, site.center)));
+                    return distanceFromSelected(b) - distanceFromSelected(a);
+                });
+                selected.push(candidates.shift());
+            }
+
+            selected.forEach((territory) => {
+                territory.installation = {
+                    type: definition.id,
+                    name: definition.name,
+                    icon: definition.icon
+                };
+                territory.installationProgressMs = 0;
+            });
+        }
+
         update(deltaMs) {
             if (this.paused || deltaMs <= 0) return;
             const safeDelta = Math.min(deltaMs, 1000) * this.timeScale;
@@ -140,6 +178,7 @@
             let changed = false;
 
             this.maintainReinforcementRoutes();
+            changed = this.eventSystem.update(safeDelta) || changed;
 
             this.state.territories.forEach((territory) => {
                 if (territory.ownerId === null) return;
@@ -153,6 +192,9 @@
                 }
             });
 
+            changed = this.updateResearch(safeDelta) || changed;
+            changed = this.updateInstallations(safeDelta) || changed;
+
             const arrivedArmies = [];
             this.state.armies.forEach((army) => {
                 army.elapsedMs += safeDelta;
@@ -164,6 +206,84 @@
             if (changed || arrivedArmies.length) this.state.touch();
         }
 
+        updateInstallations(deltaMs) {
+            const cannon = C.INSTALLATION_TYPES.cannon;
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                if (territory.installation?.type !== cannon.id) return;
+                if (territory.ownerId === null) {
+                    territory.installationProgressMs = 0;
+                    return;
+                }
+
+                const faction = this.state.getFaction(territory.ownerId);
+                const reloadMultiplier = 1 + C.getFactionTechnologyBonus(faction, "cannonReloadMultiplier");
+                territory.installationProgressMs = Math.min(
+                    cannon.fireIntervalMs,
+                    territory.installationProgressMs + deltaMs * reloadMultiplier
+                );
+                if (territory.installationProgressMs < cannon.fireIntervalMs) return;
+
+                const target = this.findCannonTarget(territory);
+                if (!target) return;
+                territory.installationProgressMs = 0;
+                const hit = this.random() < cannon.hitChance;
+                if (hit) {
+                    target.units = Math.max(1, target.units - cannon.damage);
+                    changed = true;
+                    this.addEvent(`Le canon de ${territory.name} touche ${target.name} : ${cannon.damage} unité ennemie détruite.`, "combat");
+                }
+                this.notify({
+                    type: "CANNON_FIRED",
+                    fromTerritoryId: territory.id,
+                    targetTerritoryId: target.id,
+                    ownerId: territory.ownerId,
+                    hit,
+                    damage: hit ? cannon.damage : 0
+                });
+            });
+            return changed;
+        }
+
+        updateResearch(deltaMs) {
+            let changed = false;
+            this.state.factions.forEach((faction) => {
+                const research = faction.research;
+                const technology = C.TECHNOLOGIES[research.activeTechnologyId];
+                if (!technology || !this.state.getTerritoriesOwnedBy(faction.id).length) return;
+
+                research.progressMs += deltaMs * this.getResearchRate(faction.id);
+                if (research.progressMs < technology.durationMs) return;
+
+                research.completedTechnologyIds.push(technology.id);
+                research.activeTechnologyId = null;
+                research.progressMs = 0;
+                changed = true;
+                this.addEvent(`${faction.name} termine la recherche : ${technology.name}.`, "research");
+                this.notify({
+                    type: "RESEARCH_COMPLETED",
+                    factionId: faction.id,
+                    technologyId: technology.id
+                });
+            });
+            return changed;
+        }
+
+        findCannonTarget(territory) {
+            return territory.neighbors
+                .map((territoryId) => this.state.getTerritory(territoryId))
+                .filter((neighbor) => neighbor &&
+                    neighbor.ownerId !== null &&
+                    neighbor.ownerId !== territory.ownerId &&
+                    neighbor.units > 1)
+                .sort((a, b) => {
+                    const strategicScore = (target) => target.units +
+                        (target.rareSite ? 8 : 0) +
+                        this.getProductionMultiplier(target) * 2;
+                    return strategicScore(b) - strategicScore(a);
+                })[0] || null;
+        }
+
         executeCommand(command) {
             if (!command || typeof command.type !== "string") {
                 return { ok: false, error: "Commande invalide." };
@@ -172,7 +292,34 @@
             if (command.type === "SEND_REINFORCEMENT_ROUTE") return this.sendReinforcementRoute(command);
             if (command.type === "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE") return this.createContinuousReinforcementRoute(command);
             if (command.type === "CANCEL_CONTINUOUS_REINFORCEMENT_ROUTE") return this.cancelContinuousReinforcementRoute(command);
+            if (command.type === "START_RESEARCH") return this.startResearch(command);
             return { ok: false, error: `Commande inconnue : ${command.type}` };
+        }
+
+        startResearch(command) {
+            const faction = this.state.getFaction(command.playerId);
+            const technology = C.TECHNOLOGIES[command.technologyId];
+            if (!faction) return { ok: false, error: "Faction introuvable." };
+            if (!technology) return { ok: false, error: "Technologie inconnue." };
+            if (!this.state.getTerritoriesOwnedBy(faction.id).length) {
+                return { ok: false, error: "Une faction sans territoire ne peut plus rechercher." };
+            }
+
+            const research = faction.research;
+            if (research.activeTechnologyId) return { ok: false, error: "Une recherche est déjà en cours." };
+            if (research.completedTechnologyIds.includes(technology.id)) {
+                return { ok: false, error: "Cette technologie est déjà débloquée." };
+            }
+            if (technology.prerequisiteId && !research.completedTechnologyIds.includes(technology.prerequisiteId)) {
+                return { ok: false, error: "La technologie précédente doit d’abord être débloquée." };
+            }
+
+            research.activeTechnologyId = technology.id;
+            research.progressMs = 0;
+            this.state.touch();
+            this.addEvent(`${faction.name} lance la recherche : ${technology.name}.`, "research");
+            this.notify({ type: "RESEARCH_STARTED", factionId: faction.id, technologyId: technology.id });
+            return { ok: true, technology };
         }
 
         sendArmy(command) {
@@ -183,6 +330,7 @@
             const units = Math.floor(Number(command.units));
 
             if (!from || !to) return { ok: false, error: "Territoire introuvable." };
+            if (from.isImpassable || to.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
             if (from.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
             if (!from.isNeighbor(to.id)) return { ok: false, error: "La cible ne partage aucune frontière avec l’origine." };
             if (from.isPathBlocked(to.id)) return { ok: false, error: "Une chaîne de montagnes bloque cette frontière." };
@@ -220,6 +368,7 @@
             const units = Math.floor(Number(command.units));
 
             if (!from || !destination) return { ok: false, error: "Territoire introuvable." };
+            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
             if (from.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
             if (destination.ownerId !== playerId) return { ok: false, error: "Un convoi ne peut rejoindre qu’un territoire allié." };
             if (from.id === destination.id) return { ok: false, error: "Choisissez un autre territoire de destination." };
@@ -263,6 +412,7 @@
             const from = this.state.getTerritory(command.fromTerritoryId);
             const destination = this.state.getTerritory(command.toTerritoryId);
             if (!from || !destination) return { ok: false, error: "Territoire introuvable." };
+            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
             if (from.ownerId !== playerId || destination.ownerId !== playerId) {
                 return { ok: false, error: "Une ligne continue doit relier deux territoires alliés." };
             }
@@ -377,7 +527,7 @@
                 current.neighbors.forEach((neighborId) => {
                     if (previous.has(neighborId) || current.isPathBlocked(neighborId)) return;
                     const neighbor = this.state.getTerritory(neighborId);
-                    if (!neighbor || neighbor.ownerId !== Number(ownerId)) return;
+                    if (!neighbor || neighbor.isImpassable || neighbor.ownerId !== Number(ownerId)) return;
                     previous.set(neighborId, currentId);
                     pending.push(neighborId);
                 });
@@ -395,15 +545,24 @@
 
         getTravelDuration(from, to, faction) {
             const distance = C.Geometry.distance(from.center, to.center);
-            const speed = 92 * (faction ? faction.bonuses.travelSpeedMultiplier : 1);
+            const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "travelSpeedMultiplier");
+            const speed = 92 * (faction ? faction.bonuses.travelSpeedMultiplier : 1) * technologyMultiplier;
             return C.Geometry.clamp((distance / speed) * 1000, 1500, 6500);
         }
 
         resolveArmyArrival(army) {
             const target = this.state.getTerritory(army.toTerritoryId);
-            const attacker = this.state.getFaction(army.ownerId);
+            const attacker = army.isBarbarian ? C.BARBARIAN_FACTION : this.state.getFaction(army.ownerId);
             this.state.armies = this.state.armies.filter((candidate) => candidate.id !== army.id);
             if (!target || !attacker) return;
+
+            if (target.isImpassable) {
+                const fallback = this.state.getTerritory(army.fromTerritoryId);
+                if (fallback && fallback.ownerId === army.ownerId) fallback.units += army.units;
+                this.addEvent(`L’armée de ${attacker.name} rebrousse chemin devant ${target.name}.`, "info");
+                this.notify({ type: "ARMY_ROUTE_STOPPED", armyId: army.id, territoryId: fallback ? fallback.id : null });
+                return;
+            }
 
             if (army.isConvoy && target.ownerId !== army.ownerId) {
                 const fallback = this.state.getTerritory(army.fromTerritoryId);
@@ -477,24 +636,59 @@
             });
 
             if (result.attackerWon) {
+                if (army.isBarbarian) {
+                    target.ownerId = null;
+                    target.units = result.attackerSurvivors;
+                    target.productionProgress = 0;
+                    target.installationProgressMs = 0;
+                    const defeated = previousOwner ? previousOwner.name : "les forces locales";
+                    this.addEvent(`Les Barbares mettent ${target.name} à sac face à ${defeated} — le territoire redevient neutre.`, "world");
+                    this.notify({
+                        type: "BARBARIAN_RAID_RESOLVED",
+                        territoryId: target.id,
+                        previousOwnerId: previousOwner ? previousOwner.id : null,
+                        barbariansWon: true
+                    });
+                    this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, ownerId: null });
+                    return;
+                }
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
+                target.installationProgressMs = 0;
                 const defeated = previousOwner ? previousOwner.name : "les forces neutres";
                 this.addEvent(`${attacker.name} capture ${target.name} face à ${defeated} — ${result.attackerSurvivors} survivants.`, "capture");
                 if (target.rareSite) {
                     this.addEvent(`${attacker.name} sécurise le site stratégique : ${target.rareSite.name}.`, "capture");
                 }
+                if (target.installation?.type === "cannon") {
+                    this.addEvent(`${attacker.name} prend le contrôle du canon de ${target.name}.`, "capture");
+                    this.notify({
+                        type: "INSTALLATION_CAPTURED",
+                        territoryId: target.id,
+                        ownerId: attacker.id,
+                        installationType: target.installation.type
+                    });
+                }
                 this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, ownerId: attacker.id });
             } else {
                 target.units = result.defenderSurvivors;
                 const defenderName = previousOwner ? previousOwner.name : "Les défenseurs neutres";
-                this.addEvent(`${defenderName} repousse ${attacker.name} à ${target.name} — ${result.defenderSurvivors} défenseurs restants.`, "combat");
+                this.addEvent(`${defenderName} repousse ${attacker.name} à ${target.name} — ${result.defenderSurvivors} défenseurs restants.`, army.isBarbarian ? "world" : "combat");
+                if (army.isBarbarian) {
+                    this.notify({
+                        type: "BARBARIAN_RAID_RESOLVED",
+                        territoryId: target.id,
+                        previousOwnerId: previousOwner ? previousOwner.id : null,
+                        barbariansWon: false
+                    });
+                }
                 this.notify({ type: "ATTACK_REPELLED", territoryId: target.id });
             }
         }
 
         getProductionMultiplier(territory) {
+            if (this.eventSystem.isTerritoryAffected(territory.id, "famine")) return 0;
             const type = C.TERRITORY_TYPES[territory.terrain];
             const faction = this.state.getFaction(territory.ownerId);
             let typeMultiplier = type.productionMultiplier || 1;
@@ -503,7 +697,8 @@
             }
             const factionMultiplier = faction ? faction.bonuses.recruitmentMultiplier : 1;
             const rareMultiplier = territory.rareSite ? territory.rareSite.productionMultiplier : 1;
-            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier;
+            const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
+            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier;
         }
 
         getDefenseMultiplier(territory) {
@@ -511,7 +706,32 @@
             const faction = this.state.getFaction(territory.ownerId);
             const rareMultiplier = territory.rareSite ? territory.rareSite.defenseMultiplier : 1;
             const combatMultiplier = faction ? faction.bonuses.combatMultiplier : 1;
-            return type.defenseMultiplier * rareMultiplier * combatMultiplier;
+            const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "defenseMultiplier");
+            return type.defenseMultiplier * rareMultiplier * combatMultiplier * technologyMultiplier;
+        }
+
+        getResearchRate(factionId) {
+            const faction = this.state.getFaction(factionId);
+            if (!faction) return 0;
+            const territories = this.state.getTerritoriesOwnedBy(faction.id);
+            const scienceCenters = territories.filter((territory) => territory.terrain === "science").length;
+            const powerPlants = territories.filter((territory) => territory.terrain === "power").length;
+            const spaceCenters = territories.filter((territory) => territory.rareSite?.id === "space-center").length;
+            const territorialBonus = scienceCenters * 0.08 + powerPlants * 0.04 + spaceCenters * 0.15;
+            return 1 + territorialBonus * faction.bonuses.sciencePowerBonusMultiplier;
+        }
+
+        getResearchState(factionId) {
+            const faction = this.state.getFaction(factionId);
+            if (!faction) return null;
+            const activeTechnology = C.TECHNOLOGIES[faction.research.activeTechnologyId] || null;
+            return {
+                faction,
+                activeTechnology,
+                completedTechnologyIds: faction.research.completedTechnologyIds.slice(),
+                progressMs: faction.research.progressMs,
+                rate: this.getResearchRate(faction.id)
+            };
         }
 
         getFactionStats(factionId) {

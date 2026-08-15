@@ -11,10 +11,16 @@
             this.factions = [];
             this.armies = [];
             this.reinforcementRoutes = [];
+            this.worldEvents = [];
             this.events = [];
             this.elapsedMs = 0;
             this.nextArmyId = 1;
             this.nextReinforcementRouteId = 1;
+            this.nextWorldEventId = 1;
+            this.nextWorldEventAtMs = 0;
+            this.scheduledWorldEventType = null;
+            this.worldEventWarningIssued = false;
+            this.lastWorldEventType = null;
             this.revision = 0;
         }
 
@@ -48,10 +54,20 @@
                 factions: this.factions.map((faction) => faction.toJSON()),
                 armies: this.armies.map((army) => army.toJSON()),
                 reinforcementRoutes: this.reinforcementRoutes.map((route) => route.toJSON()),
+                worldEvents: this.worldEvents.map((worldEvent) => ({
+                    ...worldEvent,
+                    territoryIds: worldEvent.territoryIds.slice(),
+                    data: { ...worldEvent.data }
+                })),
                 events: this.events.slice(),
                 elapsedMs: this.elapsedMs,
                 nextArmyId: this.nextArmyId,
                 nextReinforcementRouteId: this.nextReinforcementRouteId,
+                nextWorldEventId: this.nextWorldEventId,
+                nextWorldEventAtMs: this.nextWorldEventAtMs,
+                scheduledWorldEventType: this.scheduledWorldEventType,
+                worldEventWarningIssued: this.worldEventWarningIssued,
+                lastWorldEventType: this.lastWorldEventType,
                 revision: this.revision
             };
         }

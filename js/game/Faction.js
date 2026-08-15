@@ -10,6 +10,11 @@
             this.bonuses = { ...definition.bonuses };
             this.bonusLabel = definition.bonusLabel;
             this.specialAbility = definition.specialAbility;
+            this.research = {
+                completedTechnologyIds: [],
+                activeTechnologyId: null,
+                progressMs: 0
+            };
         }
 
         toJSON() {
@@ -20,7 +25,12 @@
                 accent: this.accent,
                 bonuses: { ...this.bonuses },
                 bonusLabel: this.bonusLabel,
-                specialAbility: this.specialAbility
+                specialAbility: this.specialAbility,
+                research: {
+                    completedTechnologyIds: this.research.completedTechnologyIds.slice(),
+                    activeTechnologyId: this.research.activeTechnologyId,
+                    progressMs: this.research.progressMs
+                }
             };
         }
     }

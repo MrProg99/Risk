@@ -8,18 +8,23 @@
     }
 
     function graphIsConnected(territories, respectBlockedPaths = false) {
+        const relevantTerritories = respectBlockedPaths
+            ? territories.filter((territory) => !territory.isImpassable)
+            : territories;
         const visited = new Set();
-        const pending = [territories[0].id];
+        const pending = [relevantTerritories[0].id];
         while (pending.length) {
             const id = pending.pop();
             if (visited.has(id)) continue;
             visited.add(id);
             const territory = territories.find((candidate) => candidate.id === id);
             territory.neighbors.forEach((neighborId) => {
+                const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                if (respectBlockedPaths && neighbor.isImpassable) return;
                 if (!respectBlockedPaths || !territory.isPathBlocked(neighborId)) pending.push(neighborId);
             });
         }
-        return visited.size === territories.length;
+        return visited.size === relevantTerritories.length;
     }
 
     function findPathWithMinimumHops(territories, startId, minimumHops) {
@@ -31,6 +36,8 @@
             const current = territories.find((territory) => territory.id === path[path.length - 1]);
             current.neighbors.forEach((neighborId) => {
                 if (visited.has(neighborId) || current.isPathBlocked(neighborId)) return;
+                const neighbor = territories.find((territory) => territory.id === neighborId);
+                if (neighbor.isImpassable) return;
                 visited.add(neighborId);
                 pending.push(path.concat(neighborId));
             });
@@ -42,7 +49,7 @@
         const pacedGame = new C.Game({ playerId: 1, enableAI: false });
         check(pacedGame.timeScale < 1, "le rythme par défaut est ralenti pour laisser le temps de réagir");
 
-        const game = new C.Game({ playerId: 1, enableAI: false, timeScale: 1 });
+        const game = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         game.newGame(424242);
         const state = game.state;
 
@@ -51,14 +58,29 @@
         check(state.territories.every((territory) => territory.neighbors.length >= 2), "chaque territoire possède plusieurs voisins");
         check(state.territories.every((territory) => territory.neighbors.every((id) => state.getTerritory(id).neighbors.includes(territory.id))), "les relations de voisinage sont réciproques");
         check(graphIsConnected(state.territories), "le graphe territorial est entièrement connecté");
+        const generatedLakes = state.territories.filter((territory) => territory.isImpassable);
+        check(generatedLakes.length >= 3 && generatedLakes.length <= 5, "la carte contient entre trois et cinq lacs intérieurs");
+        check(generatedLakes.every((lake) => lake.terrain === "lake" && lake.ownerId === null && lake.units === 0), "les lacs restent neutres, vides et identifiés comme zones d’eau");
+        const lakeGenerationIsStable = [10101, 20202, 30303, 40404, 50505, 60606].every((seed) => {
+            const generatedMap = game.mapGenerator.generate(seed);
+            const lakes = generatedMap.territories.filter((territory) => territory.isImpassable);
+            return lakes.length >= 3 && lakes.length <= 5 && graphIsConnected(generatedMap.territories, true);
+        });
+        check(lakeGenerationIsStable, "plusieurs générations conservent de trois à cinq lacs sans couper les terres jouables");
         const mountainPassages = state.territories.reduce((sum, territory) => sum + territory.blockedNeighbors.length, 0) / 2;
         check(mountainPassages >= 18, "plusieurs grandes chaînes montagneuses sont générées");
         check(state.territories.every((territory) => territory.blockedNeighbors.every((id) => state.getTerritory(id).isPathBlocked(territory.id))), "les blocages montagneux sont réciproques");
         check(graphIsConnected(state.territories, true), "la carte reste entièrement accessible en contournant les montagnes");
+        check(graphIsConnected(state.territories, true), "les terres jouables restent connectées autour des lacs");
         check(state.factions.length === 4, "les quatre factions sont créées");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id).length === 1), "chaque faction possède un territoire de départ");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id)[0].units === 20), "chaque faction commence avec 20 unités");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
+        const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
+        check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
+        check(generatedCannons.every((territory) => territory.ownerId === null && !territory.rareSite), "les canons apparaissent sur des territoires neutres distincts des sites rares");
+        check(state.toJSON().territories.filter((territory) => territory.installation?.type === "cannon").length === 2, "les canons sont inclus dans l’état sérialisable");
+        check(state.toJSON().territories.filter((territory) => territory.isImpassable).length === generatedLakes.length, "les lacs infranchissables sont inclus dans l’état sérialisable");
 
         const lobbyFactionIds = C.LobbyController.buildActiveFactionIds(3, 2);
         check(lobbyFactionIds.join(",") === "3,4", "le lobby compose le bon nombre de factions à partir de la race choisie");
@@ -94,6 +116,67 @@
         check(duelGame.state.getTerritoriesOwnedBy(4).length === 1 && duelGame.state.getTerritoriesOwnedBy(1).length === 1, "chaque participant du lobby reçoit un territoire de départ");
 
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
+        const lake = generatedLakes[0];
+        const lakeShore = state.getTerritory(lake.neighbors[0]);
+        const previousShoreState = { ownerId: lakeShore.ownerId, units: lakeShore.units };
+        lakeShore.ownerId = game.playerId;
+        lakeShore.units = 20;
+        const lakeCrossing = game.executeCommand({
+            type: "SEND_ARMY",
+            playerId: game.playerId,
+            fromTerritoryId: lakeShore.id,
+            toTerritoryId: lake.id,
+            units: 5
+        });
+        check(!lakeCrossing.ok && /lac/i.test(lakeCrossing.error), "une armée ne peut ni entrer dans un lac ni le conquérir");
+        lakeShore.ownerId = previousShoreState.ownerId;
+        lakeShore.units = previousShoreState.units;
+
+        check(Object.keys(C.WORLD_EVENT_DEFINITIONS).length === 3, "trois types d’événements mondiaux sont définis");
+        const eventGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3, 4], enableAI: false, timeScale: 1 });
+        const worldNotifications = [];
+        eventGame.subscribe((change) => worldNotifications.push(change));
+        eventGame.newGame(737373);
+        check(eventGame.eventSystem.enabled && eventGame.state.nextWorldEventAtMs >= 60000 && eventGame.state.nextWorldEventAtMs <= 90000, "le premier événement est planifié lentement dans l’état de jeu");
+        eventGame.state.scheduledWorldEventType = "famine";
+        eventGame.state.nextWorldEventAtMs = eventGame.state.elapsedMs + 7000;
+        eventGame.state.worldEventWarningIssued = false;
+        eventGame.update(1000);
+        check(worldNotifications.some((change) => change.type === "WORLD_EVENT_WARNING" && change.eventType === "famine"), "une alerte prévient les joueurs avant l’événement");
+        eventGame.state.nextWorldEventAtMs = Infinity;
+
+        const famine = eventGame.eventSystem.triggerEvent("famine");
+        const famineTarget = eventGame.state.getTerritory(famine.territoryIds[0]);
+        const famineUnits = famineTarget.units;
+        famineTarget.productionProgress = 0.99;
+        eventGame.update(1000);
+        check(eventGame.getProductionMultiplier(famineTarget) === 0 && famineTarget.units === famineUnits, "la famine suspend complètement la production du territoire");
+        eventGame.state.elapsedMs = famine.endsAtMs;
+        eventGame.eventSystem.expireEvents();
+        check(eventGame.getProductionMultiplier(famineTarget) > 0 && eventGame.state.events.some((event) => /production reprend/.test(event.message)), "la production reprend automatiquement à la fin de la famine");
+
+        eventGame.state.getTerritoriesOwnedBy(1).concat(
+            eventGame.state.getTerritoriesOwnedBy(2),
+            eventGame.state.getTerritoriesOwnedBy(3),
+            eventGame.state.getTerritoriesOwnedBy(4)
+        ).forEach((territory) => { territory.units = 20; });
+        const wildfire = eventGame.eventSystem.triggerEvent("wildfire");
+        const wildfireTarget = eventGame.state.getTerritory(wildfire.territoryIds[0]);
+        check(wildfire.data.damage >= 2 && wildfire.data.damage <= 5 && wildfireTarget.units === 20 - wildfire.data.damage, "le feu de forêt détruit entre 10 et 25 % de la garnison");
+        check(wildfireTarget.units >= 1, "un feu de forêt ne vide jamais entièrement un territoire");
+
+        const barbarianRaid = eventGame.eventSystem.triggerEvent("barbarianRaid");
+        const barbarianArmies = eventGame.state.armies.filter((army) => army.isBarbarian && army.worldEventId === barbarianRaid.id);
+        check(barbarianRaid.territoryIds.length >= 2 && barbarianRaid.territoryIds.length <= 4 && barbarianArmies.length === barbarianRaid.territoryIds.length, "une attaque barbare lance simultanément de vraies armées vers plusieurs territoires");
+        const overwhelmingRaid = barbarianArmies[0];
+        const raidedTerritory = eventGame.state.getTerritory(overwhelmingRaid.toTerritoryId);
+        overwhelmingRaid.units = 500;
+        raidedTerritory.units = 1;
+        eventGame.resolveArmyArrival(overwhelmingRaid);
+        check(raidedTerritory.ownerId === null && !eventGame.state.armies.includes(overwhelmingRaid), "une victoire barbare met le territoire à sac et le rend neutre");
+        const serializedEvents = eventGame.state.toJSON();
+        check(serializedEvents.worldEvents.length >= 2 && serializedEvents.armies.some((army) => army.isBarbarian), "les événements et armées barbares sont sérialisables pour le multijoueur");
+
         const initialUnits = playerStart.units;
         for (let tick = 0; tick < 5; tick += 1) game.update(1000);
         check(playerStart.units > initialUnits, "la production temps réel ajoute des unités");
@@ -183,10 +266,90 @@
         check(!rejected.ok, "une attaque non adjacente est refusée");
         check(Boolean(JSON.stringify(state.toJSON())), "l’état complet est sérialisable");
 
+        const cannonGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        cannonGame.newGame(484848);
+        const cannonState = cannonGame.state;
+        const cannonTerritory = cannonState.territories.find((territory) =>
+            territory.installation?.type === "cannon" &&
+            territory.neighbors.some((neighborId) => !territory.isPathBlocked(neighborId)));
+        const cannonTarget = cannonState.getTerritory(cannonTerritory.neighbors.find((neighborId) =>
+            !cannonTerritory.isPathBlocked(neighborId)));
+        cannonTerritory.ownerId = 1;
+        cannonTerritory.units = 10;
+        cannonTerritory.productionProgress = 0;
+        cannonTerritory.neighbors.forEach((neighborId) => {
+            const neighbor = cannonState.getTerritory(neighborId);
+            neighbor.ownerId = 1;
+            neighbor.units = 10;
+            neighbor.productionProgress = 0;
+        });
+        cannonTarget.ownerId = 2;
+        cannonTarget.units = 5;
+        cannonTarget.productionProgress = 0;
+        const cannonChanges = [];
+        cannonGame.subscribe((change) => {
+            if (change.type === "CANNON_FIRED") cannonChanges.push(change);
+        });
+        cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
+        cannonGame.random = () => 0.1;
+        cannonGame.update(1000);
+        check(cannonTarget.units === 4 && cannonChanges.some((change) => change.hit), "un canon contrôlé détruit une unité ennemie lorsque son tir à 50 % réussit");
+        cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
+        cannonGame.random = () => 0.9;
+        cannonGame.update(1000);
+        check(cannonTarget.units === 4 && cannonChanges[cannonChanges.length - 1].hit === false, "un tir de canon manqué ne retire aucune unité");
+        const shotCountBeforeLastDefender = cannonChanges.length;
+        cannonTarget.units = 1;
+        cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
+        cannonGame.random = () => 0.1;
+        cannonGame.update(1000);
+        check(cannonTarget.units === 1 && cannonChanges.length === shotCountBeforeLastDefender, "un canon ne détruit jamais la dernière unité et ne conquiert pas à distance");
+
+        cannonTarget.units = 100;
+        cannonTerritory.units = 1;
+        cannonTerritory.installationProgressMs = 0;
+        cannonGame.random = () => 0.5;
+        const cannonCapture = cannonGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 2,
+            fromTerritoryId: cannonTarget.id,
+            toTerritoryId: cannonTerritory.id,
+            units: 70
+        });
+        for (let tick = 0; tick < 8 && cannonTerritory.ownerId !== 2; tick += 1) cannonGame.update(1000);
+        check(cannonCapture.ok && cannonTerritory.ownerId === 2 && cannonTerritory.installation?.type === "cannon", "le canon reste en place et change de camp lorsque son territoire est capturé");
+        check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
+
+        check(C.TECHNOLOGY_BRANCHES.length === 3 && Object.keys(C.TECHNOLOGIES).length === 12, "l’arbre propose trois axes de quatre technologies");
+        const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        researchGame.newGame(818181);
+        const researchFaction = researchGame.state.getFaction(1);
+        const researchTerritory = researchGame.state.getTerritoriesOwnedBy(1)[0];
+        const productionBeforeResearch = researchGame.getProductionMultiplier(researchTerritory);
+        const lockedResearch = researchGame.executeCommand({
+            type: "START_RESEARCH",
+            playerId: 1,
+            technologyId: "construction-2"
+        });
+        check(!lockedResearch.ok, "un palier de recherche verrouillé ne peut pas être lancé avant son prérequis");
+        const startedResearch = researchGame.executeCommand({
+            type: "START_RESEARCH",
+            playerId: 1,
+            technologyId: "construction-1"
+        });
+        check(startedResearch.ok && researchFaction.research.activeTechnologyId === "construction-1", "START_RESEARCH lance une recherche sérialisable pour la faction");
+        for (let tick = 0; tick < 100 && researchFaction.research.activeTechnologyId; tick += 1) researchGame.update(1000);
+        check(researchFaction.research.completedTechnologyIds.includes("construction-1") && !researchFaction.research.activeTechnologyId, "une recherche lente se termine progressivement en temps réel");
+        check(researchGame.getProductionMultiplier(researchTerritory) > productionBeforeResearch * 1.07, "une technologie de construction améliore réellement la production");
+        researchFaction.research.completedTechnologyIds.push("attack-1", "defense-1", "construction-3");
+        check(C.getFactionTechnologyBonus(researchFaction, "attackMultiplier") === 0.05 && researchGame.getDefenseMultiplier(researchTerritory) > C.TERRITORY_TYPES[researchTerritory.terrain].defenseMultiplier, "les technologies d’attaque et de défense alimentent les multiplicateurs de combat");
+        check(Boolean(researchGame.state.toJSON().factions[0].research.completedTechnologyIds.length), "l’état technologique est inclus dans la sérialisation multijoueur");
+
         const aiGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiGame.newGame(707070);
         for (let tick = 0; tick < 24; tick += 1) aiGame.update(1000);
         check(aiGame.aiSystem.ordersIssued > 0, "les factions contrôlées par l’ordinateur prennent des décisions");
+        check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
         const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
@@ -285,6 +448,8 @@
         check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
+        check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
+        check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function", "la caméra expose le déplacement et le zoom de la grande carte");
 
         const gestureCanvas = document.createElement("canvas");
@@ -343,7 +508,7 @@
         cameraRenderer.resizeObserver.disconnect();
         cameraCanvas.remove();
 
-        const flowGame = new C.Game({ playerId: 1, enableAI: false, timeScale: 1 });
+        const flowGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         flowGame.newGame(303303);
         const flowState = flowGame.state;
         const flowSource = flowState.getTerritoriesOwnedBy(flowGame.playerId)[0];
