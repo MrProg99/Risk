@@ -78,6 +78,7 @@
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
+        check(C.INSTALLATION_TYPES.cannon.fireIntervalMs === 5000 && C.INSTALLATION_TYPES.cannon.hitChance === 0.75, "les canons rechargent en cinq secondes avec 75 % de précision");
         check(generatedCannons.every((territory) => territory.ownerId === null && !territory.rareSite), "les canons apparaissent sur des territoires neutres distincts des sites rares");
         check(state.toJSON().territories.filter((territory) => territory.installation?.type === "cannon").length === 2, "les canons sont inclus dans l’état sérialisable");
         check(state.toJSON().territories.filter((territory) => territory.isImpassable).length === generatedLakes.length, "les lacs infranchissables sont inclus dans l’état sérialisable");
@@ -293,7 +294,7 @@
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
         cannonGame.random = () => 0.1;
         cannonGame.update(1000);
-        check(cannonTarget.units === 4 && cannonChanges.some((change) => change.hit), "un canon contrôlé détruit une unité ennemie lorsque son tir à 50 % réussit");
+        check(cannonTarget.units === 4 && cannonChanges.some((change) => change.hit), "un canon contrôlé détruit une unité ennemie lorsque son tir à 75 % réussit");
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
         cannonGame.random = () => 0.9;
         cannonGame.update(1000);
@@ -590,6 +591,56 @@
         const continuousTransferRoute = flowState.getReinforcementRoute(continuousTransferRouteId);
         check(Boolean(continuousTransferRoute && continuousTransferRoute.active && continuousTransferRoute.toTerritoryId === flowDestination.id), "Alt + glisser droit crée une ligne de renfort continue sur le trajet allié");
         check(continuousTransferCleared && continuousTransferToast.includes(flowDestination.name), "la création rapide du flux confirme la destination puis désélectionne le territoire");
+
+        const hubGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        hubGame.newGame(858585);
+        const hubState = hubGame.state;
+        const hubTerritory = hubState.territories.find((territory) =>
+            !territory.isImpassable && territory.neighbors.filter((neighborId) => {
+                const neighbor = hubState.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighborId);
+            }).length >= 2);
+        const hubNeighbors = hubTerritory.neighbors
+            .map((neighborId) => hubState.getTerritory(neighborId))
+            .filter((territory) => territory && !territory.isImpassable && !hubTerritory.isPathBlocked(territory.id));
+        const hubDonor = hubNeighbors[0];
+        const hubDestination = hubNeighbors[1];
+        [hubTerritory, hubDonor, hubDestination].forEach((territory) => { territory.ownerId = 1; });
+        hubTerritory.units = 11;
+        hubDonor.units = 21;
+        hubDestination.units = 1;
+        const hubRouteResult = hubGame.executeCommand({
+            type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+            playerId: 1,
+            fromTerritoryId: hubTerritory.id,
+            toTerritoryId: hubDestination.id,
+            relayAllReinforcements: true
+        });
+        const hubRoute = hubRouteResult.route;
+        const initialHubArmy = hubState.armies.find((army) => army.reinforcementRouteId === hubRoute.id);
+        check(hubRouteResult.ok && hubRoute.relayAllReinforcements && hubTerritory.units === 1, "le mode hub envoie immédiatement toute la garnison disponible en laissant une unité");
+        check(initialHubArmy.units === 10 && hubRoute.initialGarrisonDispatched === 10, "l’envoi initial du hub est comptabilisé dans la ligne continue");
+        const incomingHubArmy = hubGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 1,
+            fromTerritoryId: hubDonor.id,
+            toTerritoryId: hubTerritory.id,
+            units: 10
+        }).army;
+        hubGame.resolveArmyArrival(incomingHubArmy);
+        const relayedHubArmy = hubState.armies.find((army) => army.relayCount === 1 && army.reinforcementRouteId === hubRoute.id);
+        check(Boolean(relayedHubArmy && relayedHubArmy.units === 10 && relayedHubArmy.finalTerritoryId === hubDestination.id), "un hub redirige automatiquement tous les renforts qui lui arrivent");
+        check(hubTerritory.units === 1 && hubRoute.unitsRelayed === 10, "les renforts relayés ne s’accumulent pas dans le hub et sont suivis séparément");
+        const reverseHubRoute = hubGame.executeCommand({
+            type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+            playerId: 1,
+            fromTerritoryId: hubDestination.id,
+            toTerritoryId: hubTerritory.id,
+            relayAllReinforcements: true
+        }).route;
+        hubGame.resolveArmyArrival(initialHubArmy);
+        check(reverseHubRoute.relayAllReinforcements && hubDestination.units === 11 && hubState.events.some((event) => /boucle logistique/.test(event.message)), "l’historique des convois empêche une boucle infinie entre deux hubs");
+        check(hubState.toJSON().reinforcementRoutes.some((route) => route.relayAllReinforcements), "le mode hub et ses compteurs sont inclus dans l’état sérialisable");
         check(Boolean(JSON.stringify(flowState.toJSON())), "les lignes continues sont incluses dans l’état sérialisable");
 
         document.getElementById("result").textContent = `PASS — ${results.length} tests\n${results.join("\n")}`;

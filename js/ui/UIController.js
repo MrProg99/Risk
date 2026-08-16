@@ -70,6 +70,8 @@
                 activeRouteTarget: byId("active-route-target"),
                 routeDispatched: byId("route-dispatched"),
                 routeDelivered: byId("route-delivered"),
+                routeRelayedRow: byId("route-relayed-row"),
+                routeRelayed: byId("route-relayed"),
                 stopRouteButton: byId("stop-route-button"),
                 attackPanel: byId("attack-panel"),
                 attackSource: byId("attack-source"),
@@ -78,6 +80,8 @@
                 routeSummary: byId("route-summary"),
                 continuousControl: byId("continuous-control"),
                 continuousRoute: byId("continuous-route"),
+                relayAllControl: byId("relay-all-control"),
+                relayAllReinforcements: byId("relay-all-reinforcements"),
                 unitSendControls: byId("unit-send-controls"),
                 attackUnits: byId("attack-units"),
                 attackOutput: byId("attack-output"),
@@ -107,7 +111,11 @@
                 this.elements.attackOutput.value = this.elements.attackUnits.value;
             });
 
-            this.elements.continuousRoute.addEventListener("change", () => this.renderTerritoryPanel());
+            this.elements.continuousRoute.addEventListener("change", () => {
+                if (!this.elements.continuousRoute.checked) this.elements.relayAllReinforcements.checked = false;
+                this.renderTerritoryPanel();
+            });
+            this.elements.relayAllReinforcements.addEventListener("change", () => this.renderTerritoryPanel());
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
@@ -454,7 +462,8 @@
                 type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
                 playerId: this.game.playerId,
                 fromTerritoryId: source.id,
-                toTerritoryId: target.id
+                toTerritoryId: target.id,
+                relayAllReinforcements: Boolean(previousRoute?.relayAllReinforcements)
             });
             if (!result.ok) {
                 this.showToast(result.error);
@@ -502,15 +511,21 @@
                 playerId: this.game.playerId,
                 fromTerritoryId: source.id,
                 toTerritoryId: target.id,
-                units: Number(this.elements.attackUnits.value)
+                units: Number(this.elements.attackUnits.value),
+                relayAllReinforcements: createContinuousRoute && this.elements.relayAllReinforcements.checked
             };
             const result = this.game.executeCommand(command);
             if (!result.ok) {
                 this.showToast(result.error);
                 return;
             }
-            if (createContinuousRoute) this.showToast("Flux continu activé : chaque nouvelle unité sera acheminée.");
+            if (createContinuousRoute) {
+                this.showToast(this.elements.relayAllReinforcements.checked
+                    ? "Hub activé : garnison, production et renforts reçus seront relayés."
+                    : "Flux continu activé : chaque nouvelle unité sera acheminée.");
+            }
             this.elements.continuousRoute.checked = false;
+            this.elements.relayAllReinforcements.checked = false;
             this.clearSelection();
         }
 
@@ -634,9 +649,15 @@
             this.elements.activeRouteTarget.textContent = destination ? destination.name : "—";
             this.elements.routeDispatched.textContent = route.unitsDispatched;
             this.elements.routeDelivered.textContent = route.unitsDelivered;
-            this.elements.activeRouteStatus.textContent = route.isPaused ? "EN PAUSE" : "EN LIGNE";
+            this.elements.routeRelayedRow.hidden = !route.relayAllReinforcements;
+            this.elements.routeRelayed.textContent = route.unitsRelayed;
+            this.elements.activeRouteStatus.textContent = route.isPaused
+                ? "EN PAUSE"
+                : route.relayAllReinforcements ? "HUB ACTIF" : "EN LIGNE";
             this.elements.activeRouteStatus.classList.toggle("paused", route.isPaused);
-            this.elements.activeRouteStatus.title = route.pauseReason || "Chaque unité produite est automatiquement expédiée";
+            this.elements.activeRouteStatus.title = route.pauseReason || (route.relayAllReinforcements
+                ? "La garnison disponible, la production et tous les renforts reçus sont relayés"
+                : "Chaque unité produite est automatiquement expédiée");
             this.elements.stopRouteButton.dataset.routeId = String(route.id);
         }
 
@@ -718,7 +739,10 @@
             this.elements.routeArrow.textContent = isLongRoute ? "⇢" : "⟶";
             this.elements.routeSummary.hidden = !isLongRoute;
             this.elements.continuousControl.hidden = !isLongRoute;
-            if (!isLongRoute) this.elements.continuousRoute.checked = false;
+            if (!isLongRoute) {
+                this.elements.continuousRoute.checked = false;
+                this.elements.relayAllReinforcements.checked = false;
+            }
             if (isLongRoute) {
                 const intermediateStops = Math.max(0, this.plannedRoute.length - 2);
                 this.elements.routeSummary.textContent = `CONVOI · ${this.plannedRoute.length - 1} étapes · ${intermediateStops} relais intermédiaire${intermediateStops > 1 ? "s" : ""}`;
@@ -728,18 +752,25 @@
             this.elements.attackUnits.max = String(maxUnits);
             this.elements.attackMax.textContent = `${maxUnits} max.`;
             if (this.lastRouteKey !== routeKey) {
+                const existingRoute = this.game.state.reinforcementRoutes.find((route) =>
+                    route.active && route.ownerId === this.game.playerId && route.fromTerritoryId === source.id);
                 this.elements.attackUnits.value = String(Math.max(1, Math.floor(maxUnits * 0.65)));
                 this.elements.continuousRoute.checked = false;
+                this.elements.relayAllReinforcements.checked = Boolean(existingRoute?.relayAllReinforcements);
                 this.lastRouteKey = routeKey;
             } else if (Number(this.elements.attackUnits.value) > maxUnits) {
                 this.elements.attackUnits.value = String(maxUnits);
             }
             this.elements.attackOutput.value = this.elements.attackUnits.value;
             const continuousEnabled = isLongRoute && this.elements.continuousRoute.checked;
+            this.elements.relayAllReinforcements.disabled = !continuousEnabled;
+            this.elements.relayAllControl.classList.toggle("disabled", !continuousEnabled);
             this.elements.unitSendControls.hidden = continuousEnabled;
             this.elements.attackButton.disabled = continuousEnabled ? false : source.units <= 1;
             this.elements.attackButton.firstChild.textContent = continuousEnabled
-                ? "Activer le flux continu "
+                ? this.elements.relayAllReinforcements.checked
+                    ? "Activer le hub "
+                    : "Activer le flux continu "
                 : isLongRoute
                     ? "Acheminer les renforts "
                 : target.ownerId === source.ownerId

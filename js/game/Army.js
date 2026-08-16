@@ -2,7 +2,7 @@
     "use strict";
 
     class Army {
-        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, units, durationMs, start, end, route = [], finalTerritoryId = null, isConvoy = false, reinforcementRouteId = null, isBarbarian = false, worldEventId = null }) {
+        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, units, durationMs, start, end, route = [], finalTerritoryId = null, isConvoy = false, reinforcementRouteId = null, isBarbarian = false, worldEventId = null, visitedTerritoryIds = [], relayCount = 0 }) {
             this.id = id;
             this.ownerId = ownerId;
             this.fromTerritoryId = fromTerritoryId;
@@ -18,6 +18,8 @@
             this.reinforcementRouteId = reinforcementRouteId;
             this.isBarbarian = isBarbarian;
             this.worldEventId = worldEventId;
+            this.visitedTerritoryIds = visitedTerritoryIds.slice();
+            this.relayCount = relayCount;
         }
 
         get progress() {
@@ -40,7 +42,9 @@
                 isConvoy: this.isConvoy,
                 reinforcementRouteId: this.reinforcementRouteId,
                 isBarbarian: this.isBarbarian,
-                worldEventId: this.worldEventId
+                worldEventId: this.worldEventId,
+                visitedTerritoryIds: this.visitedTerritoryIds.slice(),
+                relayCount: this.relayCount
             };
         }
     }

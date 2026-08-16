@@ -347,7 +347,8 @@
                 units,
                 durationMs,
                 start: from.center,
-                end: to.center
+                end: to.center,
+                visitedTerritoryIds: [from.id]
             });
 
             from.units -= units;
@@ -394,7 +395,11 @@
                 route: path.slice(2),
                 finalTerritoryId: destination.id,
                 isConvoy: true,
-                reinforcementRouteId: command.reinforcementRouteId || null
+                reinforcementRouteId: command.reinforcementRouteId || null,
+                visitedTerritoryIds: Array.isArray(command.visitedTerritoryIds)
+                    ? [...new Set(command.visitedTerritoryIds.map(Number).concat(from.id))]
+                    : [from.id],
+                relayCount: Math.max(0, Number(command.relayCount) || 0)
             });
 
             from.units -= units;
@@ -430,14 +435,35 @@
                 fromTerritoryId: from.id,
                 toTerritoryId: destination.id,
                 path,
-                createdAt: this.state.elapsedMs
+                createdAt: this.state.elapsedMs,
+                relayAllReinforcements: Boolean(command.relayAllReinforcements)
             });
             this.state.reinforcementRoutes.push(route);
             this.state.touch();
             const faction = this.state.getFaction(playerId);
             const action = previousRoute ? "redirige sa ligne continue" : "ouvre une ligne de renfort continue";
-            this.addEvent(`${faction.name} ${action} : ${from.name} → ${destination.name}.`, "info");
+            const mode = route.relayAllReinforcements ? " · HUB : garnison et arrivées relayées" : "";
+            this.addEvent(`${faction.name} ${action} : ${from.name} → ${destination.name}${mode}.`, "info");
             this.notify({ type: "REINFORCEMENT_ROUTE_CREATED", routeId: route.id, replacedRouteId: previousRoute ? previousRoute.id : null });
+
+            if (route.relayAllReinforcements && from.units > 1) {
+                const initialUnits = from.units - 1;
+                const dispatch = this.sendReinforcementRoute({
+                    type: "SEND_REINFORCEMENT_ROUTE",
+                    playerId,
+                    fromTerritoryId: from.id,
+                    toTerritoryId: destination.id,
+                    units: initialUnits,
+                    reinforcementRouteId: route.id,
+                    visitedTerritoryIds: [from.id],
+                    relayCount: 0
+                });
+                if (dispatch.ok) {
+                    route.unitsDispatched += initialUnits;
+                    route.initialGarrisonDispatched = initialUnits;
+                    this.notify({ type: "REINFORCEMENT_ROUTE_DISPATCH", routeId: route.id, units: initialUnits, armyId: dispatch.army.id });
+                }
+            }
             return { ok: true, route };
         }
 
@@ -511,6 +537,57 @@
                 route.unitsDispatched += producedUnits;
                 this.notify({ type: "REINFORCEMENT_ROUTE_DISPATCH", routeId: route.id, units: producedUnits, armyId: result.army.id });
             }
+        }
+
+        relayArrivingReinforcements(army, territory) {
+            const route = this.state.reinforcementRoutes.find((candidate) =>
+                candidate.active &&
+                candidate.relayAllReinforcements &&
+                candidate.ownerId === territory.ownerId &&
+                candidate.fromTerritoryId === territory.id);
+            if (!route || army.relayCount >= 8) return false;
+
+            const path = this.findOwnedPath(route.ownerId, territory.id, route.toTerritoryId);
+            if (!path || path.length < 2) return false;
+            const visited = new Set(army.visitedTerritoryIds.map(Number));
+            if (army.fromTerritoryId !== null) visited.add(Number(army.fromTerritoryId));
+            visited.add(territory.id);
+            if (path.slice(1).some((territoryId) => visited.has(territoryId))) {
+                this.addEvent(`Le hub de ${territory.name} conserve ${army.units} unités : une boucle logistique a été évitée.`, "info");
+                this.notify({ type: "REINFORCEMENT_RELAY_BLOCKED", routeId: route.id, territoryId: territory.id, units: army.units });
+                return false;
+            }
+
+            territory.units += army.units;
+            const result = this.sendReinforcementRoute({
+                type: "SEND_REINFORCEMENT_ROUTE",
+                playerId: route.ownerId,
+                fromTerritoryId: territory.id,
+                toTerritoryId: route.toTerritoryId,
+                units: army.units,
+                reinforcementRouteId: route.id,
+                visitedTerritoryIds: Array.from(visited),
+                relayCount: army.relayCount + 1
+            });
+            if (!result.ok) {
+                territory.units -= army.units;
+                return false;
+            }
+
+            route.path = path;
+            route.unitsDispatched += army.units;
+            route.unitsRelayed += army.units;
+            const destination = this.state.getTerritory(route.toTerritoryId);
+            this.addEvent(`${territory.name} relaie ${army.units} renforts vers ${destination ? destination.name : "sa destination"}.`, "info");
+            this.notify({
+                type: "REINFORCEMENT_RELAYED",
+                routeId: route.id,
+                fromArmyId: army.id,
+                armyId: result.army.id,
+                territoryId: territory.id,
+                units: army.units
+            });
+            return true;
         }
 
         findOwnedPath(ownerId, fromTerritoryId, toTerritoryId) {
@@ -587,6 +664,7 @@
                         !target.isPathBlocked(next.id);
 
                     if (routeStillOpen) {
+                        if (!army.visitedTerritoryIds.includes(target.id)) army.visitedTerritoryIds.push(target.id);
                         army.route.shift();
                         army.fromTerritoryId = target.id;
                         army.toTerritoryId = next.id;
@@ -611,15 +689,19 @@
                     return;
                 }
 
-                target.units += army.units;
-                const continuousRoute = this.state.getReinforcementRoute(army.reinforcementRouteId);
-                if (continuousRoute) {
-                    continuousRoute.unitsDelivered += army.units;
-                    if (continuousRoute.unitsDelivered === 1 || continuousRoute.unitsDelivered % 5 === 0) {
-                        this.addEvent(`Flux vers ${target.name} : ${continuousRoute.unitsDelivered} unités livrées au total.`, "info");
+                const incomingRoute = this.state.getReinforcementRoute(army.reinforcementRouteId);
+                if (incomingRoute) {
+                    incomingRoute.unitsDelivered += army.units;
+                    if (incomingRoute.unitsDelivered === 1 || incomingRoute.unitsDelivered % 5 === 0) {
+                        this.addEvent(`Flux vers ${target.name} : ${incomingRoute.unitsDelivered} unités livrées au total.`, "info");
                     }
-                    this.notify({ type: "REINFORCEMENT_ROUTE_DELIVERED", routeId: continuousRoute.id, units: army.units });
-                } else {
+                    this.notify({ type: "REINFORCEMENT_ROUTE_DELIVERED", routeId: incomingRoute.id, units: army.units });
+                }
+
+                if (this.relayArrivingReinforcements(army, target)) return;
+
+                target.units += army.units;
+                if (!incomingRoute) {
                     this.addEvent(`${attacker.name} renforce ${target.name} (+${army.units}).`, "info");
                 }
                 this.notify({ type: "ARMY_ARRIVED", armyId: army.id, territoryId: target.id });

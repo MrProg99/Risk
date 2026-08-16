@@ -42,6 +42,8 @@ Le raccourci direct consiste à maintenir **Alt**, appuyer avec le **bouton droi
 
 Il reste également possible de préparer un trajet au clic droit, d’activer **Flux continu**, puis de cliquer sur **Activer le flux continu**. Dans les deux cas, chaque unité produite ensuite par le territoire d’origine part automatiquement vers la destination. La garnison déjà présente n’est pas prélevée.
 
+La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lors de l’activation, toute sa garnison disponible est expédiée en laissant une unité sur place. Ensuite, sa production et tous les renforts alliés qui y arrivent repartent automatiquement vers la destination. Les convois mémorisent les territoires déjà traversés afin d’interrompre une éventuelle boucle entre plusieurs hubs.
+
 La fiche **Flux logistique actif** permet de suivre les expéditions et les livraisons, puis d’arrêter la ligne. Choisir une nouvelle destination depuis la même origine redirige les productions futures. Une ligne coupée par la perte d’un relais se met en pause et reprend automatiquement si un itinéraire allié redevient disponible.
 
 Le bouton **Nouvelle carte** recrée la côte, les 78 à 86 cellules de Voronoï, les ressources, les six sites rares, les chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
@@ -54,7 +56,7 @@ Chaque nouvelle carte contient entre **trois et cinq lacs** polygonaux, réparti
 
 ### Canons de campagne
 
-Chaque carte contient exactement **deux canons de campagne**, placés sur des territoires neutres ordinaires. Après la capture du territoire, son propriétaire prend automatiquement le contrôle du canon. Toutes les huit secondes de simulation, il vise le territoire ennemi adjacent le plus menaçant — même de l’autre côté d’une montagne — et possède 50 % de chances d’y détruire une unité. Un canon ne peut jamais éliminer la dernière unité d’un territoire ni provoquer une conquête à distance. Sa cadence recommence à zéro chaque fois qu’il change de propriétaire.
+Chaque carte contient exactement **deux canons de campagne**, placés sur des territoires neutres ordinaires. Après la capture du territoire, son propriétaire prend automatiquement le contrôle du canon. Toutes les cinq secondes de simulation, il vise le territoire ennemi adjacent le plus menaçant — même de l’autre côté d’une montagne — et possède 75 % de chances d’y détruire une unité. Un canon ne peut jamais éliminer la dernière unité d’un territoire ni provoquer une conquête à distance. Sa cadence recommence à zéro chaque fois qu’il change de propriétaire.
 
 ### Recherche
 

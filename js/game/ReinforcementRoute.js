@@ -2,7 +2,7 @@
     "use strict";
 
     class ReinforcementRoute {
-        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, path, createdAt = 0 }) {
+        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, path, createdAt = 0, relayAllReinforcements = false }) {
             this.id = id;
             this.ownerId = ownerId;
             this.fromTerritoryId = fromTerritoryId;
@@ -14,6 +14,9 @@
             this.pauseReason = null;
             this.unitsDispatched = 0;
             this.unitsDelivered = 0;
+            this.relayAllReinforcements = relayAllReinforcements;
+            this.unitsRelayed = 0;
+            this.initialGarrisonDispatched = 0;
         }
 
         toJSON() {
@@ -28,7 +31,10 @@
                 isPaused: this.isPaused,
                 pauseReason: this.pauseReason,
                 unitsDispatched: this.unitsDispatched,
-                unitsDelivered: this.unitsDelivered
+                unitsDelivered: this.unitsDelivered,
+                relayAllReinforcements: this.relayAllReinforcements,
+                unitsRelayed: this.unitsRelayed,
+                initialGarrisonDispatched: this.initialGarrisonDispatched
             };
         }
     }

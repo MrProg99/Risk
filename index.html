@@ -246,6 +246,7 @@
                         <div class="route-stats">
                             <span><strong id="route-dispatched">0</strong> expédiées</span>
                             <span><strong id="route-delivered">0</strong> livrées</span>
+                            <span id="route-relayed-row" hidden><strong id="route-relayed">0</strong> relayées</span>
                         </div>
                         <button class="stop-route-button" id="stop-route-button" type="button">Arrêter le flux</button>
                     </section>
@@ -263,14 +264,24 @@
                             </div>
                         </div>
                         <div class="route-summary" id="route-summary" hidden></div>
-                        <label class="continuous-control" id="continuous-control" hidden>
-                            <input type="checkbox" id="continuous-route">
-                            <span class="continuous-switch" aria-hidden="true"></span>
-                            <span>
-                                <strong>Flux continu</strong>
-                                <small>Transmettre chaque nouvelle unité produite</small>
-                            </span>
-                        </label>
+                        <div class="continuous-options" id="continuous-control" hidden>
+                            <label class="continuous-control">
+                                <input type="checkbox" id="continuous-route">
+                                <span class="continuous-switch" aria-hidden="true"></span>
+                                <span>
+                                    <strong>Flux continu</strong>
+                                    <small>Transmettre chaque nouvelle unité produite</small>
+                                </span>
+                            </label>
+                            <label class="relay-all-control" id="relay-all-control">
+                                <input type="checkbox" id="relay-all-reinforcements">
+                                <span class="relay-check" aria-hidden="true">✓</span>
+                                <span>
+                                    <strong>Tout relayer · Hub</strong>
+                                    <small>Envoie la garnison disponible puis toutes les arrivées</small>
+                                </span>
+                            </label>
+                        </div>
                         <div id="unit-send-controls">
                             <label class="unit-control" for="attack-units">
                                 <span>Unités à envoyer</span>
