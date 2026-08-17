@@ -47,6 +47,7 @@
 
     try {
         const pacedGame = new C.Game({ playerId: 1, enableAI: false });
+        check(pacedGame.unitProductionMultiplier === 0.875, "la production globale d’unités est réduite de 12,5 %");
         check(pacedGame.timeScale < 1, "le rythme par défaut est ralenti pour laisser le temps de réagir");
 
         const game = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });

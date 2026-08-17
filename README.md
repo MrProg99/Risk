@@ -13,6 +13,8 @@ Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la f
 
 Le rythme normal est réglé à 72 % de la vitesse de simulation initiale. La production, les armées et les décisions de l’ordinateur ralentissent ensemble afin de laisser davantage de temps au joueur pour lire la carte et réagir.
 
+La cadence de recrutement possède en plus un ajustement d’équilibrage global de **-12,5 %**. Les bonus des terrains, factions, sites rares et recherches restent appliqués normalement, et les valeurs `+/min` affichées tiennent compte de cette réduction.
+
 Après l’envoi d’une attaque, d’un renfort ou d’un ordre logistique, le territoire d’origine est automatiquement désélectionné afin d’éviter une seconde commande accidentelle.
 
 La carte étendue se parcourt en maintenant le clic gauche et en faisant glisser la souris. La molette contrôle le zoom autour du pointeur. Les boutons `−`, `+` et `⌖` permettent respectivement de dézoomer, zoomer et revenir sur un territoire de l’Empire.

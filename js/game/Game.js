@@ -19,6 +19,7 @@
             this.paused = false;
             this.timeScale = C.Geometry.clamp(Number(options.timeScale ?? 0.72), 0.25, 2);
             this.productionIntervalMs = 5000;
+            this.unitProductionMultiplier = C.Geometry.clamp(Number(options.unitProductionMultiplier ?? 0.875), 0.1, 2);
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
                 factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
@@ -780,7 +781,7 @@
             const factionMultiplier = faction ? faction.bonuses.recruitmentMultiplier : 1;
             const rareMultiplier = territory.rareSite ? territory.rareSite.productionMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
-            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier;
+            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * this.unitProductionMultiplier;
         }
 
         getDefenseMultiplier(territory) {
