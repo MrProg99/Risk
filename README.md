@@ -1,6 +1,6 @@
 # Frontières
 
-Prototype de conquête en temps réel dans le navigateur, sans framework ni dépendance externe.
+Prototype de conquête en temps réel dans le navigateur, sans framework ni dépendance externe. Par Alain Bellavance
 
 ## Lancer le jeu
 
