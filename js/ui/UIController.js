@@ -322,6 +322,12 @@
                 return;
             }
 
+            if (!this.game.isTerritoryVisible(territory.id, this.game.playerId)) {
+                this.clearSelection();
+                this.showToast("Zone hors de portée : rapprochez un territoire pour obtenir des renseignements.");
+                return;
+            }
+
             if (territory.isImpassable) {
                 this.selectedTerritoryId = territory.id;
                 this.targetTerritoryId = null;
@@ -372,6 +378,11 @@
 
         handleTerritoryRightClick(territory) {
             if (!territory) return;
+            if (!this.game.isTerritoryVisible(territory.id, this.game.playerId)) {
+                this.clearSelection();
+                this.showToast("Impossible de donner un ordre dans le brouillard de guerre.");
+                return;
+            }
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
 
             if (!source || source.ownerId !== this.game.playerId) {
@@ -411,6 +422,11 @@
 
         handleQuickTransfer(source, target) {
             if (!source || !target || source.id === target.id) return;
+            if (!this.game.isTerritoryVisible(source.id, this.game.playerId) ||
+                !this.game.isTerritoryVisible(target.id, this.game.playerId)) {
+                this.showToast("Le transfert ne peut pas traverser une zone sans visibilité.");
+                return;
+            }
             if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
                 this.showToast(`Le transfert rapide doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
                 return;
@@ -426,7 +442,7 @@
                 return;
             }
 
-            const units = Math.max(1, Math.floor((source.units - 1) * 0.5));
+            const units = Math.max(1, Math.floor((source.units - 1) * this.game.quickTransferRatio));
             const result = this.game.executeCommand({
                 type: "SEND_REINFORCEMENT_ROUTE",
                 playerId: this.game.playerId,
@@ -445,6 +461,11 @@
 
         handleContinuousTransfer(source, target) {
             if (!source || !target || source.id === target.id) return;
+            if (!this.game.isTerritoryVisible(source.id, this.game.playerId) ||
+                !this.game.isTerritoryVisible(target.id, this.game.playerId)) {
+                this.showToast("Le flux continu ne peut pas être établi dans une zone sans visibilité.");
+                return;
+            }
             if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
                 this.showToast(`Le flux continu doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
                 return;
@@ -480,6 +501,10 @@
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
             const target = this.game.state.getTerritory(territoryId);
             if (!source || !target) return;
+            if (!this.game.isTerritoryVisible(target.id, this.game.playerId)) {
+                this.showToast("Ce territoire se trouve encore dans le brouillard de guerre.");
+                return;
+            }
             if (target.isImpassable) {
                 this.showToast(`${target.name} est infranchissable.`);
                 return;
@@ -599,10 +624,21 @@
             cannon.className = "legend-item";
             cannon.innerHTML = '<span class="legend-cannon">✹</span> Canon';
             this.elements.factionLegend.append(cannon);
+            const fog = document.createElement("span");
+            fog.className = "legend-item";
+            fog.innerHTML = `<span class="legend-fog">?</span> Brouillard · au-delà de ${this.game.visibilityRange}`;
+            this.elements.factionLegend.append(fog);
         }
 
         renderTerritoryPanel() {
-            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            let territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            if (territory && !this.game.isTerritoryVisible(territory.id, this.game.playerId)) {
+                this.selectedTerritoryId = null;
+                this.targetTerritoryId = null;
+                this.plannedRoute = [];
+                this.renderer.setSelection(null);
+                territory = null;
+            }
             if (!territory) {
                 this.elements.territoryName.textContent = "Aucun territoire";
                 this.elements.territoryId.textContent = "—";
@@ -709,6 +745,14 @@
                 const button = document.createElement("button");
                 button.type = "button";
                 button.className = "neighbor-chip";
+                if (!this.game.isTerritoryVisible(neighbor.id, this.game.playerId)) {
+                    button.classList.add("unknown");
+                    button.textContent = "? Zone hors de portée";
+                    button.title = "Aucun renseignement disponible";
+                    button.disabled = true;
+                    this.elements.neighborList.append(button);
+                    return;
+                }
                 if (neighbor.ownerId !== territory.ownerId) button.classList.add("hostile");
                 if (neighbor.id === this.targetTerritoryId) button.classList.add("targeted");
                 const blocked = territory.isPathBlocked(neighbor.id);

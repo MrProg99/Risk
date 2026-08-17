@@ -20,6 +20,8 @@
             this.timeScale = C.Geometry.clamp(Number(options.timeScale ?? 0.72), 0.25, 2);
             this.productionIntervalMs = 5000;
             this.unitProductionMultiplier = C.Geometry.clamp(Number(options.unitProductionMultiplier ?? 0.875), 0.1, 2);
+            this.visibilityRange = Math.round(C.Geometry.clamp(Number(options.visibilityRange ?? 2), 1, 6));
+            this.quickTransferRatio = C.Geometry.clamp(Number(options.quickTransferRatio ?? 0.8), 0.1, 1);
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
                 factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
@@ -229,10 +231,12 @@
                 if (!target) return;
                 territory.installationProgressMs = 0;
                 const hit = this.random() < cannon.hitChance;
+                let damage = 0;
                 if (hit) {
-                    target.units = Math.max(1, target.units - cannon.damage);
+                    damage = Math.min(cannon.damage, target.units - 1);
+                    target.units -= damage;
                     changed = true;
-                    this.addEvent(`Le canon de ${territory.name} touche ${target.name} : ${cannon.damage} unité ennemie détruite.`, "combat");
+                    this.addEvent(`Le canon de ${territory.name} touche ${target.name} : ${damage} unité${damage > 1 ? "s" : ""} ennemie${damage > 1 ? "s" : ""} détruite${damage > 1 ? "s" : ""}.`, "combat");
                 }
                 this.notify({
                     type: "CANNON_FIRED",
@@ -240,7 +244,7 @@
                     targetTerritoryId: target.id,
                     ownerId: territory.ownerId,
                     hit,
-                    damage: hit ? cannon.damage : 0
+                    damage
                 });
             });
             return changed;
@@ -782,6 +786,47 @@
             const rareMultiplier = territory.rareSite ? territory.rareSite.productionMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
             return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * this.unitProductionMultiplier;
+        }
+
+        getTerritoryVisibilityMap(factionId = this.playerId, range = this.visibilityRange) {
+            const normalizedFactionId = Number(factionId);
+            const maximumDistance = Math.max(0, Math.floor(Number(range) || 0));
+            const distances = new Map();
+            const pending = [];
+
+            this.state.territories.forEach((territory) => {
+                if (territory.ownerId !== normalizedFactionId) return;
+                distances.set(territory.id, 0);
+                pending.push(territory.id);
+            });
+
+            for (let cursor = 0; cursor < pending.length; cursor += 1) {
+                const territoryId = pending[cursor];
+                const distance = distances.get(territoryId);
+                if (distance >= maximumDistance) continue;
+                const territory = this.state.getTerritory(territoryId);
+                if (!territory) continue;
+                territory.neighbors.forEach((neighborId) => {
+                    if (distances.has(neighborId)) return;
+                    distances.set(neighborId, distance + 1);
+                    pending.push(neighborId);
+                });
+            }
+
+            return distances;
+        }
+
+        isTerritoryVisible(territoryId, factionId = this.playerId, visibilityMap = null) {
+            const distances = visibilityMap || this.getTerritoryVisibilityMap(factionId);
+            return distances.has(Number(territoryId));
+        }
+
+        isArmyVisible(army, factionId = this.playerId, visibilityMap = null) {
+            if (!army) return false;
+            const normalizedFactionId = Number(factionId);
+            if (army.ownerId === normalizedFactionId) return true;
+            const distances = visibilityMap || this.getTerritoryVisibilityMap(normalizedFactionId);
+            return distances.has(Number(army.fromTerritoryId)) || distances.has(Number(army.toTerritoryId));
         }
 
         getDefenseMultiplier(territory) {

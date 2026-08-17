@@ -45,6 +45,23 @@
         return null;
     }
 
+    function getGraphDistances(territories, startIds) {
+        const distances = new Map();
+        const pending = startIds.slice();
+        pending.forEach((territoryId) => distances.set(territoryId, 0));
+        for (let cursor = 0; cursor < pending.length; cursor += 1) {
+            const territoryId = pending[cursor];
+            const territory = territories.find((candidate) => candidate.id === territoryId);
+            if (!territory) continue;
+            territory.neighbors.forEach((neighborId) => {
+                if (distances.has(neighborId)) return;
+                distances.set(neighborId, distances.get(territoryId) + 1);
+                pending.push(neighborId);
+            });
+        }
+        return distances;
+    }
+
     try {
         const pacedGame = new C.Game({ playerId: 1, enableAI: false });
         check(pacedGame.unitProductionMultiplier === 0.875, "la production globale d’unités est réduite de 12,5 %");
@@ -79,7 +96,7 @@
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
-        check(C.INSTALLATION_TYPES.cannon.fireIntervalMs === 5000 && C.INSTALLATION_TYPES.cannon.hitChance === 0.75, "les canons rechargent en cinq secondes avec 75 % de précision");
+        check(C.INSTALLATION_TYPES.cannon.fireIntervalMs === 5000 && C.INSTALLATION_TYPES.cannon.hitChance === 0.75 && C.INSTALLATION_TYPES.cannon.damage === 3, "les canons infligent trois pertes avec 75 % de précision toutes les cinq secondes");
         check(generatedCannons.every((territory) => territory.ownerId === null && !territory.rareSite), "les canons apparaissent sur des territoires neutres distincts des sites rares");
         check(state.toJSON().territories.filter((territory) => territory.installation?.type === "cannon").length === 2, "les canons sont inclus dans l’état sérialisable");
         check(state.toJSON().territories.filter((territory) => territory.isImpassable).length === generatedLakes.length, "les lacs infranchissables sont inclus dans l’état sérialisable");
@@ -118,6 +135,24 @@
         check(duelGame.state.getTerritoriesOwnedBy(4).length === 1 && duelGame.state.getTerritoriesOwnedBy(1).length === 1, "chaque participant du lobby reçoit un territoire de départ");
 
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
+        const playerTerritoryIds = state.getTerritoriesOwnedBy(game.playerId).map((territory) => territory.id);
+        const graphDistances = getGraphDistances(state.territories, playerTerritoryIds);
+        const visibilityMap = game.getTerritoryVisibilityMap(game.playerId);
+        const distanceTwoTerritory = state.territories.find((territory) => graphDistances.get(territory.id) === 2);
+        const hiddenTerritory = state.territories.find((territory) => graphDistances.get(territory.id) > 2);
+        check(game.visibilityRange === 2 && visibilityMap.get(playerStart.id) === 0, "le brouillard utilise une portée de deux distances depuis chaque territoire allié");
+        check(Boolean(distanceTwoTerritory && game.isTerritoryVisible(distanceTwoTerritory.id, game.playerId, visibilityMap)), "un territoire situé à deux passages reste visible");
+        check(Boolean(hiddenTerritory && !game.isTerritoryVisible(hiddenTerritory.id, game.playerId, visibilityMap)), "un territoire situé au-delà de deux passages reste caché");
+        const distantEnemyArmy = {
+            ownerId: 2,
+            fromTerritoryId: hiddenTerritory.id,
+            toTerritoryId: hiddenTerritory.neighbors.find((neighborId) => !visibilityMap.has(neighborId)) || hiddenTerritory.id
+        };
+        check(!game.isArmyVisible(distantEnemyArmy, game.playerId, visibilityMap), "une armée ennemie entièrement dans le brouillard reste invisible");
+        const previousHiddenOwner = hiddenTerritory.ownerId;
+        hiddenTerritory.ownerId = game.playerId;
+        check(game.getTerritoryVisibilityMap(game.playerId).get(hiddenTerritory.id) === 0, "une conquête étend immédiatement la zone visible");
+        hiddenTerritory.ownerId = previousHiddenOwner;
         const lake = generatedLakes[0];
         const lakeShore = state.getTerritory(lake.neighbors[0]);
         const previousShoreState = { ownerId: lakeShore.ownerId, units: lakeShore.units };
@@ -295,11 +330,15 @@
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
         cannonGame.random = () => 0.1;
         cannonGame.update(1000);
-        check(cannonTarget.units === 4 && cannonChanges.some((change) => change.hit), "un canon contrôlé détruit une unité ennemie lorsque son tir à 75 % réussit");
+        check(cannonTarget.units === 2 && cannonChanges.some((change) => change.hit && change.damage === 3), "un canon contrôlé détruit trois unités ennemies lorsque son tir à 75 % réussit");
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
         cannonGame.random = () => 0.9;
         cannonGame.update(1000);
-        check(cannonTarget.units === 4 && cannonChanges[cannonChanges.length - 1].hit === false, "un tir de canon manqué ne retire aucune unité");
+        check(cannonTarget.units === 2 && cannonChanges[cannonChanges.length - 1].hit === false && cannonChanges[cannonChanges.length - 1].damage === 0, "un tir de canon manqué ne retire aucune unité");
+        cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
+        cannonGame.random = () => 0.1;
+        cannonGame.update(1000);
+        check(cannonTarget.units === 1 && cannonChanges[cannonChanges.length - 1].damage === 1, "les dégâts du canon sont limités pour préserver le dernier défenseur");
         const shotCountBeforeLastDefender = cannonChanges.length;
         cannonTarget.units = 1;
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
@@ -579,8 +618,8 @@
             showToast: (message) => { quickTransferToast = message; }
         }, flowSource, flowDestination);
         const quickTransferArmy = flowState.armies.find((army) => army.id === quickTransferArmyId);
-        check(Boolean(quickTransferArmy && quickTransferArmy.units === 10 && quickTransferArmy.finalTerritoryId === flowDestination.id), "le transfert rapide envoie 50 % des unités disponibles sur le trajet allié");
-        check(flowSource.units === 11 && quickTransferCleared && quickTransferToast.includes(flowDestination.name), "le transfert rapide laisse une garnison puis désélectionne le territoire");
+        check(Boolean(quickTransferArmy && quickTransferArmy.units === 16 && quickTransferArmy.finalTerritoryId === flowDestination.id), "le transfert rapide envoie 80 % des unités disponibles sur le trajet allié");
+        check(flowSource.units === 5 && quickTransferCleared && quickTransferToast.includes(flowDestination.name), "le transfert rapide laisse une garnison puis désélectionne le territoire");
         const continuousTransferRouteId = flowState.nextReinforcementRouteId;
         let continuousTransferCleared = false;
         let continuousTransferToast = "";

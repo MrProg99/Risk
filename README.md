@@ -19,6 +19,12 @@ Après l’envoi d’une attaque, d’un renfort ou d’un ordre logistique, le 
 
 La carte étendue se parcourt en maintenant le clic gauche et en faisant glisser la souris. La molette contrôle le zoom autour du pointeur. Les boutons `−`, `+` et `⌖` permettent respectivement de dézoomer, zoomer et revenir sur un territoire de l’Empire.
 
+## Brouillard de guerre
+
+Chaque territoire contrôlé révèle la carte jusqu’à **deux frontières de distance**. Le premier voisinage est parfaitement éclairé; le deuxième forme un anneau de renseignement légèrement assombri mais conserve les informations complètes. Au-delà, la géographie générale reste lisible, tandis que le propriétaire, les unités, les ressources, les installations, les marqueurs d’événements locaux et les armées ennemies sont masqués. La visibilité est recalculée immédiatement après chaque conquête ou perte de territoire.
+
+Les routes logistiques adverses ne sont jamais affichées. Une armée ennemie devient visible lorsqu’elle entre dans une liaison touchant la zone de renseignement du joueur, puis disparaît si elle retourne entièrement dans le brouillard. Cette règle est calculée dans la simulation et ne dépend pas du Canvas, afin de pouvoir produire plus tard une vue filtrée côté serveur multijoueur.
+
 ## Jouer
 
 1. Cliquer sur un territoire jaune de l’Empire.
@@ -36,7 +42,7 @@ Pour acheminer des renforts plus loin :
 
 Le convoi traverse vos territoires un par un et contourne automatiquement les montagnes. Si un relais prévu est conquis pendant le trajet, les unités s’arrêtent au dernier territoire encore sûr.
 
-Pour un transfert immédiat à la souris, maintenir **Ctrl**, appuyer avec le **bouton droit** sur le territoire d’origine, glisser jusqu’à un autre territoire allié puis relâcher. Un aperçu indique le trajet et le nombre envoyé. Le geste transfère 50 % des unités disponibles en laissant au moins une unité en garnison ; le convoi avance ensuite de territoire en territoire par un chemin allié qui contourne les montagnes.
+Pour un transfert immédiat à la souris, maintenir **Ctrl**, appuyer avec le **bouton droit** sur le territoire d’origine, glisser jusqu’à un autre territoire allié puis relâcher. Un aperçu indique le trajet et le nombre envoyé. Le geste transfère **80 % des unités disponibles** en laissant au moins une unité en garnison ; le convoi avance ensuite de territoire en territoire par un chemin allié qui contourne les montagnes.
 
 ### Flux de renfort continu
 
@@ -58,7 +64,7 @@ Chaque nouvelle carte contient entre **trois et cinq lacs** polygonaux, réparti
 
 ### Canons de campagne
 
-Chaque carte contient exactement **deux canons de campagne**, placés sur des territoires neutres ordinaires. Après la capture du territoire, son propriétaire prend automatiquement le contrôle du canon. Toutes les cinq secondes de simulation, il vise le territoire ennemi adjacent le plus menaçant — même de l’autre côté d’une montagne — et possède 75 % de chances d’y détruire une unité. Un canon ne peut jamais éliminer la dernière unité d’un territoire ni provoquer une conquête à distance. Sa cadence recommence à zéro chaque fois qu’il change de propriétaire.
+Chaque carte contient exactement **deux canons de campagne**, placés sur des territoires neutres ordinaires. Après la capture du territoire, son propriétaire prend automatiquement le contrôle du canon. Toutes les cinq secondes de simulation, il vise le territoire ennemi adjacent le plus menaçant — même de l’autre côté d’une montagne — et possède 75 % de chances d’y détruire **trois unités**. Si la garnison est trop petite, les dégâts sont limités afin de conserver un défenseur. Un canon ne peut donc jamais éliminer la dernière unité d’un territoire ni provoquer une conquête à distance. Sa cadence recommence à zéro chaque fois qu’il change de propriétaire.
 
 ### Recherche
 

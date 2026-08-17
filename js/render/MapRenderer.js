@@ -13,6 +13,7 @@
             this.transferPreview = null;
             this.cannonShots = [];
             this.capturePulses = [];
+            this.visibilityMap = new Map();
             this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             this.minZoom = 0.42;
             this.maxZoom = 1.6;
@@ -107,6 +108,7 @@
             const ctx = this.context;
             const state = this.game.state;
             if (!state.territories.length) return;
+            this.visibilityMap = this.game.getTerritoryVisibilityMap(this.game.playerId);
             this.resize();
             this.drawOcean(ctx);
             ctx.save();
@@ -114,6 +116,7 @@
             this.drawIslandShadow(ctx, state);
             this.drawTerritories(ctx, state, now);
             this.drawLakeSurfaces(ctx, state, now);
+            this.drawFogOfWar(ctx, state, now);
             this.drawReinforcementRoutes(ctx, state, now);
             this.drawSelection(ctx, state, now);
             this.drawMountainBarriers(ctx, state);
@@ -181,7 +184,10 @@
                 const faction = state.getFaction(territory.ownerId);
                 const ownerColor = faction ? faction.color : "#53636a";
                 const terrainMix = faction ? 0.24 : 0.34;
-                const fill = territory.isImpassable
+                const isVisible = this.isTerritoryVisible(territory.id);
+                const fill = !isVisible && !territory.isImpassable
+                    ? "#172327"
+                    : territory.isImpassable
                     ? C.Geometry.mixColors("#092c39", type.color, 0.72)
                     : C.Geometry.mixColors(ownerColor, type.color, terrainMix);
 
@@ -190,12 +196,14 @@
                 ctx.fill();
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.fillStyle = territory.isImpassable
+                ctx.fillStyle = !isVisible && !territory.isImpassable
+                    ? "rgba(7, 17, 20, .18)"
+                    : territory.isImpassable
                     ? "rgba(27, 112, 132, .13)"
                     : territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
                 ctx.fill();
 
-                if (territory.id === this.hoveredTerritoryId) {
+                if (territory.id === this.hoveredTerritoryId && isVisible) {
                     this.tracePolygon(ctx, territory.polygon);
                     ctx.fillStyle = "rgba(235, 255, 245, .10)";
                     ctx.fill();
@@ -220,6 +228,38 @@
             ctx.shadowBlur = 8;
             ctx.stroke();
             ctx.shadowBlur = 0;
+        }
+
+        drawFogOfWar(ctx, state, now) {
+            const outerRange = this.game.visibilityRange;
+            state.territories.forEach((territory) => {
+                if (territory.isImpassable) return;
+                const distance = this.visibilityMap.get(territory.id);
+                if (distance !== undefined && distance < outerRange) return;
+
+                this.tracePolygon(ctx, territory.polygon);
+                if (distance === outerRange) {
+                    ctx.fillStyle = "rgba(4, 12, 16, .14)";
+                    ctx.fill();
+                    ctx.strokeStyle = "rgba(151, 205, 205, .12)";
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    return;
+                }
+
+                ctx.fillStyle = "rgba(2, 8, 12, .88)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(88, 119, 124, .2)";
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                const pulse = (Math.sin(now / 900 + territory.id * 0.7) + 1) / 2;
+                ctx.fillStyle = `rgba(137, 167, 169, ${.16 + pulse * .08})`;
+                ctx.font = "700 14px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", territory.center.x, territory.center.y);
+            });
         }
 
         drawLakeSurfaces(ctx, state, now) {
@@ -253,6 +293,7 @@
                 selected.neighbors.forEach((id) => {
                     const neighbor = state.getTerritory(id);
                     if (!neighbor || neighbor.id === this.targetTerritoryId) return;
+                    if (!this.isTerritoryVisible(neighbor.id)) return;
                     if (neighbor.isImpassable) return;
                     if (selected.isPathBlocked(neighbor.id)) return;
                     this.tracePolygon(ctx, neighbor.polygon);
@@ -306,6 +347,7 @@
 
         drawReinforcementRoutes(ctx, state, now) {
             state.reinforcementRoutes.filter((route) => route.active).forEach((route) => {
+                if (route.ownerId !== this.game.playerId) return;
                 const path = route.path.map((territoryId) => state.getTerritory(territoryId)).filter(Boolean);
                 if (path.length < 2) return;
                 const faction = state.getFaction(route.ownerId);
@@ -404,6 +446,8 @@
                     return;
                 }
 
+                if (!this.isTerritoryVisible(territory.id)) return;
+
                 if (territory.rareSite) {
                     ctx.beginPath();
                     ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
@@ -455,6 +499,7 @@
             const definition = C.INSTALLATION_TYPES.cannon;
             state.territories.forEach((territory) => {
                 if (territory.installation?.type !== definition.id) return;
+                if (!this.isTerritoryVisible(territory.id)) return;
                 const faction = state.getFaction(territory.ownerId);
                 const active = Boolean(faction);
                 const x = territory.center.x + 25;
@@ -505,6 +550,7 @@
                 worldEvent.territoryIds.forEach((territoryId, targetIndex) => {
                     const territory = state.getTerritory(territoryId);
                     if (!territory) return;
+                    if (!this.isTerritoryVisible(territory.id)) return;
                     const center = territory.center;
                     const pulse = (Math.sin(now / 230 + eventIndex + targetIndex) + 1) / 2;
 
@@ -613,6 +659,7 @@
 
         drawArmies(ctx, state, now) {
             state.armies.forEach((army) => {
+                if (!this.game.isArmyVisible(army, this.game.playerId, this.visibilityMap)) return;
                 const faction = army.isBarbarian ? C.BARBARIAN_FACTION : state.getFaction(army.ownerId);
                 if (!faction) return;
                 const progress = army.progress;
@@ -621,7 +668,7 @@
                 const angle = Math.atan2(army.end.y - army.start.y, army.end.x - army.start.x);
 
                 ctx.save();
-                if (army.route.length) {
+                if (army.route.length && army.ownerId === this.game.playerId) {
                     ctx.beginPath();
                     ctx.moveTo(x, y);
                     ctx.lineTo(army.end.x, army.end.y);
@@ -686,7 +733,7 @@
                 ? this.game.findOwnedPath(this.game.playerId, source.id, target.id)
                 : null;
             const units = source.units > 1
-                ? Math.max(1, Math.floor((source.units - 1) * 0.5))
+                ? Math.max(1, Math.floor((source.units - 1) * this.game.quickTransferRatio))
                 : 0;
             const isValid = Boolean(path && path.length > 1 && (isContinuous || units > 0));
             const color = !hasDestination
@@ -805,6 +852,10 @@
             return null;
         }
 
+        isTerritoryVisible(territoryId) {
+            return this.visibilityMap.has(Number(territoryId));
+        }
+
         setSelection(selectedTerritoryId, targetTerritoryId = null, plannedRoute = []) {
             this.selectedTerritoryId = selectedTerritoryId;
             this.targetTerritoryId = targetTerritoryId;
@@ -830,13 +881,19 @@
 
         pulseTerritory(territoryId, color) {
             const territory = this.game.state.getTerritory(territoryId);
-            if (territory) this.capturePulses.push({ center: { ...territory.center }, color, startedAt: performance.now() });
+            const visibility = this.game.getTerritoryVisibilityMap(this.game.playerId);
+            if (territory && this.game.isTerritoryVisible(territory.id, this.game.playerId, visibility)) {
+                this.capturePulses.push({ center: { ...territory.center }, color, startedAt: performance.now() });
+            }
         }
 
         fireCannon(fromTerritoryId, targetTerritoryId, hit) {
             const source = this.game.state.getTerritory(fromTerritoryId);
             const target = this.game.state.getTerritory(targetTerritoryId);
             if (!source || !target) return;
+            const visibility = this.game.getTerritoryVisibilityMap(this.game.playerId);
+            if (!this.game.isTerritoryVisible(source.id, this.game.playerId, visibility) &&
+                !this.game.isTerritoryVisible(target.id, this.game.playerId, visibility)) return;
             const faction = this.game.state.getFaction(source.ownerId);
             this.cannonShots.push({
                 start: { x: source.center.x + 25, y: source.center.y - 21 },

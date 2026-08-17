@@ -312,6 +312,7 @@ button { color: inherit; }
 .legend-mountain { color: #c4ceca; font-size: .72rem; text-shadow: 0 1px 5px #000; }
 .legend-lake { color: #72d9df; font-size: .85rem; text-shadow: 0 0 6px rgba(78, 215, 208, .42); }
 .legend-cannon { color: #f0c86b; font-size: .78rem; text-shadow: 0 0 6px rgba(240, 200, 107, .45); }
+.legend-fog { display: inline-grid; width: 14px; height: 14px; place-items: center; border: 1px solid rgba(143, 174, 176, .34); border-radius: 50%; background: #071015; color: #91a8aa; font-size: .62rem; }
 .map-navigation { position: absolute; right: 14px; bottom: 14px; z-index: 4; height: 34px; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(166,202,213,.15); border-radius: 7px; background: rgba(5,13,18,.8); box-shadow: 0 8px 24px rgba(0,0,0,.25); backdrop-filter: blur(10px); }
 .map-navigation button { width: 34px; height: 34px; padding: 0; border: 0; border-left: 1px solid rgba(166,202,213,.1); color: #a9bdc2; background: transparent; font: 700 1rem var(--mono); cursor: pointer; }
 .map-navigation button:first-child { border-left: 0; }
@@ -362,6 +363,7 @@ button { color: inherit; }
 .neighbor-chip.hostile { border-color: rgba(255,104,95,.18); }
 .neighbor-chip.targeted { color: #ffc2be; border-color: rgba(255,104,95,.55); background: rgba(255,104,95,.08); }
 .neighbor-chip.blocked { color: #aeb7b4; border-color: rgba(190, 202, 196, .3); background: rgba(190, 202, 196, .06); cursor: not-allowed; }
+.neighbor-chip.unknown { color: #6f858a; border-color: rgba(111, 133, 138, .2); background: rgba(4, 12, 16, .32); }
 .neighbor-chip:disabled { opacity: .72; }
 
 .attack-panel { margin-top: 17px; padding: 12px; border: 1px solid rgba(255,104,95,.22); border-radius: 9px; background: linear-gradient(145deg, rgba(255,104,95,.07), rgba(255,255,255,.012)); }

@@ -9,9 +9,9 @@
             maximumPerMap: 2,
             fireIntervalMs: 5000,
             hitChance: 0.75,
-            damage: 1,
+            damage: 3,
             rangeHops: 1,
-            bonusLabel: "Tire automatiquement sur un territoire ennemi adjacent · 75 % de toucher · recharge en 5 s"
+            bonusLabel: "Tire automatiquement sur un territoire ennemi adjacent · 3 pertes · 75 % de toucher · recharge en 5 s"
         }
     };
 })(window.Conquest = window.Conquest || {});
