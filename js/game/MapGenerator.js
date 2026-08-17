@@ -23,7 +23,7 @@
 
         generate(seed, requestedCount) {
             const random = C.Geometry.seededRandom(seed);
-            const territoryCount = requestedCount || C.Geometry.randomInt(random, 78, 86);
+            const territoryCount = requestedCount || C.Geometry.randomInt(random, 110, 120);
             const islandPolygon = this.createIsland(random);
             const sites = this.createSites(territoryCount, islandPolygon, random);
             const polygons = sites.map((site, siteIndex) => this.createVoronoiCell(site, siteIndex, sites, islandPolygon));
@@ -134,7 +134,7 @@
         }
 
         createLakes(territories, random) {
-            const targetCount = C.Geometry.randomInt(random, 3, 5);
+            const targetCount = C.Geometry.randomInt(random, 4, 6);
             const mapCenter = { x: this.width / 2, y: this.height / 2 };
             const names = C.Geometry.shuffle(LAKE_NAMES, random);
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
@@ -199,7 +199,7 @@
                 return { ...edge, score: rangeDistance + random() * 110 - edge.length * 0.12 };
             }).sort((a, b) => a.score - b.score);
 
-            const targetCount = C.Geometry.clamp(Math.round(edges.length * 0.14), 18, 32);
+            const targetCount = C.Geometry.clamp(Math.round(edges.length * 0.14), 26, 44);
             let placed = 0;
             for (const edge of candidates) {
                 edge.first.blockedNeighbors.push(edge.second.id);

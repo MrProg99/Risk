@@ -7,9 +7,11 @@
             playerId: configuration.playerId,
             activeFactionIds: configuration.activeFactionIds
         });
+        const audio = new C.AudioManager();
+        audio.unlock();
         const renderer = new C.MapRenderer(canvas, game);
         const input = new C.InputManager(canvas, renderer);
-        const ui = new C.UIController(game, renderer, input);
+        const ui = new C.UIController(game, renderer, input, audio);
         game.newGame();
         lobby.close();
 
@@ -28,7 +30,7 @@
         }
         requestAnimationFrame(frame);
 
-        window.frontieres = { game, renderer, input, ui, lobby, configuration };
+        window.frontieres = { game, renderer, input, ui, audio, lobby, configuration };
     }
 
     function start() {

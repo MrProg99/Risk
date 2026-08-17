@@ -54,7 +54,7 @@ La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lor
 
 La fiche **Flux logistique actif** permet de suivre les expéditions et les livraisons, puis d’arrêter la ligne. Choisir une nouvelle destination depuis la même origine redirige les productions futures. Une ligne coupée par la perte d’un relais se met en pause et reprend automatiquement si un itinéraire allié redevient disponible.
 
-Le bouton **Nouvelle carte** recrée la côte, les 78 à 86 cellules de Voronoï, les ressources, les six sites rares, les chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
+Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 
 Les triangles clairs placés sur certaines frontières représentent des montagnes infranchissables. Ces passages sont interdits aux armées du joueur comme à celles de l’ordinateur. La génération vérifie néanmoins que tous les territoires restent accessibles par au moins un itinéraire terrestre.
 
@@ -68,7 +68,7 @@ Chaque carte contient exactement **deux canons de campagne**, placés sur des te
 
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de douze technologies réparties sur trois axes : **Construction**, **Attaque** et **Défense**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les quatre paliers de chaque branche dans l’ordre. Les recherches durent de 1 min 30 à 4 min 30 de temps simulé et continuent pendant les combats.
+Le bouton **Recherche** ouvre un arbre de douze technologies réparties sur trois axes : **Construction**, **Attaque** et **Défense**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les quatre paliers de chaque branche dans l’ordre. Les recherches durent de 1 min 30 à 4 min 30 de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
 

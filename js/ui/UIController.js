@@ -2,10 +2,11 @@
     "use strict";
 
     class UIController {
-        constructor(game, renderer, input) {
+        constructor(game, renderer, input, audio = null) {
             this.game = game;
             this.renderer = renderer;
             this.input = input;
+            this.audio = audio;
             this.selectedTerritoryId = null;
             this.targetTerritoryId = null;
             this.plannedRoute = [];
@@ -178,7 +179,10 @@
                 this.refreshResearchStatus();
                 if (change.type === "RESEARCH_COMPLETED" && change.factionId === this.game.playerId) {
                     const technology = C.TECHNOLOGIES[change.technologyId];
-                    if (technology) this.showToast(`Recherche terminée : ${technology.name}.`);
+                    if (technology) {
+                        this.audio?.playResearchComplete();
+                        this.showToast(`Recherche terminée : ${technology.name}.`);
+                    }
                 }
             } else if (change.type === "PAUSE_CHANGED" || change.type === "TIME_SCALE_CHANGED") {
                 this.renderPauseState();

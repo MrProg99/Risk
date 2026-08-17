@@ -4,8 +4,8 @@
     class GameState {
         constructor() {
             this.seed = 0;
-            this.mapWidth = 2200;
-            this.mapHeight = 1400;
+            this.mapWidth = 2800;
+            this.mapHeight = 1800;
             this.islandPolygon = [];
             this.territories = [];
             this.factions = [];

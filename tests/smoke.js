@@ -71,22 +71,23 @@
         game.newGame(424242);
         const state = game.state;
 
-        check(state.territories.length >= 78 && state.territories.length <= 86, "la très grande carte contient entre 78 et 86 territoires");
+        check(state.mapWidth === 2800 && state.mapHeight === 1800, "la carte étendue mesure 2800 par 1800 unités");
+        check(state.territories.length >= 110 && state.territories.length <= 120, "la carte étendue contient entre 110 et 120 territoires");
         check(state.territories.every((territory) => territory.polygon.length >= 3), "chaque territoire possède un polygone valide");
         check(state.territories.every((territory) => territory.neighbors.length >= 2), "chaque territoire possède plusieurs voisins");
         check(state.territories.every((territory) => territory.neighbors.every((id) => state.getTerritory(id).neighbors.includes(territory.id))), "les relations de voisinage sont réciproques");
         check(graphIsConnected(state.territories), "le graphe territorial est entièrement connecté");
         const generatedLakes = state.territories.filter((territory) => territory.isImpassable);
-        check(generatedLakes.length >= 3 && generatedLakes.length <= 5, "la carte contient entre trois et cinq lacs intérieurs");
+        check(generatedLakes.length >= 4 && generatedLakes.length <= 6, "la carte contient entre quatre et six lacs intérieurs");
         check(generatedLakes.every((lake) => lake.terrain === "lake" && lake.ownerId === null && lake.units === 0), "les lacs restent neutres, vides et identifiés comme zones d’eau");
         const lakeGenerationIsStable = [10101, 20202, 30303, 40404, 50505, 60606].every((seed) => {
             const generatedMap = game.mapGenerator.generate(seed);
             const lakes = generatedMap.territories.filter((territory) => territory.isImpassable);
-            return lakes.length >= 3 && lakes.length <= 5 && graphIsConnected(generatedMap.territories, true);
+            return lakes.length >= 4 && lakes.length <= 6 && graphIsConnected(generatedMap.territories, true);
         });
-        check(lakeGenerationIsStable, "plusieurs générations conservent de trois à cinq lacs sans couper les terres jouables");
+        check(lakeGenerationIsStable, "plusieurs générations conservent de quatre à six lacs sans couper les terres jouables");
         const mountainPassages = state.territories.reduce((sum, territory) => sum + territory.blockedNeighbors.length, 0) / 2;
-        check(mountainPassages >= 18, "plusieurs grandes chaînes montagneuses sont générées");
+        check(mountainPassages >= 26, "plusieurs grandes chaînes montagneuses sont générées sur la carte étendue");
         check(state.territories.every((territory) => territory.blockedNeighbors.every((id) => state.getTerritory(id).isPathBlocked(territory.id))), "les blocages montagneux sont réciproques");
         check(graphIsConnected(state.territories, true), "la carte reste entièrement accessible en contournant les montagnes");
         check(graphIsConnected(state.territories, true), "les terres jouables restent connectées autour des lacs");
@@ -215,11 +216,13 @@
         check(serializedEvents.worldEvents.length >= 2 && serializedEvents.armies.some((army) => army.isBarbarian), "les événements et armées barbares sont sérialisables pour le multijoueur");
 
         const initialUnits = playerStart.units;
-        for (let tick = 0; tick < 5; tick += 1) game.update(1000);
+        for (let tick = 0; tick < 7; tick += 1) game.update(1000);
         check(playerStart.units > initialUnits, "la production temps réel ajoute des unités");
 
-        const target = state.getTerritory(playerStart.neighbors.find((id) =>
-            state.getTerritory(id).ownerId !== game.playerId && !playerStart.isPathBlocked(id)));
+        const target = state.getTerritory(playerStart.neighbors.find((id) => {
+            const neighbor = state.getTerritory(id);
+            return neighbor && !neighbor.isImpassable && neighbor.ownerId !== game.playerId && !playerStart.isPathBlocked(id);
+        }));
         target.units = 1;
         const sent = game.executeCommand({
             type: "SEND_ARMY",
@@ -385,6 +388,50 @@
         researchFaction.research.completedTechnologyIds.push("attack-1", "defense-1", "construction-3");
         check(C.getFactionTechnologyBonus(researchFaction, "attackMultiplier") === 0.05 && researchGame.getDefenseMultiplier(researchTerritory) > C.TERRITORY_TYPES[researchTerritory.terrain].defenseMultiplier, "les technologies d’attaque et de défense alimentent les multiplicateurs de combat");
         check(Boolean(researchGame.state.toJSON().factions[0].research.completedTechnologyIds.length), "l’état technologique est inclus dans la sérialisation multijoueur");
+
+        const playedFrequencies = [];
+        const startedNotes = [];
+        const fakeAudioContext = {
+            state: "running",
+            currentTime: 4,
+            destination: {},
+            createOscillator: () => ({
+                type: "sine",
+                frequency: { setValueAtTime: (frequency) => playedFrequencies.push(frequency) },
+                connect: () => {},
+                start: (time) => startedNotes.push(time),
+                stop: () => {}
+            }),
+            createGain: () => ({
+                gain: {
+                    setValueAtTime: () => {},
+                    exponentialRampToValueAtTime: () => {}
+                },
+                connect: () => {}
+            })
+        };
+        const audioManager = new C.AudioManager({ contextFactory: () => fakeAudioContext });
+        check(audioManager.playResearchComplete() && startedNotes.length === 4 && playedFrequencies.length === 4, "la fin d’une recherche déclenche un carillon synthétique de quatre notes");
+        let playerResearchSounds = 0;
+        let researchToast = "";
+        const researchUiStub = {
+            game: { playerId: 1 },
+            audio: { playResearchComplete: () => { playerResearchSounds += 1; } },
+            researchTreeKey: null,
+            refreshResearchStatus: () => {},
+            showToast: (message) => { researchToast = message; }
+        };
+        C.UIController.prototype.handleGameChange.call(researchUiStub, {
+            type: "RESEARCH_COMPLETED",
+            factionId: 1,
+            technologyId: "construction-1"
+        });
+        C.UIController.prototype.handleGameChange.call(researchUiStub, {
+            type: "RESEARCH_COMPLETED",
+            factionId: 2,
+            technologyId: "construction-1"
+        });
+        check(playerResearchSounds === 1 && /Recherche terminée/.test(researchToast), "le signal sonore est réservé à la recherche terminée du joueur humain");
 
         const aiGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiGame.newGame(707070);
