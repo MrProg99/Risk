@@ -5,6 +5,13 @@
         constructor(options = {}) {
             this.context = null;
             this.masterVolume = C.Geometry.clamp(Number(options.masterVolume ?? 0.18), 0, 1);
+            this.backgroundMusicVolume = C.Geometry.clamp(Number(options.backgroundMusicVolume ?? 0.22), 0, 1);
+            this.musicSource = options.musicSource || "Musique/Music1.mp3";
+            this.music = null;
+            this.musicRetryScheduled = false;
+            this.musicRestoreTimer = null;
+            this.interactionTarget = options.interactionTarget || document;
+            this.mediaFactory = options.mediaFactory || ((source) => new Audio(source));
             this.contextFactory = options.contextFactory || (() => {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 return AudioContextClass ? new AudioContextClass() : null;
@@ -30,9 +37,64 @@
             return Promise.resolve(context.state !== "closed");
         }
 
+        startBackgroundMusic() {
+            if (!this.music) {
+                try {
+                    this.music = this.mediaFactory(this.musicSource);
+                } catch (_error) {
+                    this.music = null;
+                }
+            }
+            if (!this.music) return false;
+
+            this.music.loop = true;
+            this.music.preload = "auto";
+            this.music.volume = this.backgroundMusicVolume;
+            try {
+                const playback = this.music.play();
+                if (playback && typeof playback.then === "function") {
+                    playback.then(() => this.clearMusicRetry()).catch(() => this.scheduleMusicRetry());
+                }
+            } catch (_error) {
+                this.scheduleMusicRetry();
+            }
+            return true;
+        }
+
+        scheduleMusicRetry() {
+            if (this.musicRetryScheduled || !this.interactionTarget?.addEventListener) return;
+            this.musicRetryScheduled = true;
+            this.musicRetryHandler = () => {
+                this.clearMusicRetry();
+                this.startBackgroundMusic();
+            };
+            this.interactionTarget.addEventListener("pointerdown", this.musicRetryHandler, { once: true });
+            this.interactionTarget.addEventListener("keydown", this.musicRetryHandler, { once: true });
+        }
+
+        clearMusicRetry() {
+            if (!this.musicRetryScheduled) return;
+            this.musicRetryScheduled = false;
+            if (this.interactionTarget?.removeEventListener && this.musicRetryHandler) {
+                this.interactionTarget.removeEventListener("pointerdown", this.musicRetryHandler);
+                this.interactionTarget.removeEventListener("keydown", this.musicRetryHandler);
+            }
+            this.musicRetryHandler = null;
+        }
+
+        duckBackgroundMusic(durationMs = 1300) {
+            if (!this.music) return;
+            clearTimeout(this.musicRestoreTimer);
+            this.music.volume = this.backgroundMusicVolume * 0.42;
+            this.musicRestoreTimer = setTimeout(() => {
+                if (this.music) this.music.volume = this.backgroundMusicVolume;
+            }, durationMs);
+        }
+
         playResearchComplete() {
             const context = this.getContext();
             if (!context || context.state === "closed") return false;
+            this.duckBackgroundMusic();
             const play = () => {
                 if (context.state === "suspended") return;
                 const startAt = context.currentTime + 0.025;

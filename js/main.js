@@ -9,6 +9,7 @@
         });
         const audio = new C.AudioManager();
         audio.unlock();
+        audio.startBackgroundMusic();
         const renderer = new C.MapRenderer(canvas, game);
         const input = new C.InputManager(canvas, renderer);
         const ui = new C.UIController(game, renderer, input, audio);

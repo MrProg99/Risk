@@ -11,6 +11,8 @@ Le jeu utilise des scripts classiques chargés avec `defer`, donc l’ouverture 
 
 Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la faction commandée. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
 
+La musique `Musique/Music1.mp3` démarre avec la partie et joue continuellement en boucle. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
+
 Le rythme normal est réglé à 72 % de la vitesse de simulation initiale. La production, les armées et les décisions de l’ordinateur ralentissent ensemble afin de laisser davantage de temps au joueur pour lire la carte et réagir.
 
 La cadence de recrutement possède en plus un ajustement d’équilibrage global de **-12,5 %**. Les bonus des terrains, factions, sites rares et recherches restent appliqués normalement, et les valeurs `+/min` affichées tiennent compte de cette réduction.

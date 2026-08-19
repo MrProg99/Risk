@@ -412,6 +412,25 @@
         };
         const audioManager = new C.AudioManager({ contextFactory: () => fakeAudioContext });
         check(audioManager.playResearchComplete() && startedNotes.length === 4 && playedFrequencies.length === 4, "la fin d’une recherche déclenche un carillon synthétique de quatre notes");
+        let loadedMusicSource = "";
+        let musicPlayCount = 0;
+        const fakeMusic = {
+            loop: false,
+            preload: "none",
+            volume: 1,
+            play: () => { musicPlayCount += 1; }
+        };
+        const musicAudioManager = new C.AudioManager({
+            mediaFactory: (source) => {
+                loadedMusicSource = source;
+                return fakeMusic;
+            },
+            contextFactory: () => fakeAudioContext
+        });
+        check(musicAudioManager.startBackgroundMusic() && loadedMusicSource === "Musique/Music1.mp3" && fakeMusic.loop && fakeMusic.preload === "auto" && musicPlayCount === 1, "Music1.mp3 démarre en boucle avec un préchargement adapté au jeu");
+        musicAudioManager.duckBackgroundMusic();
+        check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
+        clearTimeout(musicAudioManager.musicRestoreTimer);
         let playerResearchSounds = 0;
         let researchToast = "";
         const researchUiStub = {
