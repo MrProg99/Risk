@@ -412,7 +412,7 @@
             const borderTerritories = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id);
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id));
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 return { territory, hostileNeighbors, hostileStrength };
             }).filter((entry) => entry.hostileNeighbors.length > 0);
