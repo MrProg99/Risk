@@ -153,6 +153,11 @@
             } else if (change.type === "TERRITORY_CAPTURED") {
                 const faction = this.game.state.getFaction(change.ownerId);
                 this.renderer.pulseTerritory(change.territoryId, faction ? faction.color : "#d8ff68");
+                if (change.previousOwnerId === this.game.playerId && change.ownerId !== this.game.playerId) {
+                    const territory = this.game.state.getTerritory(change.territoryId);
+                    this.audio?.playTerritoryLost();
+                    this.showToast(`Territoire perdu : ${territory ? territory.name : "position inconnue"}.`);
+                }
                 this.refreshDynamic();
             } else if (change.type === "ATTACK_REPELLED" || change.type === "ARMY_ARRIVED" || change.type === "ARMY_ROUTE_STOPPED") {
                 this.renderer.pulseTerritory(change.territoryId, "#e9f1f0");
@@ -802,7 +807,7 @@
             if (this.lastRouteKey !== routeKey) {
                 const existingRoute = this.game.state.reinforcementRoutes.find((route) =>
                     route.active && route.ownerId === this.game.playerId && route.fromTerritoryId === source.id);
-                this.elements.attackUnits.value = String(Math.max(1, Math.floor(maxUnits * 0.65)));
+                this.elements.attackUnits.value = String(Math.max(1, Math.floor(maxUnits * 0.80)));
                 this.elements.continuousRoute.checked = false;
                 this.elements.relayAllReinforcements.checked = Boolean(existingRoute?.relayAllReinforcements);
                 this.lastRouteKey = routeKey;

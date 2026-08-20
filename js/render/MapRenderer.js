@@ -492,6 +492,26 @@
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 }
+
+                if (territory.isCapital) {
+                    const starX = center.x;
+                    const starY = center.y + radius + 15;
+                    ctx.beginPath();
+                    ctx.arc(starX, starY, 10, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(18, 22, 18, .88)";
+                    ctx.fill();
+                    ctx.strokeStyle = C.Geometry.rgba(faction ? faction.accent : "#f4c45a", .9);
+                    ctx.lineWidth = 1.5;
+                    ctx.shadowColor = "rgba(244, 196, 90, .85)";
+                    ctx.shadowBlur = 6;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = "#f4c45a";
+                    ctx.font = "700 12px Georgia, serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("★", starX, starY + 0.5);
+                }
             });
         }
 

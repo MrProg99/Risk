@@ -244,8 +244,10 @@
             units: 1
         });
         check(reinforcement.ok, "une armée peut être déplacée vers un territoire allié voisin");
+        const eventIdsBeforeReinforcementArrival = new Set(state.events.map((event) => event.id));
         for (let tick = 0; tick < 8; tick += 1) game.update(1000);
         check(target.units > unitsBeforeReinforcement, "les renforts rejoignent le territoire allié à l’arrivée");
+        check(!state.events.filter((event) => !eventIdsBeforeReinforcementArrival.has(event.id)).some((event) => /renforce .+\(\+\d+\)/.test(event.message)), "l’arrivée d’un renfort simple n’ajoute rien au journal");
 
         const convoyPath = findPathWithMinimumHops(state.territories, playerStart.id, 3);
         convoyPath.slice(1).forEach((territoryId) => {
@@ -327,8 +329,10 @@
         cannonTarget.units = 5;
         cannonTarget.productionProgress = 0;
         const cannonChanges = [];
+        const territoryCaptureChanges = [];
         cannonGame.subscribe((change) => {
             if (change.type === "CANNON_FIRED") cannonChanges.push(change);
+            if (change.type === "TERRITORY_CAPTURED") territoryCaptureChanges.push(change);
         });
         cannonTerritory.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs - 1000;
         cannonGame.random = () => 0.1;
@@ -362,6 +366,7 @@
         });
         for (let tick = 0; tick < 8 && cannonTerritory.ownerId !== 2; tick += 1) cannonGame.update(1000);
         check(cannonCapture.ok && cannonTerritory.ownerId === 2 && cannonTerritory.installation?.type === "cannon", "le canon reste en place et change de camp lorsque son territoire est capturé");
+        check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
         check(C.TECHNOLOGY_BRANCHES.length === 3 && Object.keys(C.TECHNOLOGIES).length === 12, "l’arbre propose trois axes de quatre technologies");
@@ -412,6 +417,8 @@
         };
         const audioManager = new C.AudioManager({ contextFactory: () => fakeAudioContext });
         check(audioManager.playResearchComplete() && startedNotes.length === 4 && playedFrequencies.length === 4, "la fin d’une recherche déclenche un carillon synthétique de quatre notes");
+        const noteCountBeforeTerritoryLoss = startedNotes.length;
+        check(audioManager.playTerritoryLost() && startedNotes.length === noteCountBeforeTerritoryLoss + 3, "la perte d’un territoire déclenche une alerte descendante de trois notes");
         let loadedMusicSource = "";
         let musicPlayCount = 0;
         const fakeMusic = {
@@ -451,6 +458,34 @@
             technologyId: "construction-1"
         });
         check(playerResearchSounds === 1 && /Recherche terminée/.test(researchToast), "le signal sonore est réservé à la recherche terminée du joueur humain");
+        let territoryLossSounds = 0;
+        let territoryLossToast = "";
+        const territoryLossUiStub = {
+            game: {
+                playerId: 1,
+                state: {
+                    getFaction: () => null,
+                    getTerritory: () => ({ name: "Val d’Onyx" })
+                }
+            },
+            renderer: { pulseTerritory: () => {} },
+            audio: { playTerritoryLost: () => { territoryLossSounds += 1; } },
+            refreshDynamic: () => {},
+            showToast: (message) => { territoryLossToast = message; }
+        };
+        C.UIController.prototype.handleGameChange.call(territoryLossUiStub, {
+            type: "TERRITORY_CAPTURED",
+            territoryId: 12,
+            previousOwnerId: 1,
+            ownerId: 2
+        });
+        C.UIController.prototype.handleGameChange.call(territoryLossUiStub, {
+            type: "TERRITORY_CAPTURED",
+            territoryId: 13,
+            previousOwnerId: 2,
+            ownerId: 3
+        });
+        check(territoryLossSounds === 1 && territoryLossToast.includes("Val d’Onyx"), "seule la perte d’un territoire humain joue l’alerte et nomme la position perdue");
 
         const aiGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiGame.newGame(707070);
@@ -636,6 +671,7 @@
         check(createdFlow.route.unitsDispatched > 0 && flowSource.units === standingUnits, "les nouvelles unités produites partent automatiquement sans vider la garnison");
         for (let tick = 0; tick < 30; tick += 1) flowGame.update(1000);
         check(createdFlow.route.unitsDelivered > 0, "les unités du flux continu atteignent leur destination");
+        check(!flowState.events.some((event) => /unités livrées au total/.test(event.message)), "les livraisons d’un flux continu ne remplissent pas le journal");
 
         const interruptedRelay = flowState.getTerritory(flowPath[1]);
         const relayOwner = interruptedRelay.ownerId;
@@ -737,6 +773,7 @@
         const relayedHubArmy = hubState.armies.find((army) => army.relayCount === 1 && army.reinforcementRouteId === hubRoute.id);
         check(Boolean(relayedHubArmy && relayedHubArmy.units === 10 && relayedHubArmy.finalTerritoryId === hubDestination.id), "un hub redirige automatiquement tous les renforts qui lui arrivent");
         check(hubTerritory.units === 1 && hubRoute.unitsRelayed === 10, "les renforts relayés ne s’accumulent pas dans le hub et sont suivis séparément");
+        check(!hubState.events.some((event) => /relaie \d+ renforts/.test(event.message)), "les relais automatiques d’un hub restent silencieux dans le journal");
         const reverseHubRoute = hubGame.executeCommand({
             type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
             playerId: 1,

@@ -13,6 +13,8 @@ Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la f
 
 La musique `Musique/Music1.mp3` démarre avec la partie et joue continuellement en boucle. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
 
+La perte d’un territoire humain déclenche une alerte grave de trois notes descendantes et affiche le nom du territoire perdu. Cette alerte fonctionne également lors d’une victoire barbare, mais les pertes territoriales des factions contrôlées par l’ordinateur restent silencieuses.
+
 Le rythme normal est réglé à 72 % de la vitesse de simulation initiale. La production, les armées et les décisions de l’ordinateur ralentissent ensemble afin de laisser davantage de temps au joueur pour lire la carte et réagir.
 
 La cadence de recrutement possède en plus un ajustement d’équilibrage global de **-12,5 %**. Les bonus des terrains, factions, sites rares et recherches restent appliqués normalement, et les valeurs `+/min` affichées tiennent compte de cette réduction.
@@ -55,6 +57,8 @@ Il reste également possible de préparer un trajet au clic droit, d’activer *
 La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lors de l’activation, toute sa garnison disponible est expédiée en laissant une unité sur place. Ensuite, sa production et tous les renforts alliés qui y arrivent repartent automatiquement vers la destination. Les convois mémorisent les territoires déjà traversés afin d’interrompre une éventuelle boucle entre plusieurs hubs.
 
 La fiche **Flux logistique actif** permet de suivre les expéditions et les livraisons, puis d’arrêter la ligne. Choisir une nouvelle destination depuis la même origine redirige les productions futures. Une ligne coupée par la perte d’un relais se met en pause et reprend automatiquement si un itinéraire allié redevient disponible.
+
+Les arrivées normales de renforts, les livraisons périodiques des flux et les relais automatiques des hubs ne sont pas inscrits dans le journal des événements. Leurs unités et compteurs sont toujours actualisés dans l’interface, tandis que le journal conserve les ordres initiaux et les incidents logistiques importants.
 
 Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 

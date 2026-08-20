@@ -121,6 +121,35 @@
             return true;
         }
 
+        playTerritoryLost() {
+            const context = this.getContext();
+            if (!context || context.state === "closed") return false;
+            this.duckBackgroundMusic(1600);
+            const play = () => {
+                if (context.state === "suspended") return;
+                const startAt = context.currentTime + 0.025;
+                [
+                    { frequency: 392.00, offset: 0, duration: 0.42, volume: 0.42 },
+                    { frequency: 293.66, offset: 0.17, duration: 0.56, volume: 0.48 },
+                    { frequency: 196.00, offset: 0.38, duration: 0.82, volume: 0.56 }
+                ].forEach((note) => this.playChimeNote(
+                    context,
+                    note.frequency,
+                    startAt + note.offset,
+                    note.duration,
+                    note.volume,
+                    "sawtooth"
+                ));
+            };
+
+            if (context.state === "suspended" && typeof context.resume === "function") {
+                context.resume().then(play).catch(() => {});
+            } else {
+                play();
+            }
+            return true;
+        }
+
         playChimeNote(context, frequency, startAt, duration, volume, type) {
             const oscillator = context.createOscillator();
             const gain = context.createGain();

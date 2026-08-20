@@ -200,12 +200,16 @@
             }).sort((a, b) => a.score - b.score);
 
             const targetCount = C.Geometry.clamp(Math.round(edges.length * 0.14), 26, 44);
+            const minimumOpenBorders = 2;
             let placed = 0;
             for (const edge of candidates) {
                 edge.first.blockedNeighbors.push(edge.second.id);
                 edge.second.blockedNeighbors.push(edge.first.id);
 
-                if (!this.isTraversableGraphConnected(territories)) {
+                const firstStillOpenEnough = this.countOpenBorders(edge.first, territories) >= minimumOpenBorders;
+                const secondStillOpenEnough = this.countOpenBorders(edge.second, territories) >= minimumOpenBorders;
+
+                if (!firstStillOpenEnough || !secondStillOpenEnough || !this.isTraversableGraphConnected(territories)) {
                     edge.first.blockedNeighbors.pop();
                     edge.second.blockedNeighbors.pop();
                     continue;
@@ -214,6 +218,13 @@
                 placed += 1;
                 if (placed >= targetCount) break;
             }
+        }
+
+        countOpenBorders(territory, territories) {
+            return territory.neighbors.filter((neighborId) => {
+                const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighborId);
+            }).length;
         }
 
         isTraversableGraphConnected(territories) {

@@ -22,6 +22,8 @@
             this.unitProductionMultiplier = C.Geometry.clamp(Number(options.unitProductionMultiplier ?? 0.875), 0.1, 2);
             this.visibilityRange = Math.round(C.Geometry.clamp(Number(options.visibilityRange ?? 2), 1, 6));
             this.quickTransferRatio = C.Geometry.clamp(Number(options.quickTransferRatio ?? 0.8), 0.1, 1);
+            this.capitalProductionBonus = C.Geometry.clamp(Number(options.capitalProductionBonus ?? 0.20), 0, 2);
+            this.capitalDefenseBonus = C.Geometry.clamp(Number(options.capitalDefenseBonus ?? 0.25), 0, 2);
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
                 factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
@@ -105,11 +107,15 @@
                 territory.ownerId = null;
                 territory.units = territory.isImpassable ? 0 : C.Geometry.randomInt(this.random, 3, 12);
                 territory.productionProgress = territory.isImpassable ? 0 : this.random() * 0.8;
+                territory.isCapital = false;
             });
             starts.forEach((territory, index) => {
-                territory.ownerId = this.state.factions[index].id;
+                const faction = this.state.factions[index];
+                territory.ownerId = faction.id;
                 territory.units = 20;
                 territory.productionProgress = 0;
+                territory.isCapital = true;
+                faction.capitalTerritoryId = territory.id;
             });
         }
 
@@ -719,17 +725,24 @@
                 territory: target,
                 attackerFaction: attacker,
                 defenderFaction: previousOwner,
-                random: this.random
+                random: this.random,
+                capitalDefenseBonus: this.capitalDefenseBonus
             });
 
             if (result.attackerWon) {
+                const wasCapital = target.isCapital;
                 if (army.isBarbarian) {
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
                     target.installationProgressMs = 0;
+                    target.isCapital = false;
                     const defeated = previousOwner ? previousOwner.name : "les forces locales";
                     this.addEvent(`Les Barbares mettent ${target.name} à sac face à ${defeated} — le territoire redevient neutre.`, "world");
+                    if (wasCapital && previousOwner) {
+                        this.addEvent(`La capitale de ${previousOwner.name} est tombée !`, "capture");
+                        this.relocateCapital(previousOwner);
+                    }
                     this.notify({
                         type: "BARBARIAN_RAID_RESOLVED",
                         territoryId: target.id,
@@ -743,6 +756,7 @@
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
                 target.installationProgressMs = 0;
+                target.isCapital = false;
                 const defeated = previousOwner ? previousOwner.name : "les forces neutres";
                 this.addEvent(`${attacker.name} capture ${target.name} face à ${defeated} — ${result.attackerSurvivors} survivants.`, "capture");
                 if (target.rareSite) {
@@ -756,6 +770,10 @@
                         ownerId: attacker.id,
                         installationType: target.installation.type
                     });
+                }
+                if (wasCapital && previousOwner) {
+                    this.addEvent(`${attacker.name} s’empare de la capitale de ${previousOwner.name} !`, "capture");
+                    this.relocateCapital(previousOwner);
                 }
                 this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, ownerId: attacker.id });
             } else {
@@ -774,6 +792,22 @@
             }
         }
 
+        relocateCapital(faction) {
+            if (!faction) return;
+            const territories = this.state.getTerritoriesOwnedBy(faction.id);
+            if (!territories.length) {
+                faction.capitalTerritoryId = null;
+                return;
+            }
+
+            const newCapital = territories.reduce((best, territory) =>
+                territory.units > best.units ? territory : best, territories[0]);
+            newCapital.isCapital = true;
+            faction.capitalTerritoryId = newCapital.id;
+            this.addEvent(`${faction.name} établit sa nouvelle capitale à ${newCapital.name}.`, "info");
+            this.notify({ type: "CAPITAL_RELOCATED", factionId: faction.id, territoryId: newCapital.id });
+        }
+
         getProductionMultiplier(territory) {
             if (this.eventSystem.isTerritoryAffected(territory.id, "famine")) return 0;
             const type = C.TERRITORY_TYPES[territory.terrain];
@@ -785,7 +819,8 @@
             const factionMultiplier = faction ? faction.bonuses.recruitmentMultiplier : 1;
             const rareMultiplier = territory.rareSite ? territory.rareSite.productionMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
-            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * this.unitProductionMultiplier;
+            const capitalMultiplier = territory.isCapital ? 1 + this.capitalProductionBonus : 1;
+            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * capitalMultiplier * this.unitProductionMultiplier;
         }
 
         getTerritoryVisibilityMap(factionId = this.playerId, range = this.visibilityRange) {
@@ -835,7 +870,8 @@
             const rareMultiplier = territory.rareSite ? territory.rareSite.defenseMultiplier : 1;
             const combatMultiplier = faction ? faction.bonuses.combatMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "defenseMultiplier");
-            return type.defenseMultiplier * rareMultiplier * combatMultiplier * technologyMultiplier;
+            const capitalMultiplier = territory.isCapital ? 1 + this.capitalDefenseBonus : 1;
+            return type.defenseMultiplier * rareMultiplier * combatMultiplier * technologyMultiplier * capitalMultiplier;
         }
 
         getResearchRate(factionId) {

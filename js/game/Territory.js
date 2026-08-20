@@ -19,6 +19,7 @@
             this.installation = null;
             this.installationProgressMs = 0;
             this.isImpassable = false;
+            this.isCapital = false;
         }
 
         isNeighbor(territoryId) {
@@ -46,7 +47,8 @@
                 rareSite: this.rareSite,
                 installation: this.installation,
                 installationProgressMs: this.installationProgressMs,
-                isImpassable: this.isImpassable
+                isImpassable: this.isImpassable,
+                isCapital: this.isCapital
             };
         }
     }

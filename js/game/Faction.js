@@ -10,6 +10,7 @@
             this.bonuses = { ...definition.bonuses };
             this.bonusLabel = definition.bonusLabel;
             this.specialAbility = definition.specialAbility;
+            this.capitalTerritoryId = null;
             this.research = {
                 completedTechnologyIds: [],
                 activeTechnologyId: null,
@@ -26,6 +27,7 @@
                 bonuses: { ...this.bonuses },
                 bonusLabel: this.bonusLabel,
                 specialAbility: this.specialAbility,
+                capitalTerritoryId: this.capitalTerritoryId,
                 research: {
                     completedTechnologyIds: this.research.completedTechnologyIds.slice(),
                     activeTechnologyId: this.research.activeTechnologyId,
