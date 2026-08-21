@@ -25,6 +25,14 @@
             color: "#57d8d0",
             description: "Renforcer les garnisons et les installations défensives.",
             technologyIds: ["defense-1", "defense-2", "defense-3", "defense-4"]
+        },
+        {
+            id: "abilities",
+            name: "Capacités",
+            icon: "☄",
+            color: "#b58cff",
+            description: "Débloquer des interventions stratégiques à long délai de récupération.",
+            technologyIds: ["ability-missile", "ability-reinforcement"]
         }
     ];
 
@@ -160,6 +168,47 @@
             prerequisiteId: "defense-3",
             effects: { defenseMultiplier: 0.12 },
             effectLabel: "+12 % de puissance défensive"
+        },
+        "ability-missile": {
+            id: "ability-missile",
+            branchId: "abilities",
+            tier: 1,
+            name: "Missile tactique",
+            description: "Autorise une frappe mondiale sur un territoire ennemi visible.",
+            durationMs: 240000,
+            prerequisiteId: null,
+            effects: { unlockAbility: "missile" },
+            effectLabel: "Débloque le missile · recharge 3 min"
+        },
+        "ability-reinforcement": {
+            id: "ability-reinforcement",
+            branchId: "abilities",
+            tier: 1,
+            name: "Mobilisation d’urgence",
+            description: "Mobilise immédiatement une réserve sur un territoire contrôlé.",
+            durationMs: 210000,
+            prerequisiteId: null,
+            effects: { unlockAbility: "reinforcement" },
+            effectLabel: "+35 unités · recharge 2 min 30"
+        }
+    };
+
+    C.ABILITY_DEFINITIONS = {
+        missile: {
+            id: "missile",
+            name: "Missile tactique",
+            technologyId: "ability-missile",
+            cooldownMs: 180000,
+            warningMs: 5000,
+            damageRatio: 0.25,
+            maximumDamage: 40
+        },
+        reinforcement: {
+            id: "reinforcement",
+            name: "Mobilisation d’urgence",
+            technologyId: "ability-reinforcement",
+            cooldownMs: 150000,
+            units: 35
         }
     };
 

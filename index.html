@@ -27,7 +27,24 @@
             </header>
 
             <form id="lobby-form" class="lobby-form">
-                <fieldset class="lobby-section">
+                <div class="lobby-mode-choices" role="radiogroup" aria-label="Mode de jeu">
+                    <label><input type="radio" name="gameMode" value="solo" checked><span>Solo</span></label>
+                    <label><input type="radio" name="gameMode" value="host"><span>Créer en ligne</span></label>
+                    <label><input type="radio" name="gameMode" value="join"><span>Rejoindre</span></label>
+                </div>
+
+                <fieldset class="lobby-section multiplayer-section" id="multiplayer-options" hidden>
+                    <legend><span>01</span> Salon multijoueur</legend>
+                    <div class="multiplayer-grid">
+                        <label>Votre nom<input type="text" name="playerName" maxlength="24" value="Commandant" autocomplete="nickname"></label>
+                        <label id="room-code-field" hidden>Code du salon<input type="text" name="roomCode" maxlength="6" placeholder="ABC123" autocomplete="off"></label>
+                        <label id="team-size-field">Format<select name="teamSize"><option value="1">1 contre 1</option><option value="2">2 contre 2</option><option value="3">3 contre 3</option></select></label>
+                        <label id="preferred-team-field" hidden>Équipe souhaitée<select name="preferredTeam"><option value="1">Équipe 1</option><option value="2">Équipe 2</option></select></label>
+                    </div>
+                    <p class="network-note">La partie en ligne nécessite Live Server. Une déconnexion conserve votre place pendant 30 secondes.</p>
+                </fieldset>
+
+                <fieldset class="lobby-section" id="solo-player-options">
                     <legend><span>01</span> Nombre de joueurs</legend>
                     <p>Une faction humaine, les autres sont dirigées par l’ordinateur.</p>
                     <div class="player-count-choices">
@@ -59,6 +76,12 @@
                     <p id="lobby-summary" aria-live="polite"></p>
                     <button class="button button-primary lobby-start" id="start-game" type="submit">Lancer la partie</button>
                 </footer>
+
+                <section class="room-waiting" id="room-waiting" hidden aria-live="polite">
+                    <div><span>CODE DU SALON</span><strong id="room-code-display">------</strong></div>
+                    <p id="room-status">Connexion au salon…</p>
+                    <div class="room-player-list" id="room-player-list"></div>
+                </section>
             </form>
         </div>
     </section>
@@ -79,7 +102,7 @@
                 <div class="research-current-copy">
                     <span class="status-label">Recherche en cours</span>
                     <strong id="research-current-name">Aucune recherche sélectionnée</strong>
-                    <span id="research-current-detail">Choisissez un premier palier dans l’un des trois axes.</span>
+                    <span id="research-current-detail">Choisissez un premier palier dans l’un des quatre axes.</span>
                 </div>
                 <div class="research-progress-block">
                     <div class="research-progress-labels">
@@ -126,6 +149,10 @@
                     <span class="status-label">Armée totale</span>
                     <strong id="total-units">20</strong>
                 </div>
+                <div class="top-stat food-stat" id="food-stat">
+                    <span class="status-label">Nourriture</span>
+                    <strong id="food-supply">20 / 200</strong>
+                </div>
                 <div class="top-stat accent-stat">
                     <span class="status-label">Production</span>
                     <strong id="production-rate">+12/min</strong>
@@ -133,6 +160,14 @@
             </section>
 
             <div class="top-actions">
+                <div class="ability-controls" aria-label="Capacités stratégiques">
+                    <button class="ability-button missile" id="ability-missile" type="button" title="Missile tactique">
+                        <span>☄</span><span>Missile<small id="ability-missile-status">Verrouillé</small></span>
+                    </button>
+                    <button class="ability-button reinforcement" id="ability-reinforcement" type="button" title="Mobilisation d’urgence">
+                        <span>+</span><span>Renfort<small id="ability-reinforcement-status">Verrouillé</small></span>
+                    </button>
+                </div>
                 <button class="button button-secondary research-button" id="open-research" type="button">
                     <span class="button-icon">⌬</span>
                     <span>Recherche<small id="research-top-status">Disponible</small></span>
@@ -217,6 +252,18 @@
                         </div>
                     </div>
 
+                    <section class="production-mode-panel" id="production-mode-panel" hidden>
+                        <div class="section-title-row">
+                            <h3>Affectation du territoire</h3>
+                            <span id="production-mode-status">RECRUTEMENT</span>
+                        </div>
+                        <div class="production-mode-buttons">
+                            <button id="mode-units" type="button">⚔ Recruter</button>
+                            <button id="mode-food" type="button">♨ Nourriture</button>
+                        </div>
+                        <p id="production-mode-detail"></p>
+                    </section>
+
                     <section class="bonus-section">
                         <div class="section-title-row">
                             <h3>Avantages locaux</h3>
@@ -225,12 +272,13 @@
                         <ul class="bonus-list" id="bonus-list"></ul>
                     </section>
 
-                    <section class="neighbors-section">
+                    <section class="airport-panel" id="airport-panel" hidden>
                         <div class="section-title-row">
-                            <h3>Frontières</h3>
-                            <span id="neighbor-count">0 voisins</span>
+                            <h3>Frappe aérienne</h3>
+                            <span class="airport-status" id="airport-status">PRÊTE</span>
                         </div>
-                        <div class="neighbor-list" id="neighbor-list"></div>
+                        <p id="airport-detail">Visez un territoire ennemi visible dans un rayon de quatre frontières.</p>
+                        <button class="airstrike-button" id="airstrike-button" type="button">Préparer la frappe</button>
                     </section>
 
                     <section class="active-route-panel" id="active-route-panel" hidden>
@@ -320,6 +368,7 @@
     <script defer src="js/data/installations.js"></script>
     <script defer src="js/data/technologies.js"></script>
     <script defer src="js/data/worldEvents.js"></script>
+    <script defer src="js/network/firebaseConfig.js"></script>
     <script defer src="js/utils/geometry.js"></script>
     <script defer src="js/game/Territory.js"></script>
     <script defer src="js/game/Faction.js"></script>
@@ -335,6 +384,7 @@
     <script defer src="js/render/MapRenderer.js"></script>
     <script defer src="js/input/InputManager.js"></script>
     <script defer src="js/ui/LobbyController.js"></script>
+    <script defer src="js/network/FirebaseMultiplayer.js"></script>
     <script defer src="js/ui/UIController.js"></script>
     <script defer src="js/main.js"></script>
 </body>

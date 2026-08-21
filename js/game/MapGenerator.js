@@ -43,6 +43,7 @@
 
             this.detectNeighbors(territories);
             this.createLakes(territories, random);
+            this.ensureMinimumTerrain(territories, "airport", 4, random);
             this.createMountainBarriers(territories, random);
             return { islandPolygon, territories };
         }
@@ -254,6 +255,22 @@
                 if (roll <= 0) return type;
             }
             return types[0];
+        }
+
+        ensureMinimumTerrain(territories, terrainId, minimumCount, random) {
+            const definition = C.TERRITORY_TYPES[terrainId];
+            if (!definition) return;
+            const currentCount = territories.filter((territory) => territory.terrain === terrainId).length;
+            const missingCount = Math.max(0, minimumCount - currentCount);
+            if (!missingCount) return;
+
+            const candidates = C.Geometry.shuffle(territories.filter((territory) =>
+                !territory.isImpassable && territory.terrain !== terrainId), random)
+                .sort((first, second) => Number(second.terrain === "plain") - Number(first.terrain === "plain"));
+            candidates.slice(0, missingCount).forEach((territory) => {
+                territory.terrain = definition.id;
+                territory.resource = definition.resource;
+            });
         }
 
         createNames(count, random) {

@@ -9,6 +9,10 @@ Prototype de conquête en temps réel dans le navigateur, sans framework ni dép
 
 Le jeu utilise des scripts classiques chargés avec `defer`, donc l’ouverture via `file://` fonctionne également.
 
+Le mode **Multijoueur Firebase** doit être lancé avec Live Server (ou un autre serveur HTTP). Le lobby permet de créer un code à six caractères ou de rejoindre un salon existant en **1v1, 2v2 ou 3v3**. Plusieurs joueurs peuvent choisir la même race : chaque commandant garde néanmoins sa couleur, sa recherche, ses territoires et ses unités. Consultez [`firebase/README.md`](firebase/README.md) avant le premier essai en ligne.
+
+La simulation multijoueur est autoritaire chez l’hôte. Les autres navigateurs envoient des commandes sérialisées et reçoivent uniquement l’état dynamique; la carte est reconstruite localement depuis une graine commune. Les équipiers partagent leur vision, peuvent se donner des renforts et autorisent le passage des convois alliés. Les renforts donnés s’ajoutent à la garnison de l’allié sans transférer le territoire. Après 30 secondes de déconnexion, l’IA prend temporairement le relais de la faction et rend le contrôle dès la reconnexion.
+
 Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la faction commandée. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
 
 La musique `Musique/Music1.mp3` démarre avec la partie et joue continuellement en boucle. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
@@ -18,6 +22,16 @@ La perte d’un territoire humain déclenche une alerte grave de trois notes des
 Le rythme normal est réglé à 72 % de la vitesse de simulation initiale. La production, les armées et les décisions de l’ordinateur ralentissent ensemble afin de laisser davantage de temps au joueur pour lire la carte et réagir.
 
 La cadence de recrutement possède en plus un ajustement d’équilibrage global de **-12,5 %**. Les bonus des terrains, factions, sites rares et recherches restent appliqués normalement, et les valeurs `+/min` affichées tiennent compte de cette réduction.
+
+## Nourriture et ravitaillement
+
+La nourriture représente une **capacité permanente**, pas un stock consommé avec le temps. Chaque unité en garnison ou en déplacement utilise un point de nourriture. La capitale fournit 200 points tant que la faction possède au moins un territoire et peut y maintenir une capitale. Chaque autre territoire contrôlé fournit aussi **10 points de nourriture passifs**, même lorsqu’il reste affecté au recrutement.
+
+Un territoire contrôlé peut être affecté au **recrutement** ou à la **production alimentaire** depuis son panneau latéral. En mode nourriture, il conserve sa contribution passive, cesse de recruter et ajoute une capacité dépendant de son terrain : agriculture 80, plaine 50, industrie/science/centrale 40, mine 30, forteresse/radar/aéroport 25. Une Métropole ajoute 50 et un Grand barrage 20 à la valeur du terrain. Un anneau vert et le marqueur `F` permettent de reconnaître ces territoires sur la carte.
+
+Lorsque la demande dépasse la capacité, le recrutement passe successivement à 80 %, 50 %, puis 20 % de sa vitesse normale. Sous 75 % de couverture, une légère attrition se produit toutes les dix secondes, en visant les plus grandes concentrations sans jamais retirer la dernière unité d’une garnison territoriale. Une famine suspend temporairement la contribution d’un territoire alimentaire, mais ne retire pas les 200 points de base de la capitale.
+
+L’ordinateur utilise la commande sérialisable `SET_TERRITORY_MODE` comme un joueur humain. Il cherche une marge d’environ 20 %, privilégie les territoires agricoles intérieurs et attend au moins 45 secondes avant de modifier de nouveau leur affectation. Les recherches, combats et décisions logistiques continuent de suivre les mêmes règles alimentaires que celles du joueur.
 
 Après l’envoi d’une attaque, d’un renfort ou d’un ordre logistique, le territoire d’origine est automatiquement désélectionné afin d’éviter une seconde commande accidentelle.
 
@@ -60,6 +74,8 @@ La fiche **Flux logistique actif** permet de suivre les expéditions et les livr
 
 Les arrivées normales de renforts, les livraisons périodiques des flux et les relais automatiques des hubs ne sont pas inscrits dans le journal des événements. Leurs unités et compteurs sont toujours actualisés dans l’interface, tandis que le journal conserve les ordres initiaux et les incidents logistiques importants.
 
+La logistique des factions contrôlées par l’ordinateur est également silencieuse : transferts, convois, rassemblements et lignes continues ne surchargent plus le journal. Leurs attaques, conquêtes, recherches et frappes importantes restent annoncées. Les ordres de renfort donnés par un joueur humain demeurent visibles.
+
 Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 
 Les triangles clairs placés sur certaines frontières représentent des montagnes infranchissables. Ces passages sont interdits aux armées du joueur comme à celles de l’ordinateur. La génération vérifie néanmoins que tous les territoires restent accessibles par au moins un itinéraire terrestre.
@@ -72,11 +88,23 @@ Chaque nouvelle carte contient entre **trois et cinq lacs** polygonaux, réparti
 
 Chaque carte contient exactement **deux canons de campagne**, placés sur des territoires neutres ordinaires. Après la capture du territoire, son propriétaire prend automatiquement le contrôle du canon. Toutes les cinq secondes de simulation, il vise le territoire ennemi adjacent le plus menaçant — même de l’autre côté d’une montagne — et possède 75 % de chances d’y détruire **trois unités**. Si la garnison est trop petite, les dégâts sont limités afin de conserver un défenseur. Un canon ne peut donc jamais éliminer la dernière unité d’un territoire ni provoquer une conquête à distance. Sa cadence recommence à zéro chaque fois qu’il change de propriétaire.
 
+### Aéroports
+
+Chaque carte possède au minimum **quatre aéroports**, reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé permet une frappe aérienne dans un rayon de quatre territoires : elle survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis impose environ 38 secondes de recharge. L’ordinateur sait également employer les aéroports qu’il contrôle.
+
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de douze technologies réparties sur trois axes : **Construction**, **Attaque** et **Défense**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les quatre paliers de chaque branche dans l’ordre. Les recherches durent de 1 min 30 à 4 min 30 de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
+Le bouton **Recherche** ouvre un arbre de quatorze technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les quatre paliers des trois branches progressives dans l’ordre. Les deux recherches de capacité sont indépendantes. Les recherches durent de 1 min 30 à 4 min 30 de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
+
+### Capacités stratégiques
+
+Le **Missile tactique** demande quatre minutes de recherche. Une fois débloqué, il peut viser n’importe quel territoire ennemi actuellement visible. Une alerte de cinq secondes apparaît sur la carte avant l’impact, qui détruit 25 % de la garnison avec un maximum de 40 pertes. Il laisse toujours au moins une unité et ne peut donc pas conquérir un territoire à distance. Sa recharge est de trois minutes.
+
+La **Mobilisation d’urgence** demande trois minutes trente de recherche. Elle ajoute immédiatement 35 unités sur un territoire appartenant au joueur, puis se recharge pendant deux minutes trente. Ces unités consomment la nourriture normalement; l’interface avertit le joueur lorsque cette mobilisation risque de provoquer une pénurie.
+
+Chaque faction possède ses propres recharges. L’IA recherche et utilise ces deux capacités : elle réserve les renforts aux fronts menacés et aux capitales en danger, et cible avec ses missiles les grandes concentrations, capitales, sites rares et installations visibles. Les ordres passent par la commande sérialisable `USE_ABILITY`, et les frappes en attente ainsi que les recharges sont incluses dans les instantanés Firebase.
 
 ### Événements mondiaux
 
@@ -103,11 +131,14 @@ js/
   game/       État, modèles, génération, simulation et combats
   render/     Lecture de l’état et rendu Canvas uniquement
   input/      Conversion des interactions pointeur en sélections
+  network/    Configuration Firebase, salons, présence, commandes et instantanés
   ui/         Panneaux, commandes et journal
   main.js     Boucle d’exécution et assemblage des composants
 tests/
   smoke.html  Vérifications exécutables directement dans le navigateur
 ```
+
+Les règles Realtime Database sont fournies comme fragment isolé dans `firebase/frontieres.rules.fragment.json` afin de préserver les namespaces Firebase déjà utilisés par les autres jeux du projet.
 
 La logique de `Game` et `GameState` ne connaît pas le Canvas. Une action passe par une commande sérialisable :
 

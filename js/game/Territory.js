@@ -20,6 +20,9 @@
             this.installationProgressMs = 0;
             this.isImpassable = false;
             this.isCapital = false;
+            this.airstrikeCooldownMs = 0;
+            this.productionMode = "units";
+            this.productionModeChangedAtMs = 0;
         }
 
         isNeighbor(territoryId) {
@@ -48,7 +51,10 @@
                 installation: this.installation,
                 installationProgressMs: this.installationProgressMs,
                 isImpassable: this.isImpassable,
-                isCapital: this.isCapital
+                isCapital: this.isCapital,
+                airstrikeCooldownMs: this.airstrikeCooldownMs,
+                productionMode: this.productionMode,
+                productionModeChangedAtMs: this.productionModeChangedAtMs
             };
         }
     }

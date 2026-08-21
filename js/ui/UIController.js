@@ -11,6 +11,8 @@
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
+            this.airstrikeSourceId = null;
+            this.targetingAbilityId = null;
             this.lastEventId = null;
             this.toastTimer = null;
             this.researchTreeKey = null;
@@ -26,6 +28,8 @@
                 playerFactionName: byId("player-faction-name"),
                 territoryCount: byId("territory-count"),
                 totalUnits: byId("total-units"),
+                foodStat: byId("food-stat"),
+                foodSupply: byId("food-supply"),
                 productionRate: byId("production-rate"),
                 openResearch: byId("open-research"),
                 researchTopStatus: byId("research-top-status"),
@@ -39,6 +43,10 @@
                 researchProgressPercent: byId("research-progress-percent"),
                 researchProgressBar: byId("research-progress-bar"),
                 researchRate: byId("research-rate"),
+                abilityMissile: byId("ability-missile"),
+                abilityMissileStatus: byId("ability-missile-status"),
+                abilityReinforcement: byId("ability-reinforcement"),
+                abilityReinforcementStatus: byId("ability-reinforcement-status"),
                 newMap: byId("new-map"),
                 togglePause: byId("toggle-pause"),
                 pauseIcon: byId("pause-icon"),
@@ -61,10 +69,17 @@
                 terrainIcon: byId("terrain-icon"),
                 terrainName: byId("terrain-name"),
                 resourceName: byId("resource-name"),
+                productionModePanel: byId("production-mode-panel"),
+                productionModeStatus: byId("production-mode-status"),
+                productionModeDetail: byId("production-mode-detail"),
+                modeUnits: byId("mode-units"),
+                modeFood: byId("mode-food"),
                 territoryProduction: byId("territory-production"),
                 bonusList: byId("bonus-list"),
-                neighborCount: byId("neighbor-count"),
-                neighborList: byId("neighbor-list"),
+                airportPanel: byId("airport-panel"),
+                airportStatus: byId("airport-status"),
+                airportDetail: byId("airport-detail"),
+                airstrikeButton: byId("airstrike-button"),
                 activeRoutePanel: byId("active-route-panel"),
                 activeRouteStatus: byId("active-route-status"),
                 activeRouteSource: byId("active-route-source"),
@@ -119,6 +134,11 @@
             this.elements.relayAllReinforcements.addEventListener("change", () => this.renderTerritoryPanel());
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
+            this.elements.airstrikeButton.addEventListener("click", () => this.toggleAirstrikeTargeting());
+            this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
+            this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
+            this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
+            this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
             this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
             this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
@@ -165,6 +185,22 @@
             } else if (change.type === "CANNON_FIRED") {
                 this.renderer.fireCannon(change.fromTerritoryId, change.targetTerritoryId, change.hit);
                 if (change.hit) this.renderer.pulseTerritory(change.targetTerritoryId, "#ffd36f");
+                this.refreshDynamic();
+            } else if (change.type === "AIRSTRIKE_RESOLVED") {
+                this.renderer.pulseTerritory(change.targetTerritoryId, "#75baff");
+                this.refreshDynamic();
+            } else if (change.type === "ABILITY_LAUNCHED") {
+                this.renderer.pulseTerritory(change.targetTerritoryId, "#b58cff");
+                if (change.factionId === this.game.playerId) this.showToast("Missile lancé — impact dans 5 secondes.");
+                this.refreshDynamic();
+            } else if (change.type === "ABILITY_RESOLVED") {
+                const color = change.abilityId === "missile" ? "#ff865f" : "#d8ff68";
+                this.renderer.pulseTerritory(change.targetTerritoryId, color);
+                this.refreshDynamic();
+            } else if (change.type === "TERRITORY_MODE_CHANGED" || change.type === "FOOD_ATTRITION") {
+                if (change.type === "FOOD_ATTRITION" && change.factionId === this.game.playerId) {
+                    this.showToast(`Pénurie alimentaire : ${change.losses} unité${change.losses > 1 ? "s" : ""} perdue${change.losses > 1 ? "s" : ""}.`);
+                }
                 this.refreshDynamic();
             } else if (change.type === "WORLD_EVENT_WARNING") {
                 const definition = C.WORLD_EVENT_DEFINITIONS[change.eventType];
@@ -243,7 +279,7 @@
                     : "Aucune recherche sélectionnée";
                 this.elements.researchCurrentDetail.textContent = completed === total
                     ? `${completed}/${total} technologies terminées.`
-                    : "Choisissez un palier disponible dans l’un des trois axes.";
+                    : "Choisissez un palier disponible dans l’un des quatre axes.";
                 this.elements.researchProgressTime.textContent = "EN ATTENTE";
                 this.elements.researchProgressPercent.textContent = `${completed}/${total}`;
                 this.elements.researchProgressBar.style.width = "0%";
@@ -337,6 +373,16 @@
                 return;
             }
 
+            if (this.targetingAbilityId) {
+                this.useAbilityAt(territory);
+                return;
+            }
+
+            if (this.airstrikeSourceId !== null) {
+                this.launchAirstrikeAt(territory);
+                return;
+            }
+
             if (territory.isImpassable) {
                 this.selectedTerritoryId = territory.id;
                 this.targetTerritoryId = null;
@@ -408,8 +454,8 @@
                 return;
             }
 
-            if (territory.ownerId !== this.game.playerId) {
-                this.showToast("Les convois longue distance ne peuvent traverser que vos territoires.");
+            if (!this.game.areAllied(territory.ownerId, this.game.playerId)) {
+                this.showToast("Les convois longue distance ne peuvent traverser que les territoires alliés.");
                 return;
             }
             if (territory.id === source.id) {
@@ -417,7 +463,7 @@
                 return;
             }
 
-            const path = this.game.findOwnedPath(this.game.playerId, source.id, territory.id);
+            const path = this.game.findAlliedPath(this.game.playerId, source.id, territory.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -436,8 +482,8 @@
                 this.showToast("Le transfert ne peut pas traverser une zone sans visibilité.");
                 return;
             }
-            if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
-                this.showToast(`Le transfert rapide doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
+            if (source.ownerId !== this.game.playerId || !this.game.areAllied(target.ownerId, this.game.playerId)) {
+                this.showToast("Le transfert rapide doit partir de votre territoire vers une destination alliée.");
                 return;
             }
             if (source.units <= 1) {
@@ -445,7 +491,7 @@
                 return;
             }
 
-            const path = this.game.findOwnedPath(this.game.playerId, source.id, target.id);
+            const path = this.game.findAlliedPath(this.game.playerId, source.id, target.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -475,12 +521,12 @@
                 this.showToast("Le flux continu ne peut pas être établi dans une zone sans visibilité.");
                 return;
             }
-            if (source.ownerId !== this.game.playerId || target.ownerId !== this.game.playerId) {
-                this.showToast(`Le flux continu doit relier deux territoires de la faction ${this.getPlayerFactionName()}.`);
+            if (source.ownerId !== this.game.playerId || !this.game.areAllied(target.ownerId, this.game.playerId)) {
+                this.showToast("Le flux continu doit partir de votre territoire vers une destination alliée.");
                 return;
             }
 
-            const path = this.game.findOwnedPath(this.game.playerId, source.id, target.id);
+            const path = this.game.findAlliedPath(this.game.playerId, source.id, target.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -504,31 +550,6 @@
             this.showToast(previousRoute
                 ? `Flux continu redirigé vers ${target.name}.`
                 : `Flux continu activé vers ${target.name}.`);
-        }
-
-        chooseNeighbor(territoryId) {
-            const source = this.game.state.getTerritory(this.selectedTerritoryId);
-            const target = this.game.state.getTerritory(territoryId);
-            if (!source || !target) return;
-            if (!this.game.isTerritoryVisible(target.id, this.game.playerId)) {
-                this.showToast("Ce territoire se trouve encore dans le brouillard de guerre.");
-                return;
-            }
-            if (target.isImpassable) {
-                this.showToast(`${target.name} est infranchissable.`);
-                return;
-            }
-            if (source.ownerId !== this.game.playerId) {
-                this.showToast(`Sélectionnez d’abord un territoire de la faction ${this.getPlayerFactionName()}.`);
-                return;
-            }
-            if (source.isPathBlocked(target.id)) {
-                this.showToast("Une chaîne de montagnes rend cette frontière infranchissable.");
-                return;
-            }
-            this.targetTerritoryId = target.id;
-            this.plannedRoute = [];
-            this.syncSelection();
         }
 
         launchAttack() {
@@ -583,7 +604,68 @@
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
+            this.airstrikeSourceId = null;
+            this.targetingAbilityId = null;
             this.syncSelection();
+            this.refreshAbilities();
+        }
+
+        toggleAbilityTargeting(abilityId) {
+            const faction = this.game.state.getFaction(this.game.playerId);
+            const definition = C.ABILITY_DEFINITIONS[abilityId];
+            if (!faction || !definition) return;
+            if (!faction.research.completedTechnologyIds.includes(definition.technologyId)) {
+                this.showToast(`Recherchez d’abord : ${C.TECHNOLOGIES[definition.technologyId].name}.`);
+                return;
+            }
+            if ((faction.abilityCooldowns[abilityId] || 0) > 0) return;
+            this.airstrikeSourceId = null;
+            this.targetingAbilityId = this.targetingAbilityId === abilityId ? null : abilityId;
+            this.clearTerritorySelectionOnly();
+            this.refreshAbilities();
+            this.showToast(this.targetingAbilityId
+                ? abilityId === "missile" ? "Cliquez sur un territoire ennemi visible." : "Cliquez sur un de vos territoires pour recevoir 35 unités."
+                : "Capacité annulée.");
+        }
+
+        clearTerritorySelectionOnly() {
+            this.selectedTerritoryId = null;
+            this.targetTerritoryId = null;
+            this.plannedRoute = [];
+            this.lastRouteKey = null;
+            this.syncSelection();
+        }
+
+        useAbilityAt(territory) {
+            const abilityId = this.targetingAbilityId;
+            const food = this.game.getFactionFoodState(this.game.playerId);
+            const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: this.game.playerId, abilityId, targetTerritoryId: territory.id });
+            if (!result.ok) return this.showToast(result.error);
+            this.targetingAbilityId = null;
+            this.clearTerritorySelectionOnly();
+            this.refreshAbilities();
+            if (result.pending) return this.showToast("Ordre de capacité transmis à l’hôte.");
+            if (abilityId === "reinforcement") {
+                const shortage = food.capacity - food.demand < C.ABILITY_DEFINITIONS.reinforcement.units;
+                this.showToast(`35 renforts mobilisés à ${territory.name}${shortage ? " · attention à la nourriture" : ""}.`);
+            }
+        }
+
+        refreshAbilities() {
+            const faction = this.game.state.getFaction(this.game.playerId);
+            if (!faction) return;
+            ["missile", "reinforcement"].forEach((abilityId) => {
+                const definition = C.ABILITY_DEFINITIONS[abilityId];
+                const button = abilityId === "missile" ? this.elements.abilityMissile : this.elements.abilityReinforcement;
+                const status = abilityId === "missile" ? this.elements.abilityMissileStatus : this.elements.abilityReinforcementStatus;
+                const unlocked = faction.research.completedTechnologyIds.includes(definition.technologyId);
+                const cooldown = Math.max(0, faction.abilityCooldowns?.[abilityId] || 0);
+                const ready = unlocked && cooldown <= 0;
+                button.disabled = !ready;
+                button.classList.toggle("ready", ready);
+                button.classList.toggle("armed", this.targetingAbilityId === abilityId);
+                status.textContent = !unlocked ? "Verrouillé" : cooldown > 0 ? this.formatDuration(cooldown) : this.targetingAbilityId === abilityId ? "Cible ?" : "Prêt";
+            });
         }
 
         syncSelection() {
@@ -672,14 +754,111 @@
             this.elements.resourceName.textContent = territory.resource || "Aucune";
             this.elements.territoryProduction.textContent = territory.isImpassable
                 ? "Impossible"
+                : territory.productionMode === "food"
+                ? `+${this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory)} nourriture`
                 : territory.ownerId === null
                 ? "Inactive"
                 : `+${this.formatNumber(this.game.getTerritoryProductionPerMinute(territory))}/min`;
 
             this.renderBonuses(territory, type, faction);
-            this.renderNeighbors(territory);
+            this.renderProductionMode(territory);
+            this.renderAirportPanel(territory);
             this.renderActiveRoute(territory);
             this.renderAttackPanel(territory);
+        }
+
+        renderProductionMode(territory) {
+            const canCommand = territory.ownerId === this.game.playerId && !territory.isImpassable;
+            this.elements.productionModePanel.hidden = !canCommand;
+            if (!canCommand) return;
+            const foodMode = territory.productionMode === "food";
+            const foodCapacity = this.game.getPotentialTerritoryFoodCapacity(territory);
+            const passiveCapacity = territory.isCapital ? this.game.capitalFoodCapacity : this.game.territoryBaseFoodCapacity;
+            const famine = this.game.eventSystem.isTerritoryAffected(territory.id, "famine");
+            this.elements.modeUnits.classList.toggle("active", !foodMode);
+            this.elements.modeFood.classList.toggle("active", foodMode);
+            this.elements.productionModeStatus.textContent = foodMode ? "NOURRITURE" : "RECRUTEMENT";
+            this.elements.productionModeDetail.textContent = foodMode
+                ? territory.isCapital
+                    ? `La capitale ne recrute plus, conserve ses ${passiveCapacity} nourritures et ${famine ? `voit son bonus local de ${foodCapacity} suspendu par la famine` : `ajoute ${foodCapacity} points grâce à son terrain`}.`
+                    : famine
+                    ? `Ce territoire ne recrute plus. La famine suspend actuellement ses ${passiveCapacity + foodCapacity} points de nourriture.`
+                    : `Ce territoire ne recrute plus et fournit ${passiveCapacity + foodCapacity} points de nourriture.`
+                : territory.isCapital
+                ? `La capitale recrute des unités et maintient une capacité de ${passiveCapacity} nourritures.`
+                : `Ce territoire recrute des unités tout en fournissant ${passiveCapacity} nourritures. Le mode nourriture ajouterait ${foodCapacity} points.`;
+        }
+
+        setTerritoryMode(mode) {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            if (!territory) return;
+            const result = this.game.executeCommand({
+                type: "SET_TERRITORY_MODE",
+                playerId: this.game.playerId,
+                territoryId: territory.id,
+                mode
+            });
+            if (!result.ok) return this.showToast(result.error);
+            if (result.pending) {
+                this.showToast("Changement de production transmis à l’hôte.");
+                return;
+            }
+            this.renderTerritoryPanel();
+            this.showToast(mode === "food"
+                ? `${territory.name} produit maintenant de la nourriture.`
+                : `${territory.name} reprend le recrutement.`);
+        }
+
+        renderAirportPanel(territory) {
+            const canUseAirport = territory.terrain === "airport" && territory.ownerId === this.game.playerId;
+            this.elements.airportPanel.hidden = !canUseAirport;
+            if (!canUseAirport) return;
+            const remainingSeconds = Math.ceil(Math.max(0, territory.airstrikeCooldownMs) / 1000);
+            const reloading = remainingSeconds > 0;
+            const armed = this.airstrikeSourceId === territory.id;
+            this.elements.airportStatus.textContent = reloading ? `${remainingSeconds} S` : armed ? "CIBLE ?" : "PRÊTE";
+            this.elements.airportStatus.classList.toggle("reloading", reloading);
+            this.elements.airportDetail.textContent = reloading
+                ? "Les bombardiers se préparent pour une nouvelle mission."
+                : "Détruit 10 % des forces d’un territoire ennemi visible à quatre frontières ou moins.";
+            this.elements.airstrikeButton.disabled = reloading;
+            this.elements.airstrikeButton.classList.toggle("armed", armed);
+            this.elements.airstrikeButton.textContent = armed ? "Annuler la frappe" : "Préparer la frappe";
+        }
+
+        toggleAirstrikeTargeting() {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            if (!territory || territory.terrain !== "airport" || territory.ownerId !== this.game.playerId) return;
+            if (territory.airstrikeCooldownMs > 0) return;
+            this.airstrikeSourceId = this.airstrikeSourceId === territory.id ? null : territory.id;
+            this.renderAirportPanel(territory);
+            this.showToast(this.airstrikeSourceId === null
+                ? "Frappe aérienne annulée."
+                : "Cliquez sur une cible ennemie visible dans un rayon de quatre territoires.");
+        }
+
+        launchAirstrikeAt(target) {
+            const source = this.game.state.getTerritory(this.airstrikeSourceId);
+            if (!source) {
+                this.airstrikeSourceId = null;
+                return;
+            }
+            if (this.game.areAllied(target.ownerId, this.game.playerId)) {
+                this.showToast("Impossible de bombarder un territoire allié.");
+                return;
+            }
+            const result = this.game.executeCommand({
+                type: "AIRSTRIKE",
+                playerId: this.game.playerId,
+                fromTerritoryId: source.id,
+                toTerritoryId: target.id
+            });
+            if (!result.ok) {
+                this.showToast(result.error);
+                return;
+            }
+            this.clearSelection();
+            this.showToast(`Frappe aérienne lancée sur ${target.name}.`);
         }
 
         renderActiveRoute(territory) {
@@ -742,40 +921,6 @@
                 if (entry.worldEvent) item.className = "world-event";
                 item.textContent = entry.label;
                 this.elements.bonusList.append(item);
-            });
-        }
-
-        renderNeighbors(territory) {
-            this.elements.neighborCount.textContent = `${territory.neighbors.length} voisin${territory.neighbors.length > 1 ? "s" : ""}`;
-            this.elements.neighborList.replaceChildren();
-            territory.neighbors.forEach((neighborId) => {
-                const neighbor = this.game.state.getTerritory(neighborId);
-                if (!neighbor) return;
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "neighbor-chip";
-                if (!this.game.isTerritoryVisible(neighbor.id, this.game.playerId)) {
-                    button.classList.add("unknown");
-                    button.textContent = "? Zone hors de portée";
-                    button.title = "Aucun renseignement disponible";
-                    button.disabled = true;
-                    this.elements.neighborList.append(button);
-                    return;
-                }
-                if (neighbor.ownerId !== territory.ownerId) button.classList.add("hostile");
-                if (neighbor.id === this.targetTerritoryId) button.classList.add("targeted");
-                const blocked = territory.isPathBlocked(neighbor.id);
-                const impassable = neighbor.isImpassable;
-                if (territory.isImpassable || blocked || impassable) button.classList.add("blocked");
-                button.textContent = `${impassable ? "≈ " : blocked ? "▲ " : ""}${neighbor.name}${impassable ? "" : ` · ${neighbor.units}`}`;
-                button.title = impassable
-                    ? `${neighbor.name} — lac infranchissable`
-                    : blocked
-                    ? `${neighbor.name} — passage bloqué par les montagnes`
-                    : `${neighbor.name} — ${neighbor.units} unités`;
-                button.disabled = territory.isImpassable || blocked || impassable;
-                button.addEventListener("click", () => this.chooseNeighbor(neighbor.id));
-                this.elements.neighborList.append(button);
             });
         }
 
@@ -873,8 +1018,15 @@
             const stats = this.game.getFactionStats(this.game.playerId);
             this.elements.territoryCount.textContent = stats.territoryCount;
             this.elements.totalUnits.textContent = stats.totalUnits;
+            this.elements.foodSupply.textContent = `${stats.food.demand} / ${stats.food.capacity}`;
+            this.elements.foodStat.classList.toggle("warning", stats.food.ratio < 1 && stats.food.ratio >= this.game.foodAttritionThreshold);
+            this.elements.foodStat.classList.toggle("critical", stats.food.ratio < this.game.foodAttritionThreshold);
+            this.elements.foodSupply.title = stats.food.ratio >= 1
+                ? `${Math.max(0, stats.food.capacity - stats.food.demand)} points de nourriture disponibles`
+                : `Pénurie : recrutement ×${this.formatNumber(stats.food.productionMultiplier)}`;
             this.elements.productionRate.textContent = `+${this.formatNumber(stats.productionPerMinute)}/min`;
             this.refreshResearchStatus();
+            this.refreshAbilities();
             this.renderZoomLevel();
             if (this.selectedTerritoryId) this.renderTerritoryPanel();
         }

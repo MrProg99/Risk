@@ -1,0 +1,35 @@
+{
+  "frontieres": {
+    "rooms": {
+      "$roomCode": {
+        ".read": "auth != null && ((!data.exists() && false) || data.child('meta/status').val() == 'lobby' || data.child('players').child(auth.uid).exists())",
+        ".write": "auth != null && !data.exists() && newData.child('meta/hostUid').val() == auth.uid && newData.child('players').child(auth.uid).exists()",
+        "meta": {
+          ".write": "auth != null && root.child('frontieres/rooms').child($roomCode).child('meta/hostUid').val() == auth.uid",
+          ".validate": "newData.hasChildren(['version', 'status', 'hostUid', 'teamSize', 'maxPlayers']) && newData.child('status').val().matches(/^(lobby|playing|ended)$/) && newData.child('teamSize').isNumber() && newData.child('teamSize').val() >= 1 && newData.child('teamSize').val() <= 3 && newData.child('maxPlayers').val() == newData.child('teamSize').val() * 2"
+        },
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && (!data.exists() || data.child('uid').val() == auth.uid)",
+            ".validate": "newData.hasChildren(['uid', 'name', 'raceId', 'teamId', 'slot', 'color', 'connected']) && newData.child('uid').val() == auth.uid && newData.child('name').isString() && newData.child('name').val().length <= 24 && newData.child('raceId').isNumber() && newData.child('raceId').val() >= 1 && newData.child('raceId').val() <= 4 && newData.child('teamId').isNumber() && newData.child('teamId').val() >= 1 && newData.child('teamId').val() <= 2 && newData.child('slot').isNumber() && newData.child('slot').val() >= 1 && newData.child('slot').val() <= 6"
+          }
+        },
+        "slots": {
+          "$slot": {
+            ".write": "auth != null && root.child('frontieres/rooms').child($roomCode).child('meta/status').val() == 'lobby' && ((!data.exists() && newData.val() == auth.uid) || data.val() == auth.uid)",
+            ".validate": "newData.isString()"
+          }
+        },
+        "commands": {
+          "$commandId": {
+            ".write": "auth != null && ((newData.exists() && newData.child('uid').val() == auth.uid && root.child('frontieres/rooms').child($roomCode).child('players').child(auth.uid).exists()) || (!newData.exists() && root.child('frontieres/rooms').child($roomCode).child('meta/hostUid').val() == auth.uid))",
+            ".validate": "!newData.exists() || (newData.hasChildren(['type', 'uid']) && newData.child('type').isString() && newData.child('uid').val() == auth.uid)"
+          }
+        },
+        "snapshot": {
+          ".write": "auth != null && root.child('frontieres/rooms').child($roomCode).child('meta/hostUid').val() == auth.uid"
+        }
+      }
+    }
+  }
+}

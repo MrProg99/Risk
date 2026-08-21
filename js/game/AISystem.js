@@ -52,6 +52,7 @@
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
             this.researchChoicesMade = 0;
+            this.abilitiesUsed = 0;
             this.reset();
         }
 
@@ -61,6 +62,7 @@
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
             this.researchChoicesMade = 0;
+            this.abilitiesUsed = 0;
             this.thinkTimers.clear();
             this.offensivePlans.clear();
             this.factionIds.forEach((factionId, index) => {
@@ -92,7 +94,13 @@
             const owned = state.getTerritoriesOwnedBy(factionId);
             if (!faction || !owned.length) return false;
 
+            if (this.manageFoodSupply(faction, owned)) return true;
+
             this.chooseResearch(faction);
+
+            if (this.considerAbilities(faction, owned)) return true;
+
+            if (this.considerAirstrike(faction, owned)) return true;
 
             const plannedAction = this.advanceOffensivePlan(faction, owned);
             if (plannedAction !== null) return plannedAction;
@@ -118,13 +126,163 @@
                 this.offensivePlansCreated += 1;
                 const staging = state.getTerritory(newPlan.stagingTerritoryId);
                 const target = state.getTerritory(newPlan.targetTerritoryId);
-                this.game.addEvent(`${faction.name} prépare une offensive contre ${target.name} et rassemble ses forces à ${staging.name}.`, "combat");
+                this.game.addLogisticsEvent(`${faction.name} prépare une offensive contre ${target.name} et rassemble ses forces à ${staging.name}.`, faction.id, "combat");
                 return this.advanceOffensivePlan(faction, owned) ?? false;
             }
 
             const reinforcement = this.findBestReinforcement(faction, owned);
             if (reinforcement) {
                 return this.issueOrder(factionId, reinforcement.source.id, reinforcement.target.id, reinforcement.units);
+            }
+            return false;
+        }
+
+        manageFoodSupply(faction, owned) {
+            const state = this.game.state;
+            const food = this.game.getFactionFoodState(faction.id);
+            const minimumModeDurationMs = 45000;
+            const canChange = (territory) =>
+                state.elapsedMs - (territory.productionModeChangedAtMs || 0) >= minimumModeDurationMs;
+
+            if (food.demand > 0 && food.ratio < 1.10) {
+                const emergency = food.ratio < 0.75;
+                const candidates = owned
+                    .filter((territory) => territory.productionMode === "units" && (emergency || canChange(territory)))
+                    .filter((territory) => emergency || (!territory.isCapital && !territory.installation && !territory.rareSite && territory.terrain !== "airport"))
+                    .map((territory) => {
+                        const hostileNeighbors = territory.neighbors
+                            .map((id) => state.getTerritory(id))
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                        const capacity = this.game.getPotentialTerritoryFoodCapacity(territory);
+                        const strategicPenalty = (territory.isCapital ? 80 : 0) + (territory.installation ? 50 : 0) + (territory.rareSite ? 35 : 0);
+                        return { territory, score: capacity * 2 - hostileNeighbors * 90 - strategicPenalty };
+                    })
+                    .sort((first, second) => second.score - first.score);
+                const selected = candidates[0]?.territory;
+                if (selected) {
+                    const result = this.game.executeCommand({
+                        type: "SET_TERRITORY_MODE",
+                        playerId: faction.id,
+                        territoryId: selected.id,
+                        mode: "food"
+                    });
+                    if (result.ok) {
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+
+            if (food.ratio > 1.30) {
+                const candidates = owned
+                    .filter((territory) => territory.productionMode === "food" && canChange(territory))
+                    .map((territory) => {
+                        const contribution = this.game.getTerritoryFoodCapacity(territory);
+                        const capacityAfterChange = food.capacity - contribution;
+                        if (food.demand > 0 && capacityAfterChange / food.demand < 1.20) return null;
+                        const hostileNeighbors = territory.neighbors
+                            .map((id) => state.getTerritory(id))
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                        const militaryValue = this.game.getProductionMultiplier({ ...territory, productionMode: "units" });
+                        return { territory, score: hostileNeighbors * 30 + militaryValue * 10 - contribution * 0.1 };
+                    })
+                    .filter(Boolean)
+                    .sort((first, second) => second.score - first.score);
+                const selected = candidates[0]?.territory;
+                if (selected) {
+                    const result = this.game.executeCommand({
+                        type: "SET_TERRITORY_MODE",
+                        playerId: faction.id,
+                        territoryId: selected.id,
+                        mode: "units"
+                    });
+                    if (result.ok) {
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        considerAirstrike(faction, owned) {
+            const airports = owned.filter((territory) =>
+                territory.terrain === "airport" && territory.airstrikeCooldownMs <= 0);
+            if (!airports.length) return false;
+
+            let best = null;
+            airports.forEach((airport) => {
+                const candidates = this.game.getTerritoriesWithinHops(airport, this.game.airstrikeRangeHops)
+                    .filter((target) => !target.isImpassable && !this.game.areAllied(target.ownerId, faction.id) && target.units > 1);
+
+                candidates.forEach((target) => {
+                    const priority = target.units +
+                        (target.rareSite ? 15 : 0) +
+                        (target.installation?.type === "cannon" ? 10 : 0) +
+                        (target.isCapital ? 20 : 0) +
+                        (target.ownerId !== null ? 5 : 0);
+                    if (!best || priority > best.priority) {
+                        best = { airport, target, priority };
+                    }
+                });
+            });
+            if (!best) return false;
+
+            const result = this.game.executeCommand({
+                type: "AIRSTRIKE",
+                playerId: faction.id,
+                fromTerritoryId: best.airport.id,
+                toTerritoryId: best.target.id
+            });
+            if (result.ok) this.ordersIssued += 1;
+            return result.ok;
+        }
+
+        considerAbilities(faction, owned) {
+            const completed = faction.research.completedTechnologyIds;
+            const cooldowns = faction.abilityCooldowns || {};
+
+            if (completed.includes(C.ABILITY_DEFINITIONS.reinforcement.technologyId) && (cooldowns.reinforcement || 0) <= 0) {
+                const food = this.game.getFactionFoodState(faction.id);
+                const targets = owned.map((territory) => {
+                    const hostileStrength = territory.neighbors
+                        .map((id) => this.game.state.getTerritory(id))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id))
+                        .reduce((sum, neighbor) => sum + neighbor.units, 0);
+                    const danger = hostileStrength / Math.max(1, territory.units);
+                    const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0);
+                    return { territory, danger, score: danger * 35 + strategic - territory.units * 0.12 };
+                }).sort((a, b) => b.score - a.score);
+                const best = targets[0];
+                const freeCapacity = food.capacity - food.demand;
+                const emergency = best && best.territory.isCapital && best.danger >= 0.9;
+                if (best && best.danger >= 1.15 && (freeCapacity >= C.ABILITY_DEFINITIONS.reinforcement.units || emergency)) {
+                    const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "reinforcement", targetTerritoryId: best.territory.id });
+                    if (result.ok) {
+                        this.abilitiesUsed += 1;
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+
+            if (completed.includes(C.ABILITY_DEFINITIONS.missile.technologyId) && (cooldowns.missile || 0) <= 0) {
+                const visibility = this.game.getTerritoryVisibilityMap(faction.id);
+                const candidates = this.game.state.territories
+                    .filter((territory) => !territory.isImpassable && !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id) && territory.units >= 12)
+                    .map((territory) => ({
+                        territory,
+                        score: territory.units + (territory.isCapital ? 28 : 0) + (territory.installation ? 16 : 0) + (territory.terrain === "airport" ? 14 : 0) + (territory.productionMode === "food" ? 10 : 0) + (territory.rareSite ? 12 : 0)
+                    }))
+                    .sort((a, b) => b.score - a.score);
+                if (candidates.length) {
+                    const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "missile", targetTerritoryId: candidates[0].territory.id });
+                    if (result.ok) {
+                        this.abilitiesUsed += 1;
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
             }
             return false;
         }
@@ -141,7 +299,7 @@
             const frontStillOpen = staging && target &&
                 !target.isImpassable &&
                 staging.ownerId === faction.id &&
-                target.ownerId !== faction.id &&
+                !this.game.areAllied(target.ownerId, faction.id) &&
                 staging.isNeighbor(target.id) &&
                 !staging.isPathBlocked(target.id);
             if (planExpired || !frontStillOpen) {
@@ -215,7 +373,7 @@
             owned.forEach((staging) => {
                 staging.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
-                    if (!target || target.isImpassable || target.ownerId === faction.id || staging.isPathBlocked(target.id)) return;
+                    if (!target || target.isImpassable || this.game.areAllied(target.ownerId, faction.id) || staging.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id && !army.isConvoy && army.toTerritoryId === target.id)) return;
 
@@ -259,7 +417,7 @@
                     .map((neighborId) => state.getTerritory(neighborId))
                     .filter((neighbor) => neighbor &&
                         !neighbor.isImpassable &&
-                        neighbor.ownerId !== faction.id &&
+                        !this.game.areAllied(neighbor.ownerId, faction.id) &&
                         !territory.isPathBlocked(neighbor.id));
                 const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3);
                 const surplus = territory.units - reserve;
@@ -312,7 +470,7 @@
                         if (!path) return null;
                         const exposedBorders = territory.neighbors.filter((neighborId) => {
                             const neighbor = state.getTerritory(neighborId);
-                            return neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id);
+                            return neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id);
                         }).length;
                         const production = this.game.getProductionMultiplier(territory);
                         const score = production * 12 + territory.units * 0.06 - exposedBorders * 5 - path.length * 0.35;
@@ -333,7 +491,7 @@
             return owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id));
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id));
                 if (!hostileNeighbors.length) return null;
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 const danger = hostileStrength / Math.max(1, territory.units);
@@ -370,7 +528,7 @@
 
                 source.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
-                    if (!target || target.isImpassable || target.ownerId === faction.id) return;
+                    if (!target || target.isImpassable || this.game.areAllied(target.ownerId, faction.id)) return;
                     if (source.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id &&
@@ -412,7 +570,7 @@
             const borderTerritories = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== faction.id && !territory.isPathBlocked(neighbor.id));
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id));
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 return { territory, hostileNeighbors, hostileStrength };
             }).filter((entry) => entry.hostileNeighbors.length > 0);
@@ -474,6 +632,7 @@
             available.sort((a, b) => {
                 const score = (technology) =>
                     (technology.branchId === preferredBranch ? 20 : 0) +
+                    (technology.branchId === "abilities" ? 10 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
                 return score(b) - score(a);
             });

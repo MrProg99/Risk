@@ -12,16 +12,19 @@
             this.armies = [];
             this.reinforcementRoutes = [];
             this.worldEvents = [];
+            this.abilityActions = [];
             this.events = [];
             this.elapsedMs = 0;
             this.nextArmyId = 1;
             this.nextReinforcementRouteId = 1;
             this.nextWorldEventId = 1;
+            this.nextAbilityActionId = 1;
             this.nextWorldEventAtMs = 0;
             this.scheduledWorldEventType = null;
             this.worldEventWarningIssued = false;
             this.lastWorldEventType = null;
             this.revision = 0;
+            this.winnerTeamId = null;
         }
 
         getTerritory(id) {
@@ -59,16 +62,19 @@
                     territoryIds: worldEvent.territoryIds.slice(),
                     data: { ...worldEvent.data }
                 })),
+                abilityActions: this.abilityActions.map((action) => ({ ...action })),
                 events: this.events.slice(),
                 elapsedMs: this.elapsedMs,
                 nextArmyId: this.nextArmyId,
                 nextReinforcementRouteId: this.nextReinforcementRouteId,
                 nextWorldEventId: this.nextWorldEventId,
+                nextAbilityActionId: this.nextAbilityActionId,
                 nextWorldEventAtMs: this.nextWorldEventAtMs,
                 scheduledWorldEventType: this.scheduledWorldEventType,
                 worldEventWarningIssued: this.worldEventWarningIssued,
                 lastWorldEventType: this.lastWorldEventType,
-                revision: this.revision
+                revision: this.revision,
+                winnerTeamId: this.winnerTeamId
             };
         }
     }

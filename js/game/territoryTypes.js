@@ -1,3 +1,5 @@
+// Fichier historique non chargé par index.html.
+// La source officielle des terrains est ../data/territoryTypes.js.
 (function (C) {
     "use strict";
 
@@ -10,7 +12,6 @@
             weight: 0,
             color: "#1d5968",
             productionMultiplier: 0,
-            foodCapacity: 0,
             defenseMultiplier: 1,
             bonuses: ["Zone naturelle totalement infranchissable"]
         },
@@ -22,7 +23,6 @@
             weight: 26,
             color: "#758b78",
             productionMultiplier: 1,
-            foodCapacity: 50,
             defenseMultiplier: 1,
             bonuses: ["Territoire équilibré, sans modificateur"]
         },
@@ -34,7 +34,6 @@
             weight: 16,
             color: "#89a85d",
             productionMultiplier: 1.25,
-            foodCapacity: 80,
             defenseMultiplier: 1,
             bonuses: ["25 % de production d’unités"]
         },
@@ -46,7 +45,6 @@
             weight: 12,
             color: "#8d8478",
             productionMultiplier: 1,
-            foodCapacity: 30,
             defenseMultiplier: 1.05,
             economyMultiplier: 1.2,
             bonuses: ["20 % de production économique", "5 % de défense grâce au relief"]
@@ -59,7 +57,6 @@
             weight: 12,
             color: "#718a91",
             productionMultiplier: 1.3,
-            foodCapacity: 40,
             defenseMultiplier: 1,
             bonuses: ["30 % de vitesse de recrutement"]
         },
@@ -71,7 +68,6 @@
             weight: 10,
             color: "#69727f",
             productionMultiplier: 1,
-            foodCapacity: 25,
             defenseMultiplier: 1.4,
             bonuses: ["40 % de puissance défensive"]
         },
@@ -83,7 +79,6 @@
             weight: 8,
             color: "#628da1",
             productionMultiplier: 1.1,
-            foodCapacity: 40,
             defenseMultiplier: 1,
             bonuses: ["10 % de production générale"]
         },
@@ -95,7 +90,6 @@
             weight: 9,
             color: "#a08c55",
             productionMultiplier: 1.08,
-            foodCapacity: 40,
             defenseMultiplier: 1,
             bonuses: ["Produit de l’énergie", "8 % de production générale"]
         },
@@ -107,7 +101,6 @@
             weight: 7,
             color: "#578c88",
             productionMultiplier: 1,
-            foodCapacity: 25,
             defenseMultiplier: 1.08,
             bonuses: ["Surveillance des frontières", "8 % de puissance défensive"]
         },
@@ -119,13 +112,8 @@
             weight: 6,
             color: "#4a6fa5",
             productionMultiplier: 1,
-            foodCapacity: 25,
             defenseMultiplier: 1,
-            bonuses: [
-                "Frappe aérienne : élimine 10 % des troupes d’une cible dans un rayon de 4 territoires",
-                "Les bombardiers survolent les montagnes",
-                "Recharge des bombardiers en environ 38 secondes"
-            ]
+            bonuses: ["Frappe aérienne : élimine 10 % des troupes d’une cible dans un rayon de 4 territoires (survole les montagnes)", "Recharge des bombardiers en ~38 s"]
         }
     };
 

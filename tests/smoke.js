@@ -80,6 +80,9 @@
         const generatedLakes = state.territories.filter((territory) => territory.isImpassable);
         check(generatedLakes.length >= 4 && generatedLakes.length <= 6, "la carte contient entre quatre et six lacs intérieurs");
         check(generatedLakes.every((lake) => lake.terrain === "lake" && lake.ownerId === null && lake.units === 0), "les lacs restent neutres, vides et identifiés comme zones d’eau");
+        const generatedAirports = state.territories.filter((territory) => territory.terrain === "airport");
+        check(Boolean(C.TERRITORY_TYPES.airport), "le terrain aéroport est chargé depuis les données du jeu");
+        check(generatedAirports.length >= 4, "chaque carte contient au moins quatre aéroports");
         const lakeGenerationIsStable = [10101, 20202, 30303, 40404, 50505, 60606].every((seed) => {
             const generatedMap = game.mapGenerator.generate(seed);
             const lakes = generatedMap.territories.filter((territory) => territory.isImpassable);
@@ -94,6 +97,43 @@
         check(state.factions.length === 4, "les quatre factions sont créées");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id).length === 1), "chaque faction possède un territoire de départ");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id)[0].units === 20), "chaque faction commence avec 20 unités");
+        const foodGame = new C.Game({
+            playerId: 1,
+            enableAI: false,
+            enableWorldEvents: false,
+            timeScale: 1,
+            foodAttritionIntervalMs: 2000
+        });
+        foodGame.newGame(737373);
+        const foodCapital = foodGame.state.getTerritoriesOwnedBy(1)[0];
+        const foodFarm = foodGame.state.territories.find((territory) => territory.terrain === "agriculture" && !territory.rareSite && territory.id !== foodCapital.id);
+        check(foodGame.getFactionFoodState(1).capacity === 200 && foodGame.getFactionFoodState(1).demand === 20, "la capitale fournit une capacité permanente de 200 nourritures");
+        foodFarm.ownerId = 1;
+        foodFarm.units = 1;
+        foodFarm.productionProgress = 0;
+        const foodModeCommand = foodGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: foodFarm.id, mode: "food" });
+        check(foodModeCommand.ok && foodFarm.productionMode === "food" && foodGame.getFactionFoodState(1).capacity === 290, "un territoire agricole fournit 10 nourritures par défaut puis 80 de plus en mode alimentaire");
+        foodGame.update(6000);
+        check(foodFarm.units === 1 && foodFarm.productionProgress === 0, "un territoire alimentaire ne produit plus d’unités");
+        foodGame.eventSystem.registerEvent("famine", [foodFarm.id], 30000);
+        check(foodGame.getFactionFoodState(1).capacity === 200, "une famine suspend la contribution alimentaire locale sans retirer les 200 de la capitale");
+        foodGame.state.worldEvents = [];
+        foodGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: foodFarm.id, mode: "units" });
+        foodCapital.units = 100;
+        foodCapital.productionProgress = 0;
+        const fedProduction = foodGame.getProductionMultiplier(foodCapital);
+        foodCapital.units = 230;
+        const shortFoodState = foodGame.getFactionFoodState(1);
+        check(shortFoodState.productionMultiplier === 0.8 && Math.abs(foodGame.getProductionMultiplier(foodCapital) - fedProduction * 0.8) < 0.0001, "une légère pénurie réduit le recrutement à 80 %");
+        foodCapital.units = 300;
+        foodCapital.productionProgress = 0;
+        foodFarm.productionProgress = 0;
+        const unitsBeforeFoodAttrition = foodGame.getFactionStats(1).totalUnits;
+        foodGame.update(1000);
+        foodGame.update(1000);
+        check(foodGame.getFactionStats(1).totalUnits < unitsBeforeFoodAttrition, "une capacité inférieure à 75 % provoque une attrition progressive");
+        check(foodCapital.units >= 1 && foodFarm.units >= 1, "l’attrition alimentaire ne vide jamais entièrement une garnison territoriale");
+        check(foodGame.state.toJSON().territories.some((territory) => territory.productionMode === "units"), "le mode de production est inclus dans l’état sérialisable");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
@@ -134,6 +174,39 @@
         check(duelGame.state.factions.map((faction) => faction.id).join(",") === "4,1", "une partie peut démarrer avec seulement deux factions choisies dans le lobby");
         check(duelGame.aiSystem.factionIds.length === 1 && duelGame.aiSystem.factionIds[0] === 1, "l’ordinateur contrôle tous les participants sauf la faction du joueur");
         check(duelGame.state.getTerritoriesOwnedBy(4).length === 1 && duelGame.state.getTerritoriesOwnedBy(1).length === 1, "chaque participant du lobby reçoit un territoire de départ");
+
+        const multiplayerRoom = {
+            players: {
+                a: { uid: "a", name: "Alpha", raceId: 1, teamId: 1, slot: 1, color: "#f0b84d" },
+                b: { uid: "b", name: "Bravo", raceId: 1, teamId: 1, slot: 2, color: "#43cde0" },
+                c: { uid: "c", name: "Charlie", raceId: 3, teamId: 2, slot: 3, color: "#ef655f" }
+            }
+        };
+        const multiplayerSetups = C.FirebaseMultiplayer.buildFactionSetups(multiplayerRoom);
+        check(multiplayerSetups[0].definitionId === multiplayerSetups[1].definitionId && multiplayerSetups[0].color !== multiplayerSetups[1].color, "deux joueurs peuvent choisir la même race tout en conservant des couleurs distinctes");
+        const teamGame = new C.Game({ playerId: 1, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        teamGame.newGame(313131);
+        const teamSource = teamGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((id) => {
+            const neighbor = teamGame.state.getTerritory(id);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(id);
+        }));
+        const teamDestination = teamSource.neighbors.map((id) => teamGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable && !teamSource.isPathBlocked(territory.id));
+        teamSource.ownerId = 1;
+        teamSource.units = 20;
+        teamDestination.ownerId = 2;
+        teamDestination.units = 7;
+        check(teamGame.areAllied(1, 2) && !teamGame.areAllied(1, 3), "les alliances sont déterminées par l’équipe et non par la race");
+        check(teamGame.getTerritoryVisibilityMap(1).get(teamDestination.id) === 0, "les équipiers partagent la vision de leurs territoires");
+        check(teamGame.findAlliedPath(1, teamSource.id, teamDestination.id)?.length === 2, "un convoi peut emprunter un territoire appartenant à un équipier");
+        const alliedTransfer = teamGame.executeCommand({ type: "SEND_ARMY", playerId: 1, fromTerritoryId: teamSource.id, toTerritoryId: teamDestination.id, units: 5 });
+        for (let tick = 0; tick < 8 && teamGame.state.armies.length; tick += 1) teamGame.update(1000);
+        check(alliedTransfer.ok && teamDestination.ownerId === 2 && teamDestination.units >= 12, "un joueur peut donner des renforts à un territoire allié sans en prendre le contrôle");
+        teamGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: teamSource.id, mode: "food" });
+        const networkSnapshot = teamGame.createNetworkSnapshot();
+        const remoteTeamGame = new C.Game({ playerId: 2, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteTeamGame.newGame(313131);
+        check(remoteTeamGame.applyNetworkSnapshot(networkSnapshot) && remoteTeamGame.state.getTerritory(teamDestination.id).units === teamDestination.units, "un instantané réseau léger reproduit l’état dynamique chez un autre joueur");
+        check(remoteTeamGame.state.getTerritory(teamSource.id).productionMode === "food", "le mode alimentaire est synchronisé dans les instantanés multijoueurs");
 
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
         const playerTerritoryIds = state.getTerritoriesOwnedBy(game.playerId).map((territory) => territory.id);
@@ -248,6 +321,64 @@
         for (let tick = 0; tick < 8; tick += 1) game.update(1000);
         check(target.units > unitsBeforeReinforcement, "les renforts rejoignent le territoire allié à l’arrivée");
         check(!state.events.filter((event) => !eventIdsBeforeReinforcementArrival.has(event.id)).some((event) => /renforce .+\(\+\d+\)/.test(event.message)), "l’arrivée d’un renfort simple n’ajoute rien au journal");
+
+        const airportGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        airportGame.newGame(424242);
+        const airport = airportGame.state.territories.find((territory) => territory.terrain === "airport");
+        const airstrikeTarget = airportGame.getTerritoriesWithinHops(airport, airportGame.airstrikeRangeHops)
+            .find((territory) => !territory.isImpassable);
+        airport.ownerId = 1;
+        airport.airstrikeCooldownMs = 0;
+        airstrikeTarget.ownerId = 2;
+        airstrikeTarget.units = 100;
+        const airstrike = airportGame.executeCommand({
+            type: "AIRSTRIKE",
+            playerId: 1,
+            fromTerritoryId: airport.id,
+            toTerritoryId: airstrikeTarget.id
+        });
+        check(airstrike.ok && airstrike.damage === 10 && airstrikeTarget.units === 90, "un aéroport contrôlé peut lancer une frappe aérienne à portée");
+        check(airport.airstrikeCooldownMs === airportGame.airstrikeCooldownMs, "une frappe aérienne déclenche la recharge de l’aéroport");
+
+        const aiJournalGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, enableWorldEvents: false });
+        aiJournalGame.newGame(515151);
+        const aiLogisticsSource = aiJournalGame.state.territories.find((territory) =>
+            !territory.isImpassable && territory.neighbors.some((id) => {
+                const neighbor = aiJournalGame.state.getTerritory(id);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(id);
+            }));
+        const aiLogisticsTarget = aiLogisticsSource.neighbors.map((id) => aiJournalGame.state.getTerritory(id))
+            .find((territory) => territory && !territory.isImpassable && !aiLogisticsSource.isPathBlocked(territory.id));
+        aiLogisticsSource.ownerId = 2;
+        aiLogisticsTarget.ownerId = 2;
+        aiLogisticsSource.units = 30;
+        const eventsBeforeAiReinforcement = aiJournalGame.state.events.length;
+        const silentAiReinforcement = aiJournalGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 2,
+            fromTerritoryId: aiLogisticsSource.id,
+            toTerritoryId: aiLogisticsTarget.id,
+            units: 5
+        });
+        check(silentAiReinforcement.ok && aiJournalGame.state.events.length === eventsBeforeAiReinforcement, "un renforcement de l’IA n’est pas ajouté au journal");
+        const silentAiFlow = aiJournalGame.executeCommand({
+            type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+            playerId: 2,
+            fromTerritoryId: aiLogisticsSource.id,
+            toTerritoryId: aiLogisticsTarget.id
+        });
+        check(silentAiFlow.ok && aiJournalGame.state.events.length === eventsBeforeAiReinforcement, "les lignes logistiques de l’IA restent silencieuses dans le journal");
+        aiLogisticsSource.ownerId = 1;
+        aiLogisticsTarget.ownerId = 1;
+        aiLogisticsSource.units = 30;
+        const visibleHumanReinforcement = aiJournalGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 1,
+            fromTerritoryId: aiLogisticsSource.id,
+            toTerritoryId: aiLogisticsTarget.id,
+            units: 5
+        });
+        check(visibleHumanReinforcement.ok && aiJournalGame.state.events.length === eventsBeforeAiReinforcement + 1, "les renforcements du joueur humain restent visibles dans le journal");
 
         const convoyPath = findPathWithMinimumHops(state.territories, playerStart.id, 3);
         convoyPath.slice(1).forEach((territoryId) => {
@@ -369,7 +500,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 3 && Object.keys(C.TECHNOLOGIES).length === 12, "l’arbre propose trois axes de quatre technologies");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 14, "l’arbre propose trois axes progressifs et un axe de capacités");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -393,6 +524,27 @@
         researchFaction.research.completedTechnologyIds.push("attack-1", "defense-1", "construction-3");
         check(C.getFactionTechnologyBonus(researchFaction, "attackMultiplier") === 0.05 && researchGame.getDefenseMultiplier(researchTerritory) > C.TERRITORY_TYPES[researchTerritory.terrain].defenseMultiplier, "les technologies d’attaque et de défense alimentent les multiplicateurs de combat");
         check(Boolean(researchGame.state.toJSON().factions[0].research.completedTechnologyIds.length), "l’état technologique est inclus dans la sérialisation multijoueur");
+
+        const abilityTarget = researchTerritory.neighbors.map((id) => researchGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable);
+        abilityTarget.ownerId = 2;
+        abilityTarget.units = 100;
+        abilityTarget.productionMode = "food";
+        abilityTarget.installation = null;
+        researchFaction.research.completedTechnologyIds.push("ability-missile", "ability-reinforcement");
+        const missileLaunch = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: abilityTarget.id });
+        check(missileLaunch.ok && researchGame.state.abilityActions.length === 1 && abilityTarget.units === 100, "le missile crée une alerte différée de cinq secondes");
+        for (let tick = 0; tick < 5; tick += 1) researchGame.update(1000);
+        check(abilityTarget.units === 75 && researchGame.state.abilityActions.length === 0, "le missile retire 25 % des forces à l’impact");
+        abilityTarget.units = 500;
+        researchFaction.abilityCooldowns.missile = 0;
+        researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: abilityTarget.id });
+        for (let tick = 0; tick < 5; tick += 1) researchGame.update(1000);
+        check(abilityTarget.units === 460, "les dommages du missile sont plafonnés à 40 unités");
+        const unitsBeforeMobilization = researchTerritory.units;
+        const mobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: researchTerritory.id });
+        check(mobilization.ok && researchTerritory.units === unitsBeforeMobilization + 35, "la mobilisation d’urgence ajoute 35 unités sur un territoire contrôlé");
+        const abilitySnapshot = researchGame.createNetworkSnapshot();
+        check(abilitySnapshot.factions[0].abilityCooldowns.missile > 0 && abilitySnapshot.factions[0].abilityCooldowns.reinforcement > 0, "les recharges de capacités sont incluses dans l’instantané multijoueur");
 
         const playedFrequencies = [];
         const startedNotes = [];
@@ -494,6 +646,28 @@
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
+        const abilityAiFaction = aiGame.state.getFaction(2);
+        const abilityAiSource = aiGame.state.getTerritoriesOwnedBy(2)[0];
+        const abilityAiTarget = abilityAiSource.neighbors.map((id) => aiGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable);
+        abilityAiTarget.ownerId = 1;
+        abilityAiTarget.units = 80;
+        abilityAiFaction.research.completedTechnologyIds.push("ability-missile");
+        abilityAiFaction.abilityCooldowns.missile = 0;
+        const abilityAiDecision = aiGame.aiSystem.considerAbilities(abilityAiFaction, aiGame.state.getTerritoriesOwnedBy(2));
+        check(abilityAiDecision && aiGame.state.abilityActions.some((action) => action.factionId === 2 && action.targetTerritoryId === abilityAiTarget.id), "l’IA utilise son missile contre une concentration ennemie visible");
+
+        const foodAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, enableWorldEvents: false, timeScale: 1 });
+        foodAiGame.newGame(747474);
+        const foodAiCapital = foodAiGame.state.getTerritoriesOwnedBy(2)[0];
+        const foodAiFarm = foodAiGame.state.territories.find((territory) => territory.terrain === "agriculture" && !territory.rareSite && territory.id !== foodAiCapital.id);
+        foodAiFarm.ownerId = 2;
+        foodAiFarm.units = 1;
+        foodAiCapital.units = 229;
+        foodAiGame.state.elapsedMs = 50000;
+        const foodAiDecision = foodAiGame.aiSystem.manageFoodSupply(foodAiGame.state.getFaction(2), foodAiGame.state.getTerritoriesOwnedBy(2));
+        check(foodAiDecision && foodAiFarm.productionMode === "food", "l’IA convertit un territoire agricole intérieur lorsqu’elle approche de sa limite alimentaire");
+        check(foodAiGame.getFactionFoodState(2).capacity >= 280, "la décision alimentaire de l’IA augmente réellement sa capacité de ravitaillement");
+
         const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiLogisticsGame.newGame(515151);
         const technocratStart = aiLogisticsGame.state.getTerritoriesOwnedBy(2)[0];
@@ -560,10 +734,13 @@
         concentrationDonor.units = 100;
         concentrationFront.ownerId = 2;
         concentrationFront.units = 100;
+        concentrationFront.isCapital = true;
+        concentrationState.getFaction(2).capitalTerritoryId = concentrationFront.id;
         concentrationTarget.ownerId = 1;
         concentrationTarget.units = 150;
         concentrationTarget.terrain = "plain";
         concentrationTarget.rareSite = null;
+        concentrationTarget.isCapital = false;
         concentrationGame.aiSystem.reset();
         const concentratedTotalBefore = concentrationGame.getFactionStats(2).totalUnits;
         concentrationGame.aiSystem.think(2);

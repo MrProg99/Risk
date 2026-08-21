@@ -124,6 +124,7 @@
             this.drawWorldEvents(ctx, state, now);
             this.drawCannonInstallations(ctx, state, now);
             this.drawArmies(ctx, state, now);
+            this.drawAbilityActions(ctx, state, now);
             this.drawCannonShots(ctx, now);
             this.drawTransferPreview(ctx, state, now);
             this.drawCapturePulses(ctx, now);
@@ -485,12 +486,29 @@
                 ctx.fillText(label, center.x, center.y + 1.5);
 
                 if (territory.ownerId !== null) {
-                    const progress = C.Geometry.clamp(territory.productionProgress, 0, 1);
+                    const foodMode = territory.productionMode === "food";
+                    const progress = foodMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
                     ctx.beginPath();
                     ctx.arc(center.x, center.y + 1, radius + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-                    ctx.strokeStyle = faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
+                    ctx.strokeStyle = foodMode ? "rgba(158,215,122,.92)" : faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
                     ctx.lineWidth = 2;
                     ctx.stroke();
+                    if (foodMode) {
+                        const foodX = center.x + radius + 7;
+                        const foodY = center.y - radius + 1;
+                        ctx.beginPath();
+                        ctx.arc(foodX, foodY, 7, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(18,38,15,.94)";
+                        ctx.fill();
+                        ctx.strokeStyle = "#9ed77a";
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                        ctx.fillStyle = "#b9ef98";
+                        ctx.font = "800 7px sans-serif";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText("F", foodX, foodY + 0.5);
+                    }
                 }
 
                 if (territory.isCapital) {
@@ -677,6 +695,36 @@
             });
         }
 
+        drawAbilityActions(ctx, state, now) {
+            state.abilityActions.forEach((action) => {
+                if (action.abilityId !== "missile") return;
+                const target = state.getTerritory(action.targetTerritoryId);
+                if (!target || !this.game.isTerritoryVisible(target.id, this.game.playerId, this.visibilityMap)) return;
+                const remainingMs = Math.max(0, action.executeAtMs - state.elapsedMs);
+                const pulse = (Math.sin(now / 105) + 1) / 2;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(target.center.x, target.center.y, 34 + pulse * 12, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 90, 75, ${0.55 + pulse * 0.4})`;
+                ctx.lineWidth = 4;
+                ctx.setLineDash([8, 5]);
+                ctx.lineDashOffset = -(now / 35) % 13;
+                ctx.shadowColor = "#ff594b";
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = "rgba(15, 3, 5, .88)";
+                ctx.fillRect(target.center.x - 22, target.center.y - 10, 44, 20);
+                ctx.fillStyle = "#ffb2aa";
+                ctx.font = "800 12px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(`${Math.max(1, Math.ceil(remainingMs / 1000))} s`, target.center.x, target.center.y + 1);
+                ctx.restore();
+            });
+        }
+
         drawArmies(ctx, state, now) {
             state.armies.forEach((army) => {
                 if (!this.game.isArmyVisible(army, this.game.playerId, this.visibilityMap)) return;
@@ -748,9 +796,9 @@
             const hasDestination = Boolean(target && target.id !== source.id);
             const isAlliedDestination = hasDestination &&
                 source.ownerId === this.game.playerId &&
-                target.ownerId === this.game.playerId;
+                this.game.areAllied(target.ownerId, this.game.playerId);
             const path = isAlliedDestination
-                ? this.game.findOwnedPath(this.game.playerId, source.id, target.id)
+                ? this.game.findAlliedPath(this.game.playerId, source.id, target.id)
                 : null;
             const units = source.units > 1
                 ? Math.max(1, Math.floor((source.units - 1) * this.game.quickTransferRatio))
