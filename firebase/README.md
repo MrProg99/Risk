@@ -23,6 +23,8 @@ Exemple de fusion (ne remplacez pas vos namespaces existants) :
 
 Le mode solo fonctionne encore en ouvrant `index.html` directement. Le mode multijoueur doit être servi en HTTP, par exemple avec **Live Server** dans VS Code.
 
+Lors de la création d’un salon, l’hôte peut réserver toute l’équipe adverse à l’IA. Ces participants sont décrits par `meta.opponentMode` et simulés uniquement par l’hôte; ils n’écrivent pas de faux comptes dans `players`. Le champ supplémentaire est accepté par les règles existantes, donc aucune nouvelle publication des règles Firebase n’est requise.
+
 ## Modèle de données
 
 Chaque partie est stockée sous `frontieres/rooms/{CODE}`. L’hôte est le seul navigateur qui fait avancer la simulation et écrit `snapshot`. Chaque joueur ne peut modifier que son profil, réserver son créneau et écrire ses commandes. Une commande reçue est revalidée par le moteur de l’hôte avant d’être exécutée.

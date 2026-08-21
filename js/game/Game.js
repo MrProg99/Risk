@@ -39,7 +39,9 @@
             this.foodAttritionIntervalMs = Math.max(2000, Number(options.foodAttritionIntervalMs ?? 10000));
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
-                factionIds: this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
+                factionIds: Array.isArray(options.aiFactionIds)
+                    ? options.aiFactionIds.map(Number)
+                    : this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
             });
             this.eventSystem = new C.EventSystem(this, {
                 enabled: options.enableWorldEvents !== false
@@ -71,7 +73,7 @@
             this.aiSystem.reset();
             this.eventSystem.reset();
             const playerFaction = state.getFaction(this.playerId);
-            const computerFactions = state.factions.filter((faction) => faction.id !== this.playerId);
+            const computerFactions = state.factions.filter((faction) => this.aiSystem.factionIds.includes(faction.id));
             this.addEvent(`Le commandement de la faction ${playerFaction.name} est opérationnel.`, "info");
             if (this.aiSystem.enabled && computerFactions.length) {
                 const names = computerFactions.map((faction) => faction.name);

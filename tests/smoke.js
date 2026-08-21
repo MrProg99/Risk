@@ -184,6 +184,18 @@
         };
         const multiplayerSetups = C.FirebaseMultiplayer.buildFactionSetups(multiplayerRoom);
         check(multiplayerSetups[0].definitionId === multiplayerSetups[1].definitionId && multiplayerSetups[0].color !== multiplayerSetups[1].color, "deux joueurs peuvent choisir la même race tout en conservant des couleurs distinctes");
+        const humanVsAiRoom = {
+            meta: { teamSize: 2, maxPlayers: 4, opponentMode: "ai" },
+            players: {
+                a: { uid: "a", name: "Alpha", raceId: 1, teamId: 1, slot: 1, color: "#f0b84d" },
+                b: { uid: "b", name: "Bravo", raceId: 2, teamId: 1, slot: 2, color: "#43cde0" }
+            }
+        };
+        const humanVsAiSetups = C.FirebaseMultiplayer.buildFactionSetups(humanVsAiRoom);
+        check(humanVsAiSetups.length === 4 && humanVsAiSetups.filter((setup) => setup.isAI && setup.teamId === 2).length === 2, "un salon 2v2 peut compléter toute l’équipe adverse avec des IA");
+        const humanVsAiGame = new C.Game({ playerId: 1, factionSetups: humanVsAiSetups, enableAI: true, aiFactionIds: [3, 4], enableWorldEvents: false });
+        humanVsAiGame.newGame(313132);
+        check(humanVsAiGame.aiSystem.factionIds.join(",") === "3,4" && humanVsAiGame.areAllied(3, 4) && !humanVsAiGame.areAllied(1, 3), "les deux adversaires IA sont actifs et coopèrent dans la même équipe");
         const teamGame = new C.Game({ playerId: 1, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         teamGame.newGame(313131);
         const teamSource = teamGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((id) => {
@@ -201,6 +213,34 @@
         const alliedTransfer = teamGame.executeCommand({ type: "SEND_ARMY", playerId: 1, fromTerritoryId: teamSource.id, toTerritoryId: teamDestination.id, units: 5 });
         for (let tick = 0; tick < 8 && teamGame.state.armies.length; tick += 1) teamGame.update(1000);
         check(alliedTransfer.ok && teamDestination.ownerId === 2 && teamDestination.units >= 12, "un joueur peut donner des renforts à un territoire allié sans en prendre le contrôle");
+
+        const existingTeamFixtureIds = new Set([teamSource.id, teamDestination.id]);
+        const alliedAidTarget = teamGame.state.territories.find((territory) => !territory.isImpassable && !territory.isCapital && !existingTeamFixtureIds.has(territory.id) && territory.neighbors.filter((id) => {
+            const neighbor = teamGame.state.getTerritory(id);
+            return neighbor && !neighbor.isImpassable && !existingTeamFixtureIds.has(neighbor.id) && !territory.isPathBlocked(id);
+        }).length >= 2);
+        const alliedAidNeighbors = alliedAidTarget.neighbors
+            .map((id) => teamGame.state.getTerritory(id))
+            .filter((territory) => territory && !territory.isImpassable && !existingTeamFixtureIds.has(territory.id) && !alliedAidTarget.isPathBlocked(territory.id));
+        const alliedAidSource = alliedAidNeighbors[0];
+        const alliedAidEnemy = alliedAidNeighbors[1];
+        alliedAidSource.ownerId = 1;
+        alliedAidSource.units = 100;
+        alliedAidTarget.ownerId = 2;
+        alliedAidTarget.units = 10;
+        alliedAidEnemy.ownerId = 3;
+        alliedAidEnemy.units = 35;
+        const alliedAidTotalSurplus = teamGame.state.getTerritoriesOwnedBy(1).reduce((sum, territory) => {
+            const hostileNeighbors = territory.neighbors.map((id) => teamGame.state.getTerritory(id))
+                .filter((neighbor) => neighbor && neighbor.ownerId !== null && !neighbor.isImpassable && !teamGame.areAllied(neighbor.ownerId, 1)).length;
+            return sum + Math.max(0, territory.units - 5 - hostileNeighbors * 3 - (territory.isCapital ? 5 : 0));
+        }, 0);
+        const alliedAidStarted = teamGame.aiSystem.considerAlliedDefense(teamGame.state.getFaction(1), teamGame.state.getTerritoriesOwnedBy(1));
+        const alliedAidArmy = teamGame.state.armies.find((army) => army.ownerId === 1 && army.isConvoy && army.finalTerritoryId === alliedAidTarget.id);
+        check(alliedAidStarted && alliedAidArmy && alliedAidArmy.units <= Math.floor(alliedAidTotalSurplus * 0.25), "l’IA envoie au plus 25 % de son surplus vers un territoire allié gravement menacé");
+        for (let tick = 0; tick < 8 && teamGame.state.armies.includes(alliedAidArmy); tick += 1) teamGame.update(1000);
+        check(alliedAidTarget.ownerId === 2 && alliedAidTarget.units > 10 && teamGame.aiSystem.alliedDefenseConvoysSent === 1, "le convoi d’aide renforce le coéquipier sans prendre le contrôle de son territoire");
+
         teamGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: teamSource.id, mode: "food" });
         const networkSnapshot = teamGame.createNetworkSnapshot();
         const remoteTeamGame = new C.Game({ playerId: 2, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });

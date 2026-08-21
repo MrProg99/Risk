@@ -695,7 +695,7 @@
                 const dot = document.createElement("span");
                 dot.className = "legend-dot";
                 dot.style.background = faction.color;
-                const controlLabel = faction.id !== null && faction.id !== this.game.playerId ? " · IA" : "";
+                const controlLabel = faction.id !== null && faction.isAI ? " · IA" : "";
                 item.append(dot, document.createTextNode(`${faction.name}${controlLabel}`));
                 this.elements.factionLegend.append(item);
             });

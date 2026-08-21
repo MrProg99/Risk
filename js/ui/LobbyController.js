@@ -18,6 +18,7 @@
             this.soloPlayerOptions = document.getElementById("solo-player-options");
             this.roomCodeField = document.getElementById("room-code-field");
             this.teamSizeField = document.getElementById("team-size-field");
+            this.opponentModeField = document.getElementById("opponent-mode-field");
             this.preferredTeamField = document.getElementById("preferred-team-field");
             this.roomWaiting = document.getElementById("room-waiting");
             this.roomCodeDisplay = document.getElementById("room-code-display");
@@ -109,6 +110,7 @@
                 playerName: this.form.elements.playerName?.value || "Commandant",
                 roomCode: this.form.elements.roomCode?.value || "",
                 teamSize: Number(this.form.elements.teamSize?.value) || 1,
+                opponentMode: this.form.elements.opponentMode?.value === "human" ? "human" : "ai",
                 teamId: Number(this.form.elements.preferredTeam?.value) || 1,
                 raceId: playerId,
                 activeFactionIds: LobbyController.buildActiveFactionIds(
@@ -130,6 +132,7 @@
             if (this.soloPlayerOptions) this.soloPlayerOptions.hidden = online;
             if (this.roomCodeField) this.roomCodeField.hidden = configuration.mode !== "join";
             if (this.teamSizeField) this.teamSizeField.hidden = configuration.mode !== "host";
+            if (this.opponentModeField) this.opponentModeField.hidden = configuration.mode !== "host";
             if (this.preferredTeamField) this.preferredTeamField.hidden = configuration.mode !== "join";
             if (this.room) return this.renderRoom(this.room);
             if (!online) {
@@ -137,7 +140,8 @@
                 this.summary.textContent = `${selectedFaction.name} contre ${opponents} adversaire${opponents > 1 ? "s" : ""} contrôlé${opponents > 1 ? "s" : ""} par l’ordinateur.`;
                 this.startButton.textContent = `Lancer la partie · ${configuration.playerCount} joueurs`;
             } else if (configuration.mode === "host") {
-                this.summary.textContent = `Créer un salon ${configuration.teamSize}v${configuration.teamSize} avec la race ${selectedFaction.name}.`;
+                const opponents = configuration.opponentMode === "ai" ? "une équipe IA" : "des joueurs humains";
+                this.summary.textContent = `Créer un salon ${configuration.teamSize}v${configuration.teamSize} contre ${opponents}, avec la race ${selectedFaction.name}.`;
                 this.startButton.textContent = "Créer le salon";
             } else {
                 this.summary.textContent = `Rejoindre une équipe avec la race ${selectedFaction.name}.`;
@@ -179,6 +183,7 @@
                     this.roomStarted = true;
                     const factionSetups = C.FirebaseMultiplayer.buildFactionSetups(room);
                     const localFaction = factionSetups.find((setup) => setup.playerUid === this.network.uid);
+                    const aiFactionIds = factionSetups.filter((setup) => setup.isAI).map((setup) => setup.id);
                     this.startListeners.forEach((listener) => listener({
                         mode: "multiplayer",
                         roomCode: this.network.roomCode,
@@ -186,6 +191,7 @@
                         playerCount: factionSetups.length,
                         activeFactionIds: factionSetups.map((setup) => setup.id),
                         factionSetups,
+                        aiFactionIds,
                         seed: Number(room.meta.seed),
                         isHost: room.meta.hostUid === this.network.uid,
                         network: this.network
@@ -198,22 +204,25 @@
             if (!this.roomWaiting) return;
             this.roomWaiting.hidden = false;
             this.roomCodeDisplay.textContent = this.network.roomCode;
-            const players = Object.values(room.players || {}).sort((a, b) => a.slot - b.slot);
+            const humanPlayers = Object.values(room.players || {});
+            const players = humanPlayers.concat(C.FirebaseMultiplayer.buildAIPlayers(room)).sort((a, b) => a.slot - b.slot);
             this.roomPlayerList.replaceChildren(...players.map((player) => {
                 const row = document.createElement("div");
                 const race = this.factionDefinitions.find((item) => item.id === Number(player.raceId));
                 row.innerHTML = `<span class="room-player-dot"></span><strong></strong><small></small>`;
                 row.style.setProperty("--player-color", player.color);
                 row.querySelector("strong").textContent = player.name;
-                row.querySelector("small").textContent = `Équipe ${player.teamId} · ${race?.name || "Faction"}${player.connected === false ? " · reconnexion…" : ""}`;
+                row.querySelector("small").textContent = `Équipe ${player.teamId} · ${race?.name || "Faction"}${player.isAI ? " · ordinateur" : player.connected === false ? " · reconnexion…" : ""}`;
                 return row;
             }));
-            const missing = Number(room.meta.maxPlayers) - players.length;
+            const expectedHumans = room.meta.opponentMode === "ai" ? Number(room.meta.teamSize) : Number(room.meta.maxPlayers);
+            const missing = expectedHumans - humanPlayers.length;
             const isHost = room.meta.hostUid === this.network.uid;
             this.roomStatus.textContent = missing > 0
                 ? `En attente de ${missing} joueur${missing > 1 ? "s" : ""}…`
                 : isHost ? "Les équipes sont prêtes. Lancez la partie." : "En attente du lancement par l’hôte…";
-            this.summary.textContent = `Salon ${this.network.roomCode} · ${players.length}/${room.meta.maxPlayers} joueurs`;
+            const aiCount = players.filter((player) => player.isAI).length;
+            this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""}`;
             this.startButton.hidden = !isHost;
             this.startButton.disabled = !isHost || missing > 0;
             this.startButton.textContent = "Lancer la partie en ligne";

@@ -4,11 +4,13 @@
     function launchGame(configuration, lobby) {
         const canvas = document.getElementById("game-canvas");
         const multiplayer = configuration.mode === "multiplayer";
+        const permanentAiFactionIds = multiplayer ? (configuration.aiFactionIds || []).map(Number) : [];
         const game = new C.Game({
             playerId: configuration.playerId,
             activeFactionIds: configuration.activeFactionIds,
             factionSetups: configuration.factionSetups,
-            enableAI: !multiplayer
+            enableAI: !multiplayer || (configuration.isHost && permanentAiFactionIds.length > 0),
+            aiFactionIds: multiplayer ? permanentAiFactionIds : undefined
         });
         const audio = new C.AudioManager();
         audio.unlock();
@@ -53,13 +55,14 @@
                 const takeoverIds = Object.values(configuration.network.room?.players || {})
                     .filter((player) => player.connected === false && Number(player.disconnectedAt) > 0 && Date.now() - Number(player.disconnectedAt) >= 30000)
                     .map((player) => Number(player.slot));
-                game.aiSystem.factionIds = takeoverIds;
-                game.aiSystem.enabled = takeoverIds.length > 0;
-                takeoverIds.forEach((factionId) => {
+                const controlledIds = [...new Set(permanentAiFactionIds.concat(takeoverIds))];
+                game.aiSystem.factionIds = controlledIds;
+                game.aiSystem.enabled = controlledIds.length > 0;
+                controlledIds.forEach((factionId) => {
                     if (!game.aiSystem.thinkTimers.has(factionId)) game.aiSystem.thinkTimers.set(factionId, 500);
                 });
                 Array.from(game.aiSystem.thinkTimers.keys()).forEach((factionId) => {
-                    if (!takeoverIds.includes(factionId)) game.aiSystem.thinkTimers.delete(factionId);
+                    if (!controlledIds.includes(factionId)) game.aiSystem.thinkTimers.delete(factionId);
                 });
                 lastPresenceReview = now;
             }

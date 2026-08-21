@@ -50,7 +50,8 @@
         }
 
         static buildFactionSetups(room) {
-            return Object.values(room.players || {}).sort((a, b) => a.slot - b.slot).map((player) => {
+            const participants = Object.values(room.players || {}).concat(FirebaseMultiplayer.buildAIPlayers(room));
+            return participants.sort((a, b) => a.slot - b.slot).map((player) => {
                 const race = C.FACTION_DEFINITIONS.find((item) => item.id === Number(player.raceId)) || C.FACTION_DEFINITIONS[0];
                 return {
                     ...race,
@@ -60,9 +61,28 @@
                     teamId: Number(player.teamId),
                     playerUid: player.uid,
                     playerName: player.name,
+                    isAI: Boolean(player.isAI),
                     name: `${race.name} · ${player.name}`,
                     color: player.color,
                     accent: player.color
+                };
+            });
+        }
+
+        static buildAIPlayers(room) {
+            if (room?.meta?.opponentMode !== "ai") return [];
+            const teamSize = Math.max(1, Math.min(3, Number(room.meta.teamSize) || 1));
+            return Array.from({ length: teamSize }, (_unused, index) => {
+                const slot = teamSize + index + 1;
+                return {
+                    uid: null,
+                    name: `IA ${index + 1}`,
+                    raceId: C.FACTION_DEFINITIONS[(slot - 1) % C.FACTION_DEFINITIONS.length].id,
+                    teamId: 2,
+                    slot,
+                    color: PLAYER_COLORS[(slot - 1) % PLAYER_COLORS.length],
+                    connected: true,
+                    isAI: true
                 };
             });
         }
@@ -95,11 +115,12 @@
             const now = this.api.serverTimestamp();
             await this.api.set(roomRef, {
                 meta: {
-                    version: 1,
+                    version: 2,
                     status: "lobby",
                     hostUid: this.uid,
                     teamSize,
                     maxPlayers: teamSize * 2,
+                    opponentMode: options.opponentMode === "human" ? "human" : "ai",
                     seed: null,
                     createdAt: now,
                     updatedAt: now
@@ -136,7 +157,9 @@
 
             const teamSize = Number(room.meta.teamSize);
             const preferredTeam = Math.max(1, Math.min(2, Number(options.teamId) || 1));
-            const teamOrder = [preferredTeam, preferredTeam === 1 ? 2 : 1];
+            const teamOrder = room.meta.opponentMode === "ai"
+                ? [1]
+                : [preferredTeam, preferredTeam === 1 ? 2 : 1];
             let claimed = null;
             for (const teamId of teamOrder) {
                 for (let offset = 0; offset < teamSize; offset += 1) {
@@ -200,10 +223,14 @@
         async startRoom() {
             if (!this.room || this.room.meta.hostUid !== this.uid) throw new Error("Seul l’hôte peut lancer la partie.");
             const players = Object.values(this.room.players || {});
-            if (players.length !== Number(this.room.meta.maxPlayers)) throw new Error("Tous les joueurs doivent être présents.");
+            const aiOpponents = this.room.meta.opponentMode === "ai";
+            const expectedHumans = aiOpponents ? Number(this.room.meta.teamSize) : Number(this.room.meta.maxPlayers);
+            if (players.length !== expectedHumans) throw new Error("Tous les joueurs humains doivent être présents.");
             const teamOne = players.filter((player) => Number(player.teamId) === 1).length;
             const teamTwo = players.filter((player) => Number(player.teamId) === 2).length;
-            if (teamOne !== teamTwo) throw new Error("Les deux équipes doivent être équilibrées.");
+            if (aiOpponents) {
+                if (teamOne !== Number(this.room.meta.teamSize) || teamTwo !== 0) throw new Error("L’équipe humaine doit être complète.");
+            } else if (teamOne !== teamTwo) throw new Error("Les deux équipes doivent être équilibrées.");
             await this.api.update(this.api.ref(this.database, `${ROOT}/${this.roomCode}/meta`), {
                 status: "playing",
                 seed: Math.floor(Math.random() * 1000000),

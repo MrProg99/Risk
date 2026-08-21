@@ -7,6 +7,7 @@
             this.definitionId = Number(definition.definitionId ?? definition.id);
             this.playerUid = definition.playerUid || null;
             this.playerName = definition.playerName || null;
+            this.isAI = Boolean(definition.isAI);
             this.teamId = Number(definition.teamId ?? definition.id);
             this.name = definition.name;
             this.color = definition.color;
@@ -31,6 +32,7 @@
                 definitionId: this.definitionId,
                 playerUid: this.playerUid,
                 playerName: this.playerName,
+                isAI: this.isAI,
                 teamId: this.teamId,
                 name: this.name,
                 color: this.color,
