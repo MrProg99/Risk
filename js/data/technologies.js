@@ -8,7 +8,7 @@
             icon: "◆",
             color: "#e9bd63",
             description: "Développer la production et les réseaux logistiques.",
-            technologyIds: ["construction-1", "construction-2", "construction-3", "construction-4"]
+            technologyIds: ["construction-1", "construction-2", "construction-agriculture", "construction-3", "construction-4"]
         },
         {
             id: "attack",
@@ -69,6 +69,17 @@
             prerequisiteId: "construction-2",
             effects: { travelSpeedMultiplier: 0.10 },
             effectLabel: "+10 % de vitesse de déplacement"
+        },
+        "construction-agriculture": {
+            id: "construction-agriculture",
+            branchId: "construction",
+            tier: 3,
+            name: "Agriculture intensive",
+            description: "Des cultures organisées augmentent la nourriture produite autour de chaque ville.",
+            durationMs: 150000,
+            prerequisiteId: "construction-2",
+            effects: { territoryBaseFoodCapacityBonus: 10 },
+            effectLabel: "Nourriture passive : 10 → 20 par territoire"
         },
         "construction-4": {
             id: "construction-4",

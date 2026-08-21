@@ -25,7 +25,7 @@ La cadence de recrutement possède en plus un ajustement d’équilibrage global
 
 ## Nourriture et ravitaillement
 
-La nourriture représente une **capacité permanente**, pas un stock consommé avec le temps. Chaque unité en garnison ou en déplacement utilise un point de nourriture. La capitale fournit 200 points tant que la faction possède au moins un territoire et peut y maintenir une capitale. Chaque autre territoire contrôlé fournit aussi **10 points de nourriture passifs**, même lorsqu’il reste affecté au recrutement.
+La nourriture représente une **capacité permanente**, pas un stock consommé avec le temps. Chaque unité en garnison ou en déplacement utilise un point de nourriture. La capitale fournit 200 points tant que la faction possède au moins un territoire et peut y maintenir une capitale. Chaque autre territoire contrôlé fournit aussi **10 points de nourriture passifs**, même lorsqu’il reste affecté au recrutement. La recherche **Agriculture intensive**, dans l’axe Construction, fait passer cette contribution passive à **20 points par territoire**.
 
 Un territoire contrôlé peut être affecté au **recrutement** ou à la **production alimentaire** depuis son panneau latéral. En mode nourriture, il conserve sa contribution passive, cesse de recruter et ajoute une capacité dépendant de son terrain : agriculture 80, plaine 50, industrie/science/centrale 40, mine 30, forteresse/radar/aéroport 25. Une Métropole ajoute 50 et un Grand barrage 20 à la valeur du terrain. Un anneau vert et le marqueur `F` permettent de reconnaître ces territoires sur la carte.
 

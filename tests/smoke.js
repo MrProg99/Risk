@@ -500,7 +500,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 14, "l’arbre propose trois axes progressifs et un axe de capacités");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 15, "l’arbre propose trois axes progressifs et un axe de capacités");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -523,6 +523,11 @@
         check(researchGame.getProductionMultiplier(researchTerritory) > productionBeforeResearch * 1.07, "une technologie de construction améliore réellement la production");
         researchFaction.research.completedTechnologyIds.push("attack-1", "defense-1", "construction-3");
         check(C.getFactionTechnologyBonus(researchFaction, "attackMultiplier") === 0.05 && researchGame.getDefenseMultiplier(researchTerritory) > C.TERRITORY_TYPES[researchTerritory.terrain].defenseMultiplier, "les technologies d’attaque et de défense alimentent les multiplicateurs de combat");
+        researchFaction.research.completedTechnologyIds.push("construction-agriculture");
+        const researchedFoodTerritory = researchGame.state.territories.find((territory) => !territory.isImpassable && !territory.isCapital);
+        researchedFoodTerritory.ownerId = 1;
+        researchedFoodTerritory.productionMode = "units";
+        check(researchGame.getTerritoryPassiveFoodCapacity(researchedFoodTerritory) === 20, "Agriculture intensive fait passer la nourriture passive de 10 à 20 par territoire");
         check(Boolean(researchGame.state.toJSON().factions[0].research.completedTechnologyIds.length), "l’état technologique est inclus dans la sérialisation multijoueur");
 
         const abilityTarget = researchTerritory.neighbors.map((id) => researchGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable);

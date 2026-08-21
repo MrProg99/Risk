@@ -773,7 +773,9 @@
             if (!canCommand) return;
             const foodMode = territory.productionMode === "food";
             const foodCapacity = this.game.getPotentialTerritoryFoodCapacity(territory);
-            const passiveCapacity = territory.isCapital ? this.game.capitalFoodCapacity : this.game.territoryBaseFoodCapacity;
+            const passiveCapacity = territory.isCapital
+                ? this.game.capitalFoodCapacity
+                : this.game.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
             const famine = this.game.eventSystem.isTerritoryAffected(territory.id, "famine");
             this.elements.modeUnits.classList.toggle("active", !foodMode);
             this.elements.modeFood.classList.toggle("active", foodMode);

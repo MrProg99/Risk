@@ -1049,7 +1049,12 @@
         getTerritoryPassiveFoodCapacity(territory) {
             if (!territory || territory.ownerId === null || territory.isImpassable || territory.isCapital) return 0;
             if (this.eventSystem.isTerritoryAffected(territory.id, "famine")) return 0;
-            return this.territoryBaseFoodCapacity;
+            return this.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
+        }
+
+        getFactionTerritoryBaseFoodCapacity(factionId) {
+            const faction = this.state.getFaction(factionId);
+            return this.territoryBaseFoodCapacity + C.getFactionTechnologyBonus(faction, "territoryBaseFoodCapacityBonus");
         }
 
         getTerritoryFoodCapacity(territory) {
