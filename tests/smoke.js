@@ -741,6 +741,7 @@
         aiGame.newGame(707070);
         for (let tick = 0; tick < 24; tick += 1) aiGame.update(1000);
         check(aiGame.aiSystem.ordersIssued > 0, "les factions contrôlées par l’ordinateur prennent des décisions");
+        check(aiGame.aiSystem.getMaximumTacticalArmies(6) === 2 && aiGame.aiSystem.getMaximumTacticalArmies(15) === 5 && aiGame.aiSystem.getMaximumTacticalArmies(30) === 8, "la capacité tactique de l’IA progresse avec son empire jusqu’à huit armées simultanées");
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
@@ -820,6 +821,9 @@
         technocratNetwork.slice(1).forEach((territoryId) => {
             aiLogisticsGame.state.getTerritory(territoryId).ownerId = 2;
         });
+        technocratStart.neighbors.map((id) => aiLogisticsGame.state.getTerritory(id)).filter((territory) => territory && !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 2;
+        });
         aiLogisticsGame.aiSystem.manageContinuousReinforcements(
             aiLogisticsGame.state.getFaction(2),
             aiLogisticsGame.state.getTerritoriesOwnedBy(2)
@@ -830,6 +834,27 @@
         aiRouteSource.productionProgress = 0.99;
         aiLogisticsGame.update(1000);
         check(aiRoute.unitsDispatched > 0, "la production de l’IA alimente automatiquement sa ligne logistique");
+
+        const networkGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        networkGame.newGame(525252);
+        const networkFaction = networkGame.state.getFaction(2);
+        const networkCapital = networkGame.state.getTerritory(networkFaction.capitalTerritoryId);
+        const networkSide = Math.sign(networkCapital.center.x - networkGame.state.mapWidth / 2);
+        networkGame.state.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            const side = Math.sign(territory.center.x - networkGame.state.mapWidth / 2);
+            territory.ownerId = side === networkSide ? 2 : 1;
+            territory.units = 20;
+            territory.productionMode = "units";
+        });
+        for (let cycle = 0; cycle < 30; cycle += 1) {
+            networkGame.aiSystem.manageContinuousReinforcements(networkFaction, networkGame.state.getTerritoriesOwnedBy(2));
+        }
+        const networkRoutes = networkGame.state.reinforcementRoutes.filter((route) => route.active && route.ownerId === 2);
+        check(networkRoutes.length === 18 && new Set(networkRoutes.map((route) => route.fromTerritoryId)).size === 18, "une grande IA peut alimenter son front depuis dix-huit villes intérieures distinctes");
+        const deactivatedNetworkRoute = networkRoutes[0];
+        networkGame.state.getTerritory(deactivatedNetworkRoute.fromTerritoryId).productionMode = "food";
+        networkGame.aiSystem.manageContinuousReinforcements(networkFaction, networkGame.state.getTerritoriesOwnedBy(2));
+        check(!deactivatedNetworkRoute.active, "l’IA arrête le flux d’une ville qui abandonne le recrutement pour produire de la nourriture");
 
         const rearGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
         rearGame.newGame(616161);

@@ -86,6 +86,10 @@ Sur une carte Sablier, l’IA consolide en priorité sa propre moitié. Une atta
 
 L’IA redistribue aussi les grandes garnisons éloignées du danger. Un territoire intérieur possédant au moins douze unités au-delà de sa réserve peut envoyer environ 70 % de ce surplus par un convoi traversant plusieurs territoires alliés. Deux convois de redistribution peuvent circuler simultanément; les capitales, canons et sites rares conservent une réserve supplémentaire.
 
+La capacité de manœuvre tactique de l’IA augmente avec son territoire : une armée simultanée par groupe de trois territoires, jusqu’à un maximum de **huit**. Les petits empires restent lisibles, tandis que les grandes puissances peuvent soutenir plusieurs fronts sans attendre la fin de quatre déplacements lointains.
+
+Son réseau de flux continus peut compter jusqu’à **dix-huit villes sources**. Chaque ville intérieure affectée au recrutement établit progressivement sa propre ligne vers l’une des trois frontières les plus urgentes. Les destinations sont réparties pour éviter un seul point congestionné. Une ligne est automatiquement arrêtée si sa source passe en mode nourriture ou devient elle-même frontalière, puis peut être recréée ailleurs lorsque la situation évolue.
+
 Les triangles clairs placés sur certaines frontières représentent des montagnes infranchissables. Ces passages sont interdits aux armées du joueur comme à celles de l’ordinateur. La génération vérifie néanmoins que tous les territoires restent accessibles par au moins un itinéraire terrestre.
 
 ### Lacs intérieurs

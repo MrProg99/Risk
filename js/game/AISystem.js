@@ -126,7 +126,7 @@
             // production en transit suffisent à bloquer toutes les offensives.
             const movingArmies = state.armies.filter((army) =>
                 army.ownerId === factionId && !army.reinforcementRouteId).length;
-            const maximumArmies = C.Geometry.clamp(Math.ceil(owned.length / 3), 1, 4);
+            const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (movingArmies >= maximumArmies) return false;
 
             const attack = this.findBestAttack(faction, owned);
@@ -582,7 +582,7 @@
                 !army.isConvoy && army.toTerritoryId === target.id);
             if (attackAlreadyLaunched) return true;
 
-            const maximumArmies = C.Geometry.clamp(Math.ceil(owned.length / 3), 1, 4);
+            const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (availableAtFront >= requiredUnits) {
                 if (tacticalArmies.length >= maximumArmies) return true;
                 const attackUnits = Math.min(
@@ -707,49 +707,69 @@
             if (owned.length < 3) return false;
             const state = this.game.state;
             const activeRoutes = state.reinforcementRoutes.filter((route) => route.active && route.ownerId === faction.id);
-            const desiredRouteCount = Math.min(3, 1 + Math.floor((owned.length - 3) / 7));
             const targets = this.rankLogisticsTargets(faction, owned);
             if (!targets.length) return false;
 
+            const eligibleSources = owned.filter((territory) => this.isSafeLogisticsSource(faction.id, territory));
+            const eligibleSourceIds = new Set(eligibleSources.map((territory) => territory.id));
+            const desiredRouteCount = Math.min(18, eligibleSources.length);
+
+            const obsoleteRoute = activeRoutes.find((route) => !eligibleSourceIds.has(route.fromTerritoryId));
+            if (obsoleteRoute) {
+                const result = this.game.executeCommand({
+                    type: "CANCEL_CONTINUOUS_REINFORCEMENT_ROUTE",
+                    playerId: faction.id,
+                    routeId: obsoleteRoute.id
+                });
+                return result.ok;
+            }
+
             // Une ligne âgée peut être réorientée vers une frontière devenue
             // sensiblement plus urgente. Les convois déjà partis continuent.
-            const bestTarget = targets[0].territory;
+            const priorityTargetCount = Math.min(3, Math.max(1, Math.ceil(desiredRouteCount / 6)));
+            const priorityTargets = targets.slice(0, priorityTargetCount);
+            const priorityTargetIds = new Set(priorityTargets.map((entry) => entry.territory.id));
             const staleRoute = activeRoutes.find((route) =>
-                this.game.state.elapsedMs - route.createdAt >= 28000 && route.toTerritoryId !== bestTarget.id);
+                this.game.state.elapsedMs - route.createdAt >= 45000 && !priorityTargetIds.has(route.toTerritoryId));
             if (staleRoute) {
                 const source = state.getTerritory(staleRoute.fromTerritoryId);
-                const path = source && this.game.findOwnedPath(faction.id, source.id, bestTarget.id);
-                if (path) return this.createContinuousRoute(faction.id, source.id, bestTarget.id);
+                const target = priorityTargets
+                    .map((entry) => entry.territory)
+                    .find((candidate) => source && this.game.findOwnedPath(faction.id, source.id, candidate.id));
+                if (target) return this.createContinuousRoute(faction.id, source.id, target.id);
             }
 
             if (activeRoutes.length >= desiredRouteCount) return false;
             const usedSources = new Set(activeRoutes.map((route) => route.fromTerritoryId));
-            const usedTargets = new Set(activeRoutes.map((route) => route.toTerritoryId));
-            const preferredTargets = targets.filter((entry) => !usedTargets.has(entry.territory.id));
-            const targetPool = preferredTargets.length ? preferredTargets : targets;
+            const targetUseCounts = new Map();
+            activeRoutes.forEach((route) => targetUseCounts.set(route.toTerritoryId, (targetUseCounts.get(route.toTerritoryId) || 0) + 1));
+            const candidates = [];
+            eligibleSources.filter((territory) => !usedSources.has(territory.id)).forEach((source) => {
+                priorityTargets.forEach((targetEntry) => {
+                    const target = targetEntry.territory;
+                    if (source.id === target.id) return;
+                    const path = this.game.findOwnedPath(faction.id, source.id, target.id);
+                    if (!path) return;
+                    const production = this.game.getProductionMultiplier(source);
+                    const targetCongestion = targetUseCounts.get(target.id) || 0;
+                    candidates.push({
+                        source,
+                        target,
+                        score: production * 14 + source.units * .04 + targetEntry.score * 3 - path.length * .3 - targetCongestion * 4
+                    });
+                });
+            });
+            candidates.sort((first, second) => second.score - first.score);
+            const best = candidates[0];
+            return best ? this.createContinuousRoute(faction.id, best.source.id, best.target.id) : false;
+        }
 
-            for (const targetEntry of targetPool) {
-                const target = targetEntry.territory;
-                const sources = owned.filter((territory) => territory.id !== target.id && !usedSources.has(territory.id))
-                    .map((territory) => {
-                        const path = this.game.findOwnedPath(faction.id, territory.id, target.id);
-                        if (!path) return null;
-                        const exposedBorders = territory.neighbors.filter((neighborId) => {
-                            const neighbor = state.getTerritory(neighborId);
-                            return neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id);
-                        }).length;
-                        const production = this.game.getProductionMultiplier(territory);
-                        const score = production * 12 + territory.units * 0.06 - exposedBorders * 5 - path.length * 0.35;
-                        return { territory, score };
-                    })
-                    .filter(Boolean)
-                    .sort((a, b) => b.score - a.score);
-
-                if (sources.length) {
-                    return this.createContinuousRoute(faction.id, sources[0].territory.id, target.id);
-                }
-            }
-            return false;
+        isSafeLogisticsSource(factionId, territory) {
+            if (!territory || territory.ownerId !== factionId || territory.productionMode !== "units") return false;
+            return !territory.neighbors.some((neighborId) => {
+                const neighbor = this.game.state.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, factionId);
+            });
         }
 
         rankLogisticsTargets(faction, owned) {
@@ -879,6 +899,10 @@
             });
             if (result.ok) this.ordersIssued += 1;
             return result.ok;
+        }
+
+        getMaximumTacticalArmies(territoryCount) {
+            return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 3), 1, 8);
         }
 
         chooseResearch(faction) {
