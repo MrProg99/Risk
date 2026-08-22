@@ -6,8 +6,22 @@
             this.context = null;
             this.masterVolume = C.Geometry.clamp(Number(options.masterVolume ?? 0.18), 0, 1);
             this.backgroundMusicVolume = C.Geometry.clamp(Number(options.backgroundMusicVolume ?? 0.22), 0, 1);
-            this.musicSource = options.musicSource || "Musique/Music1.mp3";
+            const defaultMusicSources = [
+                "Musique/Music1.mp3",
+                "Musique/Music2.mp3",
+                "Musique/Music3.mp3",
+                "Musique/Music4.mp3"
+            ];
+            const configuredSources = Array.isArray(options.musicSources)
+                ? options.musicSources.filter((source) => typeof source === "string" && source.trim())
+                : [];
+            this.musicSources = configuredSources.length
+                ? configuredSources
+                : (options.musicSource ? [options.musicSource] : defaultMusicSources);
+            this.musicSource = this.musicSources[0];
+            this.musicTrackIndex = 0;
             this.music = null;
+            this.musicEndedHandler = null;
             this.musicRetryScheduled = false;
             this.musicRestoreTimer = null;
             this.interactionTarget = options.interactionTarget || document;
@@ -40,16 +54,38 @@
         startBackgroundMusic() {
             if (!this.music) {
                 try {
-                    this.music = this.mediaFactory(this.musicSource);
+                    this.music = this.mediaFactory(this.musicSources[this.musicTrackIndex]);
+                    this.bindMusicPlaylist();
                 } catch (_error) {
                     this.music = null;
                 }
             }
             if (!this.music) return false;
 
-            this.music.loop = true;
+            this.music.loop = false;
             this.music.preload = "auto";
             this.music.volume = this.backgroundMusicVolume;
+            return this.playMusicElement();
+        }
+
+        bindMusicPlaylist() {
+            if (!this.music?.addEventListener || this.musicEndedHandler) return;
+            this.musicEndedHandler = () => this.advanceMusicTrack();
+            this.music.addEventListener("ended", this.musicEndedHandler);
+        }
+
+        advanceMusicTrack() {
+            if (!this.music || this.musicSources.length === 0) return false;
+            this.musicTrackIndex = (this.musicTrackIndex + 1) % this.musicSources.length;
+            this.musicSource = this.musicSources[this.musicTrackIndex];
+            this.music.src = this.musicSource;
+            if (typeof this.music.load === "function") this.music.load();
+            this.music.volume = this.backgroundMusicVolume;
+            return this.playMusicElement();
+        }
+
+        playMusicElement() {
+            if (!this.music) return false;
             try {
                 const playback = this.music.play();
                 if (playback && typeof playback.then === "function") {

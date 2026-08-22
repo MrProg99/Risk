@@ -367,12 +367,26 @@
                 ctx.stroke();
                 ctx.setLineDash([]);
 
-                [path[0], path[path.length - 1]].forEach((territory, index) => {
+                [path[0]].forEach((territory) => {
+                    const pulse = route.isPaused ? 0 : (Math.sin(now / 260) + 1) * 0.75;
+                    const radius = 23 + pulse;
+
+                    // Le contour sombre garantit la lisibilité même lorsque la
+                    // couleur de faction est proche de celle du territoire.
                     ctx.beginPath();
-                    ctx.arc(territory.center.x, territory.center.y, 22 + index * 2, 0, Math.PI * 2);
-                    ctx.strokeStyle = C.Geometry.rgba(color, .72);
-                    ctx.lineWidth = 2;
+                    ctx.arc(territory.center.x, territory.center.y, radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = "rgba(2, 9, 12, .94)";
+                    ctx.lineWidth = 7;
                     ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(territory.center.x, territory.center.y, radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = route.isPaused ? "rgba(224, 207, 164, .9)" : "rgba(111, 255, 242, .98)";
+                    ctx.lineWidth = 3;
+                    ctx.shadowColor = route.isPaused ? "rgba(224, 207, 164, .35)" : "rgba(78, 215, 208, .82)";
+                    ctx.shadowBlur = route.isPaused ? 4 : 9;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
                 });
                 ctx.restore();
             });

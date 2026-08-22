@@ -641,11 +641,16 @@
         check(audioManager.playTerritoryLost() && startedNotes.length === noteCountBeforeTerritoryLoss + 3, "la perte d’un territoire déclenche une alerte descendante de trois notes");
         let loadedMusicSource = "";
         let musicPlayCount = 0;
+        let musicLoadCount = 0;
+        const musicListeners = {};
         const fakeMusic = {
+            src: "",
             loop: false,
             preload: "none",
             volume: 1,
-            play: () => { musicPlayCount += 1; }
+            play: () => { musicPlayCount += 1; },
+            load: () => { musicLoadCount += 1; },
+            addEventListener: (type, handler) => { musicListeners[type] = handler; }
         };
         const musicAudioManager = new C.AudioManager({
             mediaFactory: (source) => {
@@ -654,7 +659,13 @@
             },
             contextFactory: () => fakeAudioContext
         });
-        check(musicAudioManager.startBackgroundMusic() && loadedMusicSource === "Musique/Music1.mp3" && fakeMusic.loop && fakeMusic.preload === "auto" && musicPlayCount === 1, "Music1.mp3 démarre en boucle avec un préchargement adapté au jeu");
+        check(musicAudioManager.startBackgroundMusic() && loadedMusicSource === "Musique/Music1.mp3" && !fakeMusic.loop && fakeMusic.preload === "auto" && musicPlayCount === 1, "la playlist musicale démarre avec Music1.mp3 et un préchargement adapté au jeu");
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music2.mp3" && musicAudioManager.musicTrackIndex === 1 && musicLoadCount === 1 && musicPlayCount === 2, "Music2.mp3 succède automatiquement à Music1.mp3");
+        musicListeners.ended();
+        musicListeners.ended();
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music1.mp3" && musicAudioManager.musicTrackIndex === 0 && musicPlayCount === 5, "la playlist recommence après Music4.mp3");
         musicAudioManager.duckBackgroundMusic();
         check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
         clearTimeout(musicAudioManager.musicRestoreTimer);

@@ -17,7 +17,7 @@ Pendant cette prise de relais, l’IA coopère défensivement avec son équipe. 
 
 Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la faction commandée. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
 
-La musique `Musique/Music1.mp3` démarre avec la partie et joue continuellement en boucle. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
+Les musiques `Musique/Music1.mp3` à `Musique/Music4.mp3` démarrent avec la partie et jouent successivement. La playlist recommence après le quatrième morceau. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
 
 La perte d’un territoire humain déclenche une alerte grave de trois notes descendantes et affiche le nom du territoire perdu. Cette alerte fonctionne également lors d’une victoire barbare, mais les pertes territoriales des factions contrôlées par l’ordinateur restent silencieuses.
 
