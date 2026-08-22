@@ -563,7 +563,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 15, "l’arbre propose trois axes progressifs et un axe de capacités");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 16, "l’arbre propose trois axes progressifs et un axe de capacités");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -598,7 +598,7 @@
         abilityTarget.units = 100;
         abilityTarget.productionMode = "food";
         abilityTarget.installation = null;
-        researchFaction.research.completedTechnologyIds.push("ability-missile", "ability-reinforcement");
+        researchFaction.research.completedTechnologyIds.push("ability-missile", "ability-reinforcement", "ability-nuclear");
         const missileLaunch = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: abilityTarget.id });
         check(missileLaunch.ok && researchGame.state.abilityActions.length === 1 && abilityTarget.units === 100, "le missile crée une alerte différée de cinq secondes");
         for (let tick = 0; tick < 5; tick += 1) researchGame.update(1000);
@@ -608,11 +608,30 @@
         researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: abilityTarget.id });
         for (let tick = 0; tick < 5; tick += 1) researchGame.update(1000);
         check(abilityTarget.units === 460, "les dommages du missile sont plafonnés à 40 unités");
+        abilityTarget.units = 100;
+        abilityTarget.productionMode = "food";
+        researchTerritory.units = 80;
+        researchTerritory.productionMode = "food";
+        const nuclearSplashTarget = abilityTarget.neighbors
+            .map((id) => researchGame.state.getTerritory(id))
+            .find((territory) => territory && !territory.isImpassable && territory.id !== researchTerritory.id);
+        nuclearSplashTarget.ownerId = 2;
+        nuclearSplashTarget.units = 40;
+        nuclearSplashTarget.productionMode = "food";
+        const nuclearLaunch = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "nuclear", targetTerritoryId: abilityTarget.id });
+        check(nuclearLaunch.ok && researchGame.state.abilityActions.some((action) => action.abilityId === "nuclear"), "la bombe nucléaire crée une alerte différée de huit secondes");
+        for (let tick = 0; tick < 8; tick += 1) researchGame.update(1000);
+        const resolvedNuclearAction = researchGame.state.abilityActions.find((action) => action.abilityId === "nuclear");
+        check(abilityTarget.units === 70, "la bombe nucléaire retire 30 % des forces au centre de l’impact");
+        check(researchTerritory.units === 68 && nuclearSplashTarget.units === 34, "le souffle retire 15 % aux territoires voisins, y compris aux forces alliées");
+        check(Boolean(resolvedNuclearAction?.resolvedAtMs && resolvedNuclearAction.impacts.length >= 3), "la phase d’impact nucléaire reste sérialisée pour son animation multijoueur");
+        for (let tick = 0; tick < 4; tick += 1) researchGame.update(1000);
+        check(!researchGame.state.abilityActions.some((action) => action.abilityId === "nuclear"), "l’effet nucléaire est retiré après la fin de l’animation");
         const unitsBeforeMobilization = researchTerritory.units;
         const mobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: researchTerritory.id });
         check(mobilization.ok && researchTerritory.units === unitsBeforeMobilization + 35, "la mobilisation d’urgence ajoute 35 unités sur un territoire contrôlé");
         const abilitySnapshot = researchGame.createNetworkSnapshot();
-        check(abilitySnapshot.factions[0].abilityCooldowns.missile > 0 && abilitySnapshot.factions[0].abilityCooldowns.reinforcement > 0, "les recharges de capacités sont incluses dans l’instantané multijoueur");
+        check(abilitySnapshot.factions[0].abilityCooldowns.missile > 0 && abilitySnapshot.factions[0].abilityCooldowns.reinforcement > 0 && abilitySnapshot.factions[0].abilityCooldowns.nuclear > 0, "les recharges de capacités sont incluses dans l’instantané multijoueur");
 
         const playedFrequencies = [];
         const startedNotes = [];
@@ -734,6 +753,15 @@
         abilityAiFaction.abilityCooldowns.missile = 0;
         const abilityAiDecision = aiGame.aiSystem.considerAbilities(abilityAiFaction, aiGame.state.getTerritoriesOwnedBy(2));
         check(abilityAiDecision && aiGame.state.abilityActions.some((action) => action.factionId === 2 && action.targetTerritoryId === abilityAiTarget.id), "l’IA utilise son missile contre une concentration ennemie visible");
+        abilityAiFaction.research.completedTechnologyIds.push("ability-nuclear");
+        abilityAiFaction.abilityCooldowns.nuclear = 0;
+        abilityAiTarget.units = 100;
+        abilityAiTarget.neighbors
+            .map((id) => aiGame.state.getTerritory(id))
+            .filter((territory) => territory && !territory.isImpassable && territory.id !== abilityAiSource.id)
+            .forEach((territory) => { territory.ownerId = 1; territory.units = 60; });
+        const nuclearAiDecision = aiGame.aiSystem.considerAbilities(abilityAiFaction, aiGame.state.getTerritoriesOwnedBy(2));
+        check(nuclearAiDecision && aiGame.state.abilityActions.some((action) => action.abilityId === "nuclear" && action.factionId === 2), "l’IA lance une frappe nucléaire rentable tout en limitant les pertes alliées");
 
         const foodAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, enableWorldEvents: false, timeScale: 1 });
         foodAiGame.newGame(747474);
@@ -850,6 +878,7 @@
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
+        check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function", "la caméra expose le déplacement et le zoom de la grande carte");
 

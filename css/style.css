@@ -305,12 +305,15 @@ button { color: inherit; }
 .ability-button { height: 42px; min-width: 88px; padding: 0 9px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; color: #899da4; background: rgba(255,255,255,.025); cursor: pointer; }
 .ability-button > span:first-child { color: #b58cff; font: 800 1rem var(--mono); }
 .ability-button.reinforcement > span:first-child { color: var(--accent); }
+.ability-button.nuclear > span:first-child { color: #ffcf58; }
 .ability-button > span:last-child { font-size: .62rem; font-weight: 750; text-align: left; text-transform: uppercase; }
 .ability-button small { display: block; margin-top: 3px; color: #60767e; font: .5rem var(--mono); text-transform: none; white-space: nowrap; }
 .ability-button.ready { border-color: rgba(181,140,255,.5); color: #e5d8ff; background: rgba(181,140,255,.08); }
 .ability-button.reinforcement.ready { border-color: rgba(216,255,104,.45); color: #e9f7c3; background: rgba(216,255,104,.06); }
+.ability-button.nuclear.ready { border-color: rgba(255,207,88,.52); color: #fff0bd; background: rgba(255,207,88,.075); }
 .ability-button.armed { color: #071016; border-color: #b58cff; background: #b58cff; box-shadow: 0 0 18px rgba(181,140,255,.28); }
 .ability-button.reinforcement.armed { border-color: var(--accent); background: var(--accent); }
+.ability-button.nuclear.armed { border-color: #ffcf58; background: #ffcf58; box-shadow: 0 0 22px rgba(255,172,53,.34); }
 .ability-button.armed > span:first-child, .ability-button.armed small { color: #17202a; }
 .ability-button:disabled { opacity: .42; cursor: not-allowed; }
 

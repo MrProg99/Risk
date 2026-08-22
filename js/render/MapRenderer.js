@@ -724,32 +724,111 @@
 
         drawAbilityActions(ctx, state, now) {
             state.abilityActions.forEach((action) => {
-                if (action.abilityId !== "missile") return;
+                if (action.abilityId !== "missile" && action.abilityId !== "nuclear") return;
                 const target = state.getTerritory(action.targetTerritoryId);
                 if (!target || !this.game.isTerritoryVisible(target.id, this.game.playerId, this.visibilityMap)) return;
+                if (action.abilityId === "nuclear" && action.resolvedAtMs != null) {
+                    this.drawNuclearImpact(ctx, state, action, target);
+                    return;
+                }
+
                 const remainingMs = Math.max(0, action.executeAtMs - state.elapsedMs);
-                const pulse = (Math.sin(now / 105) + 1) / 2;
+                const nuclear = action.abilityId === "nuclear";
+                const pulse = (Math.sin(now / (nuclear ? 80 : 105)) + 1) / 2;
                 ctx.save();
+                if (nuclear) {
+                    target.neighbors.forEach((territoryId) => {
+                        const neighbor = state.getTerritory(territoryId);
+                        if (!neighbor || neighbor.isImpassable) return;
+                        ctx.beginPath();
+                        this.tracePolygon(ctx, neighbor.polygon);
+                        ctx.fillStyle = `rgba(255, 143, 54, ${0.035 + pulse * 0.045})`;
+                        ctx.fill();
+                        ctx.strokeStyle = `rgba(255, 180, 72, ${0.25 + pulse * 0.22})`;
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    });
+                }
                 ctx.beginPath();
-                ctx.arc(target.center.x, target.center.y, 34 + pulse * 12, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(255, 90, 75, ${0.55 + pulse * 0.4})`;
-                ctx.lineWidth = 4;
-                ctx.setLineDash([8, 5]);
+                ctx.arc(target.center.x, target.center.y, (nuclear ? 42 : 34) + pulse * (nuclear ? 16 : 12), 0, Math.PI * 2);
+                ctx.strokeStyle = nuclear
+                    ? `rgba(255, 210, 78, ${0.64 + pulse * 0.34})`
+                    : `rgba(255, 90, 75, ${0.55 + pulse * 0.4})`;
+                ctx.lineWidth = nuclear ? 5 : 4;
+                ctx.setLineDash(nuclear ? [4, 4] : [8, 5]);
                 ctx.lineDashOffset = -(now / 35) % 13;
-                ctx.shadowColor = "#ff594b";
-                ctx.shadowBlur = 15;
+                ctx.shadowColor = nuclear ? "#ffc229" : "#ff594b";
+                ctx.shadowBlur = nuclear ? 22 : 15;
                 ctx.stroke();
                 ctx.setLineDash([]);
                 ctx.shadowBlur = 0;
-                ctx.fillStyle = "rgba(15, 3, 5, .88)";
-                ctx.fillRect(target.center.x - 22, target.center.y - 10, 44, 20);
-                ctx.fillStyle = "#ffb2aa";
+                ctx.fillStyle = nuclear ? "rgba(24, 15, 2, .92)" : "rgba(15, 3, 5, .88)";
+                ctx.fillRect(target.center.x - (nuclear ? 30 : 22), target.center.y - 10, nuclear ? 60 : 44, 20);
+                ctx.fillStyle = nuclear ? "#ffe58a" : "#ffb2aa";
                 ctx.font = "800 12px monospace";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText(`${Math.max(1, Math.ceil(remainingMs / 1000))} s`, target.center.x, target.center.y + 1);
+                ctx.fillText(`${nuclear ? "☢ " : ""}${Math.max(1, Math.ceil(remainingMs / 1000))} s`, target.center.x, target.center.y + 1);
                 ctx.restore();
             });
+        }
+
+        drawNuclearImpact(ctx, state, action, target) {
+            const durationMs = C.ABILITY_DEFINITIONS.nuclear.effectDurationMs;
+            const progress = C.Geometry.clamp((state.elapsedMs - action.resolvedAtMs) / durationMs, 0, 1);
+            const flash = Math.max(0, 1 - progress * 1.8);
+            const easedProgress = 1 - Math.pow(1 - progress, 3);
+            const waveRadius = 20 + easedProgress * 190;
+            const affected = (action.impacts || [])
+                .map((impact) => state.getTerritory(impact.territoryId))
+                .filter(Boolean);
+
+            ctx.save();
+            affected.forEach((territory) => {
+                ctx.beginPath();
+                this.tracePolygon(ctx, territory.polygon);
+                ctx.fillStyle = territory.id === target.id
+                    ? `rgba(255, 224, 102, ${Math.max(0, .34 - progress * .3)})`
+                    : `rgba(255, 111, 49, ${Math.max(0, .2 - progress * .18)})`;
+                ctx.fill();
+            });
+
+            const glow = ctx.createRadialGradient(
+                target.center.x, target.center.y, 0,
+                target.center.x, target.center.y, Math.max(30, waveRadius)
+            );
+            glow.addColorStop(0, `rgba(255, 255, 235, ${Math.max(.05, flash)})`);
+            glow.addColorStop(.18, `rgba(255, 222, 76, ${Math.max(0, .72 - progress * .65)})`);
+            glow.addColorStop(.48, `rgba(255, 103, 34, ${Math.max(0, .4 - progress * .37)})`);
+            glow.addColorStop(1, "rgba(75, 16, 5, 0)");
+            ctx.beginPath();
+            ctx.arc(target.center.x, target.center.y, waveRadius, 0, Math.PI * 2);
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            [1, .72].forEach((scale, index) => {
+                ctx.beginPath();
+                ctx.arc(target.center.x, target.center.y, waveRadius * scale, 0, Math.PI * 2);
+                ctx.strokeStyle = index === 0
+                    ? `rgba(255, 239, 151, ${Math.max(0, .9 - progress)})`
+                    : `rgba(255, 117, 42, ${Math.max(0, .65 - progress * .7)})`;
+                ctx.lineWidth = index === 0 ? 6 - progress * 4 : 3;
+                ctx.shadowColor = "#ffb329";
+                ctx.shadowBlur = 18 * (1 - progress);
+                ctx.stroke();
+            });
+
+            if (progress < .58) {
+                const stemHeight = 25 + progress * 115;
+                ctx.fillStyle = `rgba(255, 238, 176, ${Math.max(0, .82 - progress)})`;
+                ctx.shadowColor = "#ff7a24";
+                ctx.shadowBlur = 24;
+                ctx.beginPath();
+                ctx.ellipse(target.center.x, target.center.y - stemHeight, 28 + progress * 42, 15 + progress * 24, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillRect(target.center.x - 8 - progress * 6, target.center.y - stemHeight, 16 + progress * 12, stemHeight);
+            }
+            ctx.restore();
         }
 
         drawArmies(ctx, state, now) {

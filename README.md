@@ -98,7 +98,7 @@ Chaque carte possède au minimum **quatre aéroports**, reconnaissables à leur 
 
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de quatorze technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les quatre paliers des trois branches progressives dans l’ordre. Les deux recherches de capacité sont indépendantes. Les recherches durent de 1 min 30 à 4 min 30 de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
+Le bouton **Recherche** ouvre un arbre de seize technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. La Mobilisation d’urgence est indépendante, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
 
@@ -108,7 +108,9 @@ Le **Missile tactique** demande quatre minutes de recherche. Une fois débloqué
 
 La **Mobilisation d’urgence** demande trois minutes trente de recherche. Elle ajoute immédiatement 35 unités sur un territoire appartenant au joueur, puis se recharge pendant deux minutes trente. Ces unités consomment la nourriture normalement; l’interface avertit le joueur lorsque cette mobilisation risque de provoquer une pénurie.
 
-Chaque faction possède ses propres recharges. L’IA recherche et utilise ces deux capacités : elle réserve les renforts aux fronts menacés et aux capitales en danger, et cible avec ses missiles les grandes concentrations, capitales, sites rares et installations visibles. Les ordres passent par la commande sérialisable `USE_ABILITY`, et les frappes en attente ainsi que les recharges sont incluses dans les instantanés Firebase.
+L’**Arme nucléaire** devient accessible après le Missile tactique et demande six minutes de recherche. Après huit secondes d’alerte, elle détruit 30 % des forces sur la cible et 15 % sur chacun de ses territoires voisins. Le souffle est indiscriminé et peut donc atteindre les garnisons du lanceur ou de ses alliés; il laisse toujours au moins une unité. Sa recharge est de cinq minutes. La carte affiche la zone périphérique avant l’impact, puis un flash, des ondes de choc et un nuage ascendant.
+
+Chaque faction possède ses propres recharges. L’IA recherche et utilise les trois capacités : elle réserve les renforts aux fronts menacés, cible avec ses missiles les grandes concentrations et ne déclenche une frappe nucléaire que si les pertes ennemies prévues justifient les dommages collatéraux alliés. Les ordres passent par la commande sérialisable `USE_ABILITY`, et les frappes en attente, leurs animations ainsi que les recharges sont incluses dans les instantanés Firebase.
 
 ### Événements mondiaux
 

@@ -297,11 +297,13 @@
                 });
             });
 
-            const ready = this.state.abilityActions.filter((action) => action.executeAtMs <= this.state.elapsedMs);
+            const ready = this.state.abilityActions.filter((action) =>
+                action.resolvedAtMs == null && action.executeAtMs <= this.state.elapsedMs);
             ready.forEach((action) => {
                 const target = this.state.getTerritory(action.targetTerritoryId);
                 const faction = this.state.getFaction(action.factionId);
                 let damage = 0;
+                let impacts = [];
                 if (action.abilityId === "missile" && target && faction && !target.isImpassable && !this.areAllied(target.ownerId, action.factionId)) {
                     const definition = C.ABILITY_DEFINITIONS.missile;
                     damage = target.units > 1
@@ -311,14 +313,42 @@
                     this.addEvent(`${faction.name} frappe ${target.name} avec un missile tactique : ${damage} perte${damage > 1 ? "s" : ""}.`, "combat");
                 } else if (action.abilityId === "missile" && target && faction) {
                     this.addEvent(`Le missile de ${faction.name} manque sa cible stratégique à ${target.name}.`, "combat");
+                } else if (action.abilityId === "nuclear" && target && faction && !target.isImpassable) {
+                    const definition = C.ABILITY_DEFINITIONS.nuclear;
+                    const affectedTerritories = [target, ...target.neighbors
+                        .map((territoryId) => this.state.getTerritory(territoryId))
+                        .filter((territory) => territory && !territory.isImpassable)];
+                    const seen = new Set();
+                    impacts = affectedTerritories.filter((territory) => {
+                        if (seen.has(territory.id)) return false;
+                        seen.add(territory.id);
+                        return true;
+                    }).map((territory) => {
+                        const ratio = territory.id === target.id ? definition.centerDamageRatio : definition.adjacentDamageRatio;
+                        const losses = territory.units > 1
+                            ? Math.min(territory.units - 1, Math.max(1, Math.round(territory.units * ratio)))
+                            : 0;
+                        territory.units -= losses;
+                        return { territoryId: territory.id, damage: losses, ratio };
+                    });
+                    damage = impacts.reduce((sum, impact) => sum + impact.damage, 0);
+                    action.resolvedAtMs = this.state.elapsedMs;
+                    action.impacts = impacts.map((impact) => ({ ...impact }));
+                    this.addEvent(`${faction.name} déclenche une frappe nucléaire sur ${target.name} : ${damage} pertes dans la zone d’impact.`, "combat");
                 }
-                this.notify({ type: "ABILITY_RESOLVED", abilityId: action.abilityId, factionId: action.factionId, targetTerritoryId: action.targetTerritoryId, damage });
+                this.notify({ type: "ABILITY_RESOLVED", abilityId: action.abilityId, factionId: action.factionId, targetTerritoryId: action.targetTerritoryId, damage, impacts });
                 changed = true;
             });
             if (ready.length) {
-                const readyIds = new Set(ready.map((action) => action.id));
+                const readyIds = new Set(ready.filter((action) => action.abilityId !== "nuclear").map((action) => action.id));
                 this.state.abilityActions = this.state.abilityActions.filter((action) => !readyIds.has(action.id));
             }
+            const actionCountBeforeCleanup = this.state.abilityActions.length;
+            this.state.abilityActions = this.state.abilityActions.filter((action) => {
+                if (action.abilityId !== "nuclear" || action.resolvedAtMs == null) return true;
+                return this.state.elapsedMs - action.resolvedAtMs < C.ABILITY_DEFINITIONS.nuclear.effectDurationMs;
+            });
+            if (this.state.abilityActions.length !== actionCountBeforeCleanup) changed = true;
             return changed;
         }
 
@@ -504,13 +534,15 @@
             const cooldown = Number(faction.abilityCooldowns?.[definition.id]) || 0;
             if (cooldown > 0) return { ok: false, error: `Capacité en recharge (${Math.ceil(cooldown / 1000)} s).` };
 
-            if (definition.id === "missile") {
+            if (definition.id === "missile" || definition.id === "nuclear") {
                 if (this.areAllied(target.ownerId, playerId)) return { ok: false, error: "Impossible de viser un territoire allié." };
-                if (!this.isTerritoryVisible(target.id, playerId)) return { ok: false, error: "Le missile exige une cible ennemie visible." };
+                if (!this.isTerritoryVisible(target.id, playerId)) return { ok: false, error: "Cette frappe exige une cible ennemie visible." };
                 const action = { id: this.state.nextAbilityActionId++, abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, createdAtMs: this.state.elapsedMs, executeAtMs: this.state.elapsedMs + definition.warningMs };
                 this.state.abilityActions.push(action);
-                faction.abilityCooldowns.missile = definition.cooldownMs;
-                this.addEvent(`ALERTE MISSILE : ${faction.name} verrouille ${target.name}. Impact dans 5 secondes.`, "combat");
+                faction.abilityCooldowns[definition.id] = definition.cooldownMs;
+                this.addEvent(definition.id === "nuclear"
+                    ? `ALERTE NUCLÉAIRE : ${faction.name} vise ${target.name}. Impact et souffle périphérique dans 8 secondes.`
+                    : `ALERTE MISSILE : ${faction.name} verrouille ${target.name}. Impact dans 5 secondes.`, "combat");
                 this.notify({ type: "ABILITY_LAUNCHED", ...action });
                 this.state.touch();
                 return { ok: true, action };
@@ -1369,7 +1401,8 @@
                 };
                 faction.abilityCooldowns = {
                     missile: Number(dynamic.abilityCooldowns?.missile) || 0,
-                    reinforcement: Number(dynamic.abilityCooldowns?.reinforcement) || 0
+                    reinforcement: Number(dynamic.abilityCooldowns?.reinforcement) || 0,
+                    nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0
                 };
             });
             this.state.armies = (snapshot.armies || []).map((data) => {

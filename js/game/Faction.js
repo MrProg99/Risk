@@ -23,7 +23,7 @@
                 activeTechnologyId: null,
                 progressMs: 0
             };
-            this.abilityCooldowns = { missile: 0, reinforcement: 0 };
+            this.abilityCooldowns = { missile: 0, reinforcement: 0, nuclear: 0 };
         }
 
         toJSON() {

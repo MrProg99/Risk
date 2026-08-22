@@ -32,7 +32,7 @@
             icon: "☄",
             color: "#b58cff",
             description: "Débloquer des interventions stratégiques à long délai de récupération.",
-            technologyIds: ["ability-missile", "ability-reinforcement"]
+            technologyIds: ["ability-missile", "ability-reinforcement", "ability-nuclear"]
         }
     ];
 
@@ -201,6 +201,17 @@
             prerequisiteId: null,
             effects: { unlockAbility: "reinforcement" },
             effectLabel: "+35 unités · recharge 2 min 30"
+        },
+        "ability-nuclear": {
+            id: "ability-nuclear",
+            branchId: "abilities",
+            tier: 2,
+            name: "Arme nucléaire",
+            description: "Développe une ogive stratégique dont le souffle touche aussi les territoires voisins, sans distinction de camp.",
+            durationMs: 360000,
+            prerequisiteId: "ability-missile",
+            effects: { unlockAbility: "nuclear" },
+            effectLabel: "−30 % au centre · −15 % autour · recharge 5 min"
         }
     };
 
@@ -220,6 +231,16 @@
             technologyId: "ability-reinforcement",
             cooldownMs: 150000,
             units: 35
+        },
+        nuclear: {
+            id: "nuclear",
+            name: "Bombe nucléaire",
+            technologyId: "ability-nuclear",
+            cooldownMs: 300000,
+            warningMs: 8000,
+            effectDurationMs: 3200,
+            centerDamageRatio: 0.30,
+            adjacentDamageRatio: 0.15
         }
     };
 

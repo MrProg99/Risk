@@ -365,6 +365,40 @@
                 }
             }
 
+            if (completed.includes(C.ABILITY_DEFINITIONS.nuclear.technologyId) && (cooldowns.nuclear || 0) <= 0) {
+                const definition = C.ABILITY_DEFINITIONS.nuclear;
+                const visibility = this.game.getTerritoryVisibilityMap(faction.id);
+                const candidates = this.game.state.territories
+                    .filter((territory) => territory.ownerId !== null && !territory.isImpassable && !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id))
+                    .map((territory) => {
+                        const impactZone = [territory, ...territory.neighbors
+                            .map((territoryId) => this.game.state.getTerritory(territoryId))
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable)];
+                        let enemyLosses = 0;
+                        let alliedLosses = 0;
+                        impactZone.forEach((affected) => {
+                            const ratio = affected.id === territory.id ? definition.centerDamageRatio : definition.adjacentDamageRatio;
+                            const expectedLoss = affected.units > 1
+                                ? Math.min(affected.units - 1, Math.max(1, Math.round(affected.units * ratio)))
+                                : 0;
+                            if (this.game.areAllied(affected.ownerId, faction.id)) alliedLosses += expectedLoss;
+                            else enemyLosses += expectedLoss;
+                        });
+                        const strategicValue = (territory.isCapital ? 18 : 0) + (territory.installation ? 9 : 0) + (territory.rareSite ? 7 : 0);
+                        return { territory, enemyLosses, alliedLosses, score: enemyLosses + strategicValue - alliedLosses * 3 };
+                    })
+                    .filter((candidate) => candidate.enemyLosses >= 12 && candidate.alliedLosses <= candidate.enemyLosses * 0.2)
+                    .sort((a, b) => b.score - a.score);
+                if (candidates.length && candidates[0].score >= 14) {
+                    const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "nuclear", targetTerritoryId: candidates[0].territory.id });
+                    if (result.ok) {
+                        this.abilitiesUsed += 1;
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+
             if (completed.includes(C.ABILITY_DEFINITIONS.missile.technologyId) && (cooldowns.missile || 0) <= 0) {
                 const visibility = this.game.getTerritoryVisibilityMap(faction.id);
                 const candidates = this.game.state.territories

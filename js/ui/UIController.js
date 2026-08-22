@@ -47,6 +47,8 @@
                 abilityMissileStatus: byId("ability-missile-status"),
                 abilityReinforcement: byId("ability-reinforcement"),
                 abilityReinforcementStatus: byId("ability-reinforcement-status"),
+                abilityNuclear: byId("ability-nuclear"),
+                abilityNuclearStatus: byId("ability-nuclear-status"),
                 newMap: byId("new-map"),
                 togglePause: byId("toggle-pause"),
                 pauseIcon: byId("pause-icon"),
@@ -137,6 +139,7 @@
             this.elements.airstrikeButton.addEventListener("click", () => this.toggleAirstrikeTargeting());
             this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
+            this.elements.abilityNuclear.addEventListener("click", () => this.toggleAbilityTargeting("nuclear"));
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
@@ -191,11 +194,20 @@
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_LAUNCHED") {
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#b58cff");
-                if (change.factionId === this.game.playerId) this.showToast("Missile lancé — impact dans 5 secondes.");
+                if (change.factionId === this.game.playerId) {
+                    this.showToast(change.abilityId === "nuclear"
+                        ? "Bombe nucléaire lancée — impact dans 8 secondes. Zone périphérique dangereuse."
+                        : "Missile lancé — impact dans 5 secondes.");
+                }
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_RESOLVED") {
-                const color = change.abilityId === "missile" ? "#ff865f" : "#d8ff68";
+                const color = change.abilityId === "nuclear" ? "#fff1a1" : change.abilityId === "missile" ? "#ff865f" : "#d8ff68";
                 this.renderer.pulseTerritory(change.targetTerritoryId, color);
+                if (change.abilityId === "nuclear") {
+                    (change.impacts || []).forEach((impact) => {
+                        if (impact.territoryId !== change.targetTerritoryId) this.renderer.pulseTerritory(impact.territoryId, "#ff9f43");
+                    });
+                }
                 this.refreshDynamic();
             } else if (change.type === "TERRITORY_MODE_CHANGED" || change.type === "FOOD_ATTRITION") {
                 if (change.type === "FOOD_ATTRITION" && change.factionId === this.game.playerId) {
@@ -623,9 +635,12 @@
             this.targetingAbilityId = this.targetingAbilityId === abilityId ? null : abilityId;
             this.clearTerritorySelectionOnly();
             this.refreshAbilities();
-            this.showToast(this.targetingAbilityId
-                ? abilityId === "missile" ? "Cliquez sur un territoire ennemi visible." : "Cliquez sur un de vos territoires pour recevoir 35 unités."
-                : "Capacité annulée.");
+            const targetingMessage = abilityId === "reinforcement"
+                ? "Cliquez sur un de vos territoires pour recevoir 35 unités."
+                : abilityId === "nuclear"
+                    ? "Choisissez une cible ennemie visible. Le souffle touchera aussi tous ses voisins."
+                    : "Cliquez sur un territoire ennemi visible.";
+            this.showToast(this.targetingAbilityId ? targetingMessage : "Capacité annulée.");
         }
 
         clearTerritorySelectionOnly() {
@@ -654,10 +669,18 @@
         refreshAbilities() {
             const faction = this.game.state.getFaction(this.game.playerId);
             if (!faction) return;
-            ["missile", "reinforcement"].forEach((abilityId) => {
+            ["missile", "reinforcement", "nuclear"].forEach((abilityId) => {
                 const definition = C.ABILITY_DEFINITIONS[abilityId];
-                const button = abilityId === "missile" ? this.elements.abilityMissile : this.elements.abilityReinforcement;
-                const status = abilityId === "missile" ? this.elements.abilityMissileStatus : this.elements.abilityReinforcementStatus;
+                const button = abilityId === "missile"
+                    ? this.elements.abilityMissile
+                    : abilityId === "reinforcement"
+                        ? this.elements.abilityReinforcement
+                        : this.elements.abilityNuclear;
+                const status = abilityId === "missile"
+                    ? this.elements.abilityMissileStatus
+                    : abilityId === "reinforcement"
+                        ? this.elements.abilityReinforcementStatus
+                        : this.elements.abilityNuclearStatus;
                 const unlocked = faction.research.completedTechnologyIds.includes(definition.technologyId);
                 const cooldown = Math.max(0, faction.abilityCooldowns?.[abilityId] || 0);
                 const ready = unlocked && cooldown <= 0;
