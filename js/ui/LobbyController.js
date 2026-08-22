@@ -16,6 +16,7 @@
             this.gameApp = document.getElementById("game-app");
             this.multiplayerOptions = document.getElementById("multiplayer-options");
             this.soloPlayerOptions = document.getElementById("solo-player-options");
+            this.mapOptions = document.getElementById("map-options");
             this.roomCodeField = document.getElementById("room-code-field");
             this.teamSizeField = document.getElementById("team-size-field");
             this.opponentModeField = document.getElementById("opponent-mode-field");
@@ -111,6 +112,7 @@
                 roomCode: this.form.elements.roomCode?.value || "",
                 teamSize: Number(this.form.elements.teamSize?.value) || 1,
                 opponentMode: this.form.elements.opponentMode?.value === "human" ? "human" : "ai",
+                mapType: this.form.elements.mapType?.value === "hourglass" ? "hourglass" : "standard",
                 teamId: Number(this.form.elements.preferredTeam?.value) || 1,
                 raceId: playerId,
                 activeFactionIds: LobbyController.buildActiveFactionIds(
@@ -130,6 +132,7 @@
             const online = configuration.mode !== "solo";
             if (this.multiplayerOptions) this.multiplayerOptions.hidden = !online;
             if (this.soloPlayerOptions) this.soloPlayerOptions.hidden = online;
+            if (this.mapOptions) this.mapOptions.hidden = configuration.mode === "join";
             if (this.roomCodeField) this.roomCodeField.hidden = configuration.mode !== "join";
             if (this.teamSizeField) this.teamSizeField.hidden = configuration.mode !== "host";
             if (this.opponentModeField) this.opponentModeField.hidden = configuration.mode !== "host";
@@ -193,6 +196,7 @@
                         factionSetups,
                         aiFactionIds,
                         seed: Number(room.meta.seed),
+                        mapType: room.meta.mapType === "hourglass" ? "hourglass" : "standard",
                         isHost: room.meta.hostUid === this.network.uid,
                         network: this.network
                     }));

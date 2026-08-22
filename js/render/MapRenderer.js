@@ -449,7 +449,20 @@
 
                 if (!this.isTerritoryVisible(territory.id)) return;
 
-                if (territory.rareSite) {
+                if (territory.isChokePoint) {
+                    ctx.beginPath();
+                    ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(22, 13, 28, .9)";
+                    ctx.fill();
+                    ctx.strokeStyle = "rgba(205, 150, 255, .9)";
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    ctx.fillStyle = "#d7a6ff";
+                    ctx.font = "700 12px Georgia, serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("⌛", center.x, center.y - 26.5);
+                } else if (territory.rareSite) {
                     ctx.beginPath();
                     ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
                     ctx.fillStyle = "rgba(18, 22, 18, .88)";

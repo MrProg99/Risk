@@ -19,6 +19,7 @@
                 .filter((factionId) => runtimeFactionIds.includes(factionId));
             if (!this.activeFactionIds.includes(this.playerId)) this.activeFactionIds.unshift(this.playerId);
             this.state = new C.GameState();
+            this.mapType = options.mapType === "hourglass" ? "hourglass" : "standard";
             this.mapGenerator = new C.MapGenerator(this.state.mapWidth, this.state.mapHeight);
             this.listeners = new Set();
             this.random = Math.random;
@@ -52,9 +53,11 @@
 
         newGame(seed = this.createSeed()) {
             const normalizedSeed = Math.abs(Number(seed) || this.createSeed()) % 1000000;
-            const generated = this.mapGenerator.generate(normalizedSeed);
+            const generated = this.mapGenerator.generate(normalizedSeed, undefined, this.mapType);
             const state = new C.GameState();
             state.seed = normalizedSeed;
+            state.mapType = generated.mapType;
+            state.chokeEdges = generated.chokeEdges || [];
             state.islandPolygon = generated.islandPolygon;
             state.territories = generated.territories;
             state.factions = this.activeFactionIds.map((factionId) => {
@@ -103,24 +106,9 @@
 
         assignStartingTerritories() {
             const territories = this.state.territories.filter((territory) => !territory.isImpassable);
-            const starts = [];
-            const firstIndex = C.Geometry.randomInt(this.random, 0, territories.length - 1);
-            starts.push(territories[firstIndex]);
-
-            while (starts.length < this.state.factions.length) {
-                const candidates = territories.filter((territory) => !starts.includes(territory));
-                let best = candidates[0];
-                let bestScore = -Infinity;
-                candidates.forEach((candidate) => {
-                    const nearestStart = Math.min(...starts.map((start) => C.Geometry.squaredDistance(candidate.center, start.center)));
-                    const connectivityBonus = candidate.neighbors.length * 750;
-                    if (nearestStart + connectivityBonus > bestScore) {
-                        bestScore = nearestStart + connectivityBonus;
-                        best = candidate;
-                    }
-                });
-                starts.push(best);
-            }
+            const starts = this.mapType === "hourglass"
+                ? this.selectHourglassStartingTerritories(territories)
+                : this.selectDistributedStartingTerritories(territories);
 
             this.state.territories.forEach((territory) => {
                 territory.ownerId = null;
@@ -140,6 +128,56 @@
             });
         }
 
+        selectDistributedStartingTerritories(territories) {
+            const starts = [];
+            starts.push(territories[C.Geometry.randomInt(this.random, 0, territories.length - 1)]);
+            while (starts.length < this.state.factions.length) {
+                const candidates = territories.filter((territory) => !starts.includes(territory));
+                let best = candidates[0];
+                let bestScore = -Infinity;
+                candidates.forEach((candidate) => {
+                    const nearestStart = Math.min(...starts.map((start) => C.Geometry.squaredDistance(candidate.center, start.center)));
+                    const score = nearestStart + candidate.neighbors.length * 750;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = candidate;
+                    }
+                });
+                starts.push(best);
+            }
+            return starts;
+        }
+
+        selectHourglassStartingTerritories(territories) {
+            const centerX = this.state.mapWidth / 2;
+            const teams = [...new Set(this.state.factions.map((faction) => faction.teamId))];
+            const teamSides = new Map(teams.map((teamId, index) => [teamId, index % 2 === 0 ? -1 : 1]));
+            const starts = [];
+            this.state.factions.forEach((faction) => {
+                const side = teamSides.get(faction.teamId) || -1;
+                let candidates = territories.filter((territory) =>
+                    !territory.isChokePoint &&
+                    !starts.includes(territory) &&
+                    (side < 0 ? territory.center.x < centerX - this.state.mapWidth * 0.06 : territory.center.x > centerX + this.state.mapWidth * 0.06));
+                if (!candidates.length) candidates = territories.filter((territory) => !territory.isChokePoint && !starts.includes(territory));
+                const teamStarts = starts.filter((_territory, index) => this.state.factions[index]?.teamId === faction.teamId);
+                candidates.sort((a, b) => {
+                    const score = (candidate) => {
+                        const sameTeamSpacing = teamStarts.length
+                            ? Math.min(...teamStarts.map((start) => C.Geometry.squaredDistance(candidate.center, start.center)))
+                            : 0;
+                        const globalSpacing = starts.length
+                            ? Math.min(...starts.map((start) => C.Geometry.squaredDistance(candidate.center, start.center)))
+                            : 0;
+                        return sameTeamSpacing + globalSpacing * 0.2 + Math.abs(candidate.center.x - centerX) * 120 + candidate.neighbors.length * 500;
+                    };
+                    return score(b) - score(a);
+                });
+                starts.push(candidates[0]);
+            });
+            return starts;
+        }
+
         assignRareSites() {
             const startIds = new Set(this.state.territories.filter((territory) => territory.ownerId !== null).map((territory) => territory.id));
             const forbiddenIds = new Set(startIds);
@@ -147,8 +185,8 @@
                 if (startIds.has(territory.id)) territory.neighbors.forEach((id) => forbiddenIds.add(id));
             });
 
-            let candidates = this.state.territories.filter((territory) => !territory.isImpassable && !forbiddenIds.has(territory.id) && territory.neighbors.length >= 4);
-            if (candidates.length < 4) candidates = this.state.territories.filter((territory) => !territory.isImpassable && !startIds.has(territory.id));
+            let candidates = this.state.territories.filter((territory) => !territory.isImpassable && !territory.isChokePoint && !forbiddenIds.has(territory.id) && territory.neighbors.length >= 4);
+            if (candidates.length < 4) candidates = this.state.territories.filter((territory) => !territory.isImpassable && !territory.isChokePoint && !startIds.has(territory.id));
             candidates = C.Geometry.shuffle(candidates, this.random);
             const chosen = [];
 
@@ -175,6 +213,7 @@
             const definition = C.INSTALLATION_TYPES.cannon;
             const candidates = C.Geometry.shuffle(this.state.territories.filter((territory) =>
                 !territory.isImpassable &&
+                !territory.isChokePoint &&
                 territory.ownerId === null &&
                 !territory.rareSite &&
                 territory.neighbors.length >= 3), this.random);

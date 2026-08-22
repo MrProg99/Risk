@@ -80,6 +80,8 @@ La logistique des factions contrôlées par l’ordinateur est également silenc
 
 Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 
+Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et plusieurs itinéraires. **Sablier** place les équipes dans deux grandes moitiés opposées et bloque les autres traversées par une chaîne montagneuse, en conservant un passage central marqué par le symbole `⌛`. Ce point d’étranglement devient naturellement un objectif pour les renforts, les canons et les capacités stratégiques. Le choix est stocké dans le salon Firebase afin que tous les clients reconstruisent la même carte.
+
 Les triangles clairs placés sur certaines frontières représentent des montagnes infranchissables. Ces passages sont interdits aux armées du joueur comme à celles de l’ordinateur. La génération vérifie néanmoins que tous les territoires restent accessibles par au moins un itinéraire terrestre.
 
 ### Lacs intérieurs

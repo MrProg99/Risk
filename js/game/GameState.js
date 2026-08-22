@@ -4,6 +4,8 @@
     class GameState {
         constructor() {
             this.seed = 0;
+            this.mapType = "standard";
+            this.chokeEdges = [];
             this.mapWidth = 2800;
             this.mapHeight = 1800;
             this.islandPolygon = [];
@@ -50,6 +52,8 @@
         toJSON() {
             return {
                 seed: this.seed,
+                mapType: this.mapType,
+                chokeEdges: this.chokeEdges.map((edge) => edge.slice()),
                 mapWidth: this.mapWidth,
                 mapHeight: this.mapHeight,
                 islandPolygon: this.islandPolygon,

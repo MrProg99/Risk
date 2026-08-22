@@ -94,6 +94,21 @@
         check(state.territories.every((territory) => territory.blockedNeighbors.every((id) => state.getTerritory(id).isPathBlocked(territory.id))), "les blocages montagneux sont réciproques");
         check(graphIsConnected(state.territories, true), "la carte reste entièrement accessible en contournant les montagnes");
         check(graphIsConnected(state.territories, true), "les terres jouables restent connectées autour des lacs");
+        const hourglassMap = game.mapGenerator.generate(424243, 115, "hourglass");
+        const hourglassCenterX = game.state.mapWidth / 2;
+        const openHourglassCrossings = hourglassMap.territories.reduce((edges, territory) => {
+            territory.neighbors.forEach((neighborId) => {
+                if (territory.id >= neighborId || territory.isImpassable || territory.isPathBlocked(neighborId)) return;
+                const neighbor = hourglassMap.territories.find((candidate) => candidate.id === neighborId);
+                if (!neighbor || neighbor.isImpassable) return;
+                const crossesCenter = (territory.center.x < hourglassCenterX && neighbor.center.x >= hourglassCenterX) ||
+                    (neighbor.center.x < hourglassCenterX && territory.center.x >= hourglassCenterX);
+                if (crossesCenter) edges.push([territory.id, neighbor.id]);
+            });
+            return edges;
+        }, []);
+        check(hourglassMap.mapType === "hourglass" && openHourglassCrossings.length >= 1 && openHourglassCrossings.length <= 2, "la carte Sablier ne conserve qu’un passage central entre ses deux moitiés");
+        check(graphIsConnected(hourglassMap.territories, true) && hourglassMap.territories.filter((territory) => territory.isChokePoint).length >= 2, "le point d’étranglement du Sablier reste franchissable et clairement identifié");
         check(state.factions.length === 4, "les quatre factions sont créées");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id).length === 1), "chaque faction possède un territoire de départ");
         check(state.factions.every((faction) => state.getTerritoriesOwnedBy(faction.id)[0].units === 20), "chaque faction commence avec 20 unités");
@@ -151,6 +166,8 @@
                     <input type="radio" name="playerCount" value="2">
                     <input type="radio" name="playerCount" value="3" checked>
                     <input type="radio" name="playerCount" value="4">
+                    <input type="radio" name="mapType" value="standard">
+                    <input type="radio" name="mapType" value="hourglass" checked>
                     <div id="lobby-factions"></div>
                     <p id="lobby-summary"></p>
                     <button id="start-game" type="submit"></button>
@@ -166,6 +183,7 @@
         lobbyController.onStart((configuration) => { submittedLobbyConfiguration = configuration; });
         lobbyController.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
         check(Boolean(submittedLobbyConfiguration && submittedLobbyConfiguration.playerId === 2 && submittedLobbyConfiguration.playerCount === 3), "le formulaire du lobby transmet la race et le nombre de joueurs sélectionnés");
+        check(submittedLobbyConfiguration.mapType === "hourglass", "le lobby transmet le type de carte Sablier au moteur");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
         lobbyController.close();
         lobbyFixture.remove();
@@ -193,9 +211,14 @@
         };
         const humanVsAiSetups = C.FirebaseMultiplayer.buildFactionSetups(humanVsAiRoom);
         check(humanVsAiSetups.length === 4 && humanVsAiSetups.filter((setup) => setup.isAI && setup.teamId === 2).length === 2, "un salon 2v2 peut compléter toute l’équipe adverse avec des IA");
-        const humanVsAiGame = new C.Game({ playerId: 1, factionSetups: humanVsAiSetups, enableAI: true, aiFactionIds: [3, 4], enableWorldEvents: false });
+        const humanVsAiGame = new C.Game({ playerId: 1, factionSetups: humanVsAiSetups, enableAI: true, aiFactionIds: [3, 4], enableWorldEvents: false, mapType: "hourglass" });
         humanVsAiGame.newGame(313132);
         check(humanVsAiGame.aiSystem.factionIds.join(",") === "3,4" && humanVsAiGame.areAllied(3, 4) && !humanVsAiGame.areAllied(1, 3), "les deux adversaires IA sont actifs et coopèrent dans la même équipe");
+        const humanTeamAverageX = humanVsAiGame.state.factions.filter((faction) => faction.teamId === 1)
+            .reduce((sum, faction) => sum + humanVsAiGame.state.getTerritory(faction.capitalTerritoryId).center.x, 0) / 2;
+        const aiTeamAverageX = humanVsAiGame.state.factions.filter((faction) => faction.teamId === 2)
+            .reduce((sum, faction) => sum + humanVsAiGame.state.getTerritory(faction.capitalTerritoryId).center.x, 0) / 2;
+        check(humanTeamAverageX < humanVsAiGame.state.mapWidth / 2 && aiTeamAverageX > humanVsAiGame.state.mapWidth / 2, "sur le Sablier, les deux équipes commencent de part et d’autre du point central");
         const teamGame = new C.Game({ playerId: 1, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         teamGame.newGame(313131);
         const teamSource = teamGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((id) => {

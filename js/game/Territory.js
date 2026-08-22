@@ -20,6 +20,7 @@
             this.installationProgressMs = 0;
             this.isImpassable = false;
             this.isCapital = false;
+            this.isChokePoint = false;
             this.airstrikeCooldownMs = 0;
             this.productionMode = "units";
             this.productionModeChangedAtMs = 0;
@@ -52,6 +53,7 @@
                 installationProgressMs: this.installationProgressMs,
                 isImpassable: this.isImpassable,
                 isCapital: this.isCapital,
+                isChokePoint: this.isChokePoint,
                 airstrikeCooldownMs: this.airstrikeCooldownMs,
                 productionMode: this.productionMode,
                 productionModeChangedAtMs: this.productionModeChangedAtMs

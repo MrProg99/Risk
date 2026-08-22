@@ -67,8 +67,17 @@
                     </div>
                 </fieldset>
 
+                <fieldset class="lobby-section" id="map-options">
+                    <legend><span>02</span> Type de carte</legend>
+                    <p>Choisissez la géographie qui structurera les fronts.</p>
+                    <div class="map-type-choices">
+                        <label><input type="radio" name="mapType" value="standard" checked><span><strong>Continent</strong><small>Fronts ouverts et itinéraires variés</small></span></label>
+                        <label><input type="radio" name="mapType" value="hourglass"><span><strong>Sablier</strong><small>Deux zones reliées par un passage central</small></span></label>
+                    </div>
+                </fieldset>
+
                 <fieldset class="lobby-section faction-section">
-                    <legend><span>02</span> Votre faction</legend>
+                    <legend><span>03</span> Votre faction</legend>
                     <p>Chaque faction possède un avantage qui change votre manière de conquérir.</p>
                     <div class="faction-choices" id="lobby-factions"></div>
                 </fieldset>

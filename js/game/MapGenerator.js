@@ -21,8 +21,9 @@
             this.height = height;
         }
 
-        generate(seed, requestedCount) {
+        generate(seed, requestedCount, mapType = "standard") {
             const random = C.Geometry.seededRandom(seed);
+            const normalizedMapType = mapType === "hourglass" ? "hourglass" : "standard";
             const territoryCount = requestedCount || C.Geometry.randomInt(random, 110, 120);
             const islandPolygon = this.createIsland(random);
             const sites = this.createSites(territoryCount, islandPolygon, random);
@@ -42,10 +43,54 @@
             });
 
             this.detectNeighbors(territories);
+            const chokeEdges = normalizedMapType === "hourglass" ? this.createHourglassChoke(territories) : [];
             this.createLakes(territories, random);
             this.ensureMinimumTerrain(territories, "airport", 4, random);
             this.createMountainBarriers(territories, random);
-            return { islandPolygon, territories };
+            return { islandPolygon, territories, mapType: normalizedMapType, chokeEdges };
+        }
+
+        createHourglassChoke(territories) {
+            const centerX = this.width / 2;
+            const centerY = this.height / 2;
+            const crossEdges = [];
+            territories.forEach((territory) => {
+                territory.neighbors.forEach((neighborId) => {
+                    if (territory.id >= neighborId) return;
+                    const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                    if (!neighbor) return;
+                    const oppositeSides = (territory.center.x < centerX && neighbor.center.x >= centerX) ||
+                        (neighbor.center.x < centerX && territory.center.x >= centerX);
+                    if (!oppositeSides) return;
+                    const midpoint = {
+                        x: (territory.center.x + neighbor.center.x) / 2,
+                        y: (territory.center.y + neighbor.center.y) / 2
+                    };
+                    crossEdges.push({ first: territory, second: neighbor, midpoint });
+                });
+            });
+
+            crossEdges.forEach((edge) => {
+                if (!edge.first.blockedNeighbors.includes(edge.second.id)) edge.first.blockedNeighbors.push(edge.second.id);
+                if (!edge.second.blockedNeighbors.includes(edge.first.id)) edge.second.blockedNeighbors.push(edge.first.id);
+            });
+            crossEdges.sort((a, b) => Math.abs(a.midpoint.y - centerY) - Math.abs(b.midpoint.y - centerY));
+
+            const opened = [];
+            for (const edge of crossEdges) {
+                edge.first.blockedNeighbors = edge.first.blockedNeighbors.filter((id) => id !== edge.second.id);
+                edge.second.blockedNeighbors = edge.second.blockedNeighbors.filter((id) => id !== edge.first.id);
+                edge.first.isChokePoint = true;
+                edge.second.isChokePoint = true;
+                opened.push(edge);
+                if (this.isTraversableGraphConnected(territories)) break;
+            }
+            const chokeTerritories = [...new Set(opened.flatMap((edge) => [edge.first, edge.second]))];
+            chokeTerritories.forEach((territory, index) => {
+                territory.name = chokeTerritories.length > 2 ? `Passage du Sablier ${index + 1}` : "Passage du Sablier";
+                territory.resource = "Carrefour stratégique";
+            });
+            return opened.map((edge) => [edge.first.id, edge.second.id]);
         }
 
         createIsland(random) {
@@ -139,6 +184,7 @@
             const mapCenter = { x: this.width / 2, y: this.height / 2 };
             const names = C.Geometry.shuffle(LAKE_NAMES, random);
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
+                !territory.isChokePoint &&
                 territory.neighbors.length >= 4 &&
                 C.Geometry.distance(territory.center, mapCenter) < this.width * 0.34), random);
             const selected = [];
@@ -265,7 +311,7 @@
             if (!missingCount) return;
 
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
-                !territory.isImpassable && territory.terrain !== terrainId), random)
+                !territory.isImpassable && !territory.isChokePoint && territory.terrain !== terrainId), random)
                 .sort((first, second) => Number(second.terrain === "plain") - Number(first.terrain === "plain"));
             candidates.slice(0, missingCount).forEach((territory) => {
                 territory.terrain = definition.id;

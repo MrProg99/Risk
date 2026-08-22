@@ -121,6 +121,7 @@
                     teamSize,
                     maxPlayers: teamSize * 2,
                     opponentMode: options.opponentMode === "human" ? "human" : "ai",
+                    mapType: options.mapType === "hourglass" ? "hourglass" : "standard",
                     seed: null,
                     createdAt: now,
                     updatedAt: now
