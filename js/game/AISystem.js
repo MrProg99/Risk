@@ -52,6 +52,8 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.opportunisticExpansionsLaunched = 0;
+            this.rearRedistributionsSent = 0;
             this.researchChoicesMade = 0;
             this.abilitiesUsed = 0;
             this.alliedDefenseConvoysSent = 0;
@@ -63,6 +65,8 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.opportunisticExpansionsLaunched = 0;
+            this.rearRedistributionsSent = 0;
             this.researchChoicesMade = 0;
             this.abilitiesUsed = 0;
             this.alliedDefenseConvoysSent = 0;
@@ -102,6 +106,8 @@
 
             this.chooseResearch(faction);
 
+            if (this.launchOpportunisticNeutralExpansion(faction, owned)) return true;
+
             if (this.considerAbilities(faction, owned)) return true;
 
             if (this.considerAlliedDefense(faction, owned)) return true;
@@ -110,6 +116,8 @@
 
             const plannedAction = this.advanceOffensivePlan(faction, owned);
             if (plannedAction !== null) return plannedAction;
+
+            if (this.redistributeRearSurplus(faction, owned)) return true;
 
             if (this.manageContinuousReinforcements(faction, owned)) return true;
 
@@ -141,6 +149,128 @@
                 return this.issueOrder(factionId, reinforcement.source.id, reinforcement.target.id, reinforcement.units);
             }
             return false;
+        }
+
+        redistributeRearSurplus(faction, owned) {
+            const state = this.game.state;
+            const profile = this.getProfile(faction.id);
+            const targets = this.rankLogisticsTargets(faction, owned);
+            if (!targets.length) return false;
+
+            const activeRedistributions = state.armies.filter((army) =>
+                army.ownerId === faction.id && army.isConvoy && !army.reinforcementRouteId && army.logisticsPurpose === "rear-redistribution");
+            if (activeRedistributions.length >= 2) return false;
+
+            const activeSourceIds = new Set(activeRedistributions.map((army) => army.fromTerritoryId));
+            const candidates = [];
+            owned.forEach((source) => {
+                if (activeSourceIds.has(source.id)) return;
+                const hostileNeighbors = source.neighbors
+                    .map((territoryId) => state.getTerritory(territoryId))
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !source.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
+                if (hostileNeighbors.length) return;
+
+                const reserve = profile.garrison +
+                    (source.isCapital ? 15 : 0) +
+                    (source.installation ? 8 : 0) +
+                    (source.rareSite ? 5 : 0);
+                const surplus = source.units - reserve;
+                if (surplus < 12) return;
+
+                targets.slice(0, 4).forEach((targetEntry) => {
+                    const target = targetEntry.territory;
+                    const path = this.game.findOwnedPath(faction.id, source.id, target.id);
+                    if (!path || path.length < 3) return;
+                    candidates.push({
+                        source,
+                        target,
+                        path,
+                        reserve,
+                        surplus,
+                        score: surplus * 1.4 + targetEntry.score * 6 - path.length * .55
+                    });
+                });
+            });
+
+            candidates.sort((first, second) => second.score - first.score);
+            const best = candidates[0];
+            if (!best) return false;
+            const units = Math.max(8, Math.floor(best.surplus * .7));
+            const result = this.game.executeCommand({
+                type: "SEND_REINFORCEMENT_ROUTE",
+                playerId: faction.id,
+                fromTerritoryId: best.source.id,
+                toTerritoryId: best.target.id,
+                units
+            });
+            if (!result.ok) return false;
+            result.army.logisticsPurpose = "rear-redistribution";
+            this.ordersIssued += 1;
+            this.rearRedistributionsSent += 1;
+            return true;
+        }
+
+        launchOpportunisticNeutralExpansion(faction, owned) {
+            const state = this.game.state;
+            const profile = this.getProfile(faction.id);
+            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
+                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+            const capital = state.getTerritory(faction.capitalTerritoryId);
+            const mapMiddleX = state.mapWidth / 2;
+            const capitalSide = capital ? Math.sign(capital.center.x - mapMiddleX) : 0;
+
+            // Ce créneau d'expansion est indépendant de la limite habituelle des
+            // armées tactiques, mais une seule conquête neutre peut l'utiliser.
+            const expansionAlreadyMoving = state.armies.some((army) => {
+                if (army.ownerId !== faction.id || army.isConvoy || army.reinforcementRouteId) return false;
+                const destination = state.getTerritory(army.finalTerritoryId ?? army.toTerritoryId);
+                return destination?.ownerId === null;
+            });
+            if (expansionAlreadyMoving) return false;
+
+            const candidates = [];
+            owned.forEach((source) => {
+                const available = source.units - profile.garrison;
+                if (available < 2) return;
+                source.neighbors.forEach((neighborId) => {
+                    const target = state.getTerritory(neighborId);
+                    if (!target || target.isImpassable || target.ownerId !== null || source.isPathBlocked(target.id)) return;
+                    const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
+                    const required = Math.ceil((defensePower / Math.max(attackMultiplier, .1)) * profile.safety) + 1;
+                    const projectedPower = available * attackMultiplier;
+                    if (available < required || projectedPower < defensePower * 1.5) return;
+
+                    const targetSide = Math.sign(target.center.x - mapMiddleX);
+                    const sameHourglassSide = state.mapType === "hourglass" && capitalSide !== 0 && targetSide === capitalSide;
+                    const type = C.TERRITORY_TYPES[target.terrain];
+                    const decisiveUnits = Math.ceil((defensePower * 1.65) / Math.max(attackMultiplier, .1));
+                    candidates.push({
+                        source,
+                        target,
+                        units: C.Geometry.clamp(Math.max(required, decisiveUnits), 1, available),
+                        score: (sameHourglassSide ? 100 : 0) +
+                            (type.productionMultiplier - 1) * 18 +
+                            (target.rareSite ? 20 : 0) +
+                            projectedPower / defensePower * 5 -
+                            target.units * .12
+                    });
+                });
+            });
+
+            candidates.sort((first, second) => second.score - first.score);
+            const best = candidates[0];
+            if (!best) return false;
+            const result = this.game.executeCommand({
+                type: "SEND_ARMY",
+                playerId: faction.id,
+                fromTerritoryId: best.source.id,
+                toTerritoryId: best.target.id,
+                units: best.units
+            });
+            if (!result.ok) return false;
+            this.ordersIssued += 1;
+            this.opportunisticExpansionsLaunched += 1;
+            return true;
         }
 
         manageFoodSupply(faction, owned) {

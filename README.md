@@ -82,6 +82,10 @@ Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités compr
 
 Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et plusieurs itinéraires. **Sablier** place les équipes dans deux grandes moitiés opposées et bloque les autres traversées par une chaîne montagneuse, en conservant un passage central marqué par le symbole `⌛`. Ce point d’étranglement devient naturellement un objectif pour les renforts, les canons et les capacités stratégiques. Le choix est stocké dans le salon Firebase afin que tous les clients reconstruisent la même carte.
 
+Sur une carte Sablier, l’IA consolide en priorité sa propre moitié. Une attaque clairement gagnante contre un territoire neutre adjacent utilise un créneau d’expansion réservé et passe avant les capacités, les plans offensifs et les flux logistiques. Elle peut donc poursuivre cette conquête même lorsque ses autres armées sont déjà mobilisées au passage central.
+
+L’IA redistribue aussi les grandes garnisons éloignées du danger. Un territoire intérieur possédant au moins douze unités au-delà de sa réserve peut envoyer environ 70 % de ce surplus par un convoi traversant plusieurs territoires alliés. Deux convois de redistribution peuvent circuler simultanément; les capitales, canons et sites rares conservent une réserve supplémentaire.
+
 Les triangles clairs placés sur certaines frontières représentent des montagnes infranchissables. Ces passages sont interdits aux armées du joueur comme à celles de l’ordinateur. La génération vérifie néanmoins que tous les territoires restent accessibles par au moins un itinéraire terrestre.
 
 ### Lacs intérieurs

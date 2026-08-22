@@ -744,6 +744,41 @@
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
+        const expansionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        expansionGame.newGame(717171);
+        const expansionFaction = expansionGame.state.getFaction(2);
+        const expansionSource = expansionGame.state.getTerritoriesOwnedBy(2)[0];
+        const expansionTarget = expansionSource.neighbors
+            .map((id) => expansionGame.state.getTerritory(id))
+            .find((territory) => territory && !territory.isImpassable && !expansionSource.isPathBlocked(territory.id));
+        expansionSource.units = 55;
+        expansionSource.neighbors
+            .map((id) => expansionGame.state.getTerritory(id))
+            .filter((territory) => territory && !territory.isImpassable)
+            .forEach((territory) => { territory.ownerId = 1; });
+        expansionTarget.ownerId = null;
+        expansionTarget.units = 10;
+        const occupiedDestination = expansionGame.state.getTerritoriesOwnedBy(1)[0];
+        for (let index = 0; index < 4; index += 1) {
+            expansionGame.state.armies.push(new C.Army({
+                id: expansionGame.state.nextArmyId++,
+                ownerId: 2,
+                fromTerritoryId: expansionSource.id,
+                toTerritoryId: occupiedDestination.id,
+                finalTerritoryId: occupiedDestination.id,
+                units: 1,
+                durationMs: 60000,
+                start: expansionSource.center,
+                end: occupiedDestination.center
+            }));
+        }
+        expansionGame.aiSystem.manageFoodSupply = () => false;
+        expansionGame.aiSystem.offensivePlans.set(2, { expiresAt: expansionGame.state.elapsedMs + 90000 });
+        const opportunisticExpansion = expansionGame.aiSystem.think(2);
+        const neutralExpansionArmy = expansionGame.state.armies.find((army) => army.ownerId === 2 && army.toTerritoryId === expansionTarget.id);
+        check(opportunisticExpansion && neutralExpansionArmy && expansionSource.units < 55, "l’IA attaque immédiatement un territoire neutre de 10 unités depuis une garnison de 55");
+        check(expansionGame.state.armies.length === 5 && expansionGame.aiSystem.opportunisticExpansionsLaunched === 1, "la conquête opportuniste possède son propre créneau malgré quatre armées et un plan offensif actifs");
+
         const abilityAiFaction = aiGame.state.getFaction(2);
         const abilityAiSource = aiGame.state.getTerritoriesOwnedBy(2)[0];
         const abilityAiTarget = abilityAiSource.neighbors.map((id) => aiGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable);
@@ -785,13 +820,40 @@
         technocratNetwork.slice(1).forEach((territoryId) => {
             aiLogisticsGame.state.getTerritory(territoryId).ownerId = 2;
         });
-        aiLogisticsGame.aiSystem.think(2);
+        aiLogisticsGame.aiSystem.manageContinuousReinforcements(
+            aiLogisticsGame.state.getFaction(2),
+            aiLogisticsGame.state.getTerritoriesOwnedBy(2)
+        );
         const aiRoute = aiLogisticsGame.state.reinforcementRoutes.find((route) => route.active && route.ownerId === 2);
         check(Boolean(aiRoute) && aiLogisticsGame.aiSystem.continuousRoutesCreated > 0, "l’ordinateur ouvre une ligne de renfort continue vers une frontière");
         const aiRouteSource = aiLogisticsGame.state.getTerritory(aiRoute.fromTerritoryId);
         aiRouteSource.productionProgress = 0.99;
         aiLogisticsGame.update(1000);
         check(aiRoute.unitsDispatched > 0, "la production de l’IA alimente automatiquement sa ligne logistique");
+
+        const rearGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        rearGame.newGame(616161);
+        const rearFaction = rearGame.state.getFaction(2);
+        const rearSource = rearGame.state.getTerritoriesOwnedBy(2)[0];
+        const rearPath = findPathWithMinimumHops(rearGame.state.territories, rearSource.id, 4);
+        rearPath.forEach((territoryId) => {
+            const territory = rearGame.state.getTerritory(territoryId);
+            territory.ownerId = 2;
+            territory.units = 5;
+        });
+        rearSource.neighbors.map((id) => rearGame.state.getTerritory(id)).filter((territory) => territory && !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 2;
+            territory.units = 5;
+        });
+        const rearFront = rearGame.state.getTerritory(rearPath[rearPath.length - 1]);
+        const rearEnemy = rearFront.neighbors.map((id) => rearGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable && territory.ownerId !== 2);
+        rearEnemy.ownerId = 1;
+        rearEnemy.units = 30;
+        rearSource.units = 96;
+        const rearRedistribution = rearGame.aiSystem.redistributeRearSurplus(rearFaction, rearGame.state.getTerritoriesOwnedBy(2));
+        const rearConvoy = rearGame.state.armies.find((army) => army.logisticsPurpose === "rear-redistribution");
+        check(rearRedistribution && rearConvoy && rearConvoy.units >= 40 && rearSource.units >= 20 && rearSource.units < 55, "l’IA expédie la majorité d’une grosse garnison arrière vers une frontière distante en conservant une réserve");
+        check(rearConvoy.toJSON().logisticsPurpose === "rear-redistribution" && rearGame.aiSystem.rearRedistributionsSent === 1, "les convois de redistribution arrière sont identifiés et sérialisables");
 
         const tacticalGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         tacticalGame.newGame(919191);
