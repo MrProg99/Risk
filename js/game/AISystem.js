@@ -147,11 +147,15 @@
             const state = this.game.state;
             const food = this.game.getFactionFoodState(faction.id);
             const minimumModeDurationMs = 45000;
+            const conversionThreshold = 0.90;
+            const emergencyThreshold = 0.75;
+            const returnThreshold = 1.15;
+            const returnSafetyFloor = 0.98;
             const canChange = (territory) =>
                 state.elapsedMs - (territory.productionModeChangedAtMs || 0) >= minimumModeDurationMs;
 
-            if (food.demand > 0 && food.ratio < 1.10) {
-                const emergency = food.ratio < 0.75;
+            if (food.demand > 0 && food.ratio < conversionThreshold) {
+                const emergency = food.ratio < emergencyThreshold;
                 const candidates = owned
                     .filter((territory) => territory.productionMode === "units" && (emergency || canChange(territory)))
                     .filter((territory) => emergency || (!territory.isCapital && !territory.installation && !territory.rareSite && territory.terrain !== "airport"))
@@ -179,13 +183,13 @@
                 }
             }
 
-            if (food.ratio > 1.30) {
+            if (food.ratio > returnThreshold) {
                 const candidates = owned
                     .filter((territory) => territory.productionMode === "food" && canChange(territory))
                     .map((territory) => {
                         const contribution = this.game.getTerritoryFoodCapacity(territory);
                         const capacityAfterChange = food.capacity - contribution;
-                        if (food.demand > 0 && capacityAfterChange / food.demand < 1.20) return null;
+                        if (food.demand > 0 && capacityAfterChange / food.demand < returnSafetyFloor) return null;
                         const hostileNeighbors = territory.neighbors
                             .map((id) => state.getTerritory(id))
                             .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
