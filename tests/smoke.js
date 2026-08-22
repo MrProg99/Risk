@@ -772,10 +772,10 @@
         foodAiGame.state.elapsedMs = 50000;
         foodAiCapital.units = 229;
         const toleratedFoodDeficit = foodAiGame.aiSystem.manageFoodSupply(foodAiGame.state.getFaction(2), foodAiGame.state.getTerritoriesOwnedBy(2));
-        check(!toleratedFoodDeficit && foodAiFarm.productionMode === "units", "l’IA conserve le recrutement lorsqu’elle ne dépasse que légèrement sa capacité alimentaire");
+        check(!toleratedFoodDeficit && foodAiFarm.productionMode === "units", "l’IA conserve le recrutement tant que la charge alimentaire reste sous 110 %");
         foodAiCapital.units = 249;
         const foodAiDecision = foodAiGame.aiSystem.manageFoodSupply(foodAiGame.state.getFaction(2), foodAiGame.state.getTerritoriesOwnedBy(2));
-        check(foodAiDecision && foodAiFarm.productionMode === "food", "l’IA tolère une légère pénurie et ne convertit un territoire qu’à moins de 90 % de couverture");
+        check(foodAiDecision && foodAiFarm.productionMode === "food", "l’IA ne convertit un territoire qu’après avoir dépassé 110 % de charge alimentaire");
         check(foodAiGame.getFactionFoodState(2).capacity >= 280, "la décision alimentaire de l’IA augmente réellement sa capacité de ravitaillement");
 
         const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });

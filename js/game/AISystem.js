@@ -147,7 +147,10 @@
             const state = this.game.state;
             const food = this.game.getFactionFoodState(faction.id);
             const minimumModeDurationMs = 45000;
-            const conversionThreshold = 0.90;
+            // L'IA accepte une armée allant jusqu'à 110 % de sa capacité
+            // alimentaire avant de sacrifier une ville au mode nourriture.
+            const toleratedFoodLoad = 1.10;
+            const conversionThreshold = 1 / toleratedFoodLoad;
             const emergencyThreshold = 0.75;
             const returnThreshold = 1.15;
             const returnSafetyFloor = 0.98;
