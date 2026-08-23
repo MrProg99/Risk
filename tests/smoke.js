@@ -780,11 +780,48 @@
             }));
         }
         expansionGame.aiSystem.manageFoodSupply = () => false;
+        expansionGame.aiSystem.launchDecisiveAttack = () => false;
         expansionGame.aiSystem.offensivePlans.set(2, { expiresAt: expansionGame.state.elapsedMs + 90000 });
         const opportunisticExpansion = expansionGame.aiSystem.think(2);
         const neutralExpansionArmy = expansionGame.state.armies.find((army) => army.ownerId === 2 && army.toTerritoryId === expansionTarget.id);
         check(opportunisticExpansion && neutralExpansionArmy && expansionSource.units < 55, "l’IA attaque immédiatement un territoire neutre de 10 unités depuis une garnison de 55");
         check(expansionGame.state.armies.length === 5 && expansionGame.aiSystem.opportunisticExpansionsLaunched === 1, "la conquête opportuniste possède son propre créneau malgré quatre armées et un plan offensif actifs");
+
+        const decisiveGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        decisiveGame.newGame(727272);
+        const decisiveState = decisiveGame.state;
+        const decisiveSource = decisiveState.territories.find((territory) =>
+            !territory.isImpassable && territory.neighbors
+                .map((id) => decisiveState.getTerritory(id))
+                .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id)).length >= 3);
+        const decisiveNeighbors = decisiveSource.neighbors
+            .map((id) => decisiveState.getTerritory(id))
+            .filter((neighbor) => neighbor && !neighbor.isImpassable && !decisiveSource.isPathBlocked(neighbor.id));
+        const decisiveTarget = decisiveNeighbors[0];
+        const decisiveSupporters = decisiveNeighbors.slice(1, 3);
+        decisiveState.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 1;
+            territory.units = 1000;
+            territory.isCapital = false;
+        });
+        decisiveSource.ownerId = 2;
+        decisiveSource.units = 93;
+        decisiveSource.isCapital = true;
+        decisiveState.getFaction(2).capitalTerritoryId = decisiveSource.id;
+        decisiveTarget.ownerId = 1;
+        decisiveTarget.units = 51;
+        decisiveTarget.terrain = "plain";
+        decisiveTarget.rareSite = null;
+        decisiveSupporters[0].ownerId = 2;
+        decisiveSupporters[0].units = 33;
+        decisiveSupporters[1].ownerId = 2;
+        decisiveSupporters[1].units = 32;
+        decisiveGame.aiSystem.offensivePlans.set(2, { expiresAt: decisiveState.elapsedMs + 90000 });
+        const decisiveDecision = decisiveGame.aiSystem.think(2);
+        const decisiveArmy = decisiveState.armies.find((army) =>
+            army.ownerId === 2 && !army.isConvoy && army.fromTerritoryId === decisiveSource.id && army.toTerritoryId === decisiveTarget.id);
+        check(Boolean(decisiveDecision && decisiveArmy && decisiveArmy.units >= 68), "une garnison de 93 attaque immediatement une cible ennemie de 51 malgre un autre plan offensif actif");
+        check(decisiveGame.aiSystem.decisiveAttacksLaunched === 1, "l'attaque locale decisive passe avant la nourriture, les capacites et la logistique");
 
         const abilityAiFaction = aiGame.state.getFaction(2);
         const abilityAiSource = aiGame.state.getTerritoriesOwnedBy(2)[0];

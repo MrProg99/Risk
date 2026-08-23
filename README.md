@@ -84,6 +84,8 @@ Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et
 
 Sur une carte Sablier, l’IA consolide en priorité sa propre moitié. Une attaque clairement gagnante contre un territoire neutre adjacent utilise un créneau d’expansion réservé et passe avant les capacités, les plans offensifs et les flux logistiques. Elle peut donc poursuivre cette conquête même lorsque ses autres armées sont déjà mobilisées au passage central.
 
+Une attaque décisive contre un territoire ennemi adjacent passe également avant la gestion alimentaire, les capacités, les convois et les plans offensifs déjà actifs. Lorsque la puissance disponible dépasse nettement la défense locale, l’IA exploite immédiatement l’occasion au lieu d’attendre que son réseau logistique soit entièrement configuré.
+
 L’IA redistribue aussi les grandes garnisons éloignées du danger. Un territoire intérieur possédant au moins douze unités au-delà de sa réserve peut envoyer environ 70 % de ce surplus par un convoi traversant plusieurs territoires alliés. Deux convois de redistribution peuvent circuler simultanément; les capitales, canons et sites rares conservent une réserve supplémentaire.
 
 La capacité de manœuvre tactique de l’IA augmente avec son territoire : une armée simultanée par groupe de trois territoires, jusqu’à un maximum de **huit**. Les petits empires restent lisibles, tandis que les grandes puissances peuvent soutenir plusieurs fronts sans attendre la fin de quatre déplacements lointains.

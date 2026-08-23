@@ -52,6 +52,7 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.decisiveAttacksLaunched = 0;
             this.opportunisticExpansionsLaunched = 0;
             this.rearRedistributionsSent = 0;
             this.researchChoicesMade = 0;
@@ -65,6 +66,7 @@
             this.continuousRoutesCreated = 0;
             this.offensivePlansCreated = 0;
             this.coordinatedAttacksLaunched = 0;
+            this.decisiveAttacksLaunched = 0;
             this.opportunisticExpansionsLaunched = 0;
             this.rearRedistributionsSent = 0;
             this.researchChoicesMade = 0;
@@ -102,9 +104,13 @@
             const owned = state.getTerritoriesOwnedBy(factionId);
             if (!faction || !owned.length) return false;
 
-            if (this.manageFoodSupply(faction, owned)) return true;
-
             this.chooseResearch(faction);
+
+            // Une victoire locale Ã©vidente ne doit pas attendre la crÃ©ation de
+            // routes logistiques ni la fin d'un autre plan de rassemblement.
+            if (this.launchDecisiveAttack(faction, owned)) return true;
+
+            if (this.manageFoodSupply(faction, owned)) return true;
 
             if (this.launchOpportunisticNeutralExpansion(faction, owned)) return true;
 
@@ -149,6 +155,21 @@
                 return this.issueOrder(factionId, reinforcement.source.id, reinforcement.target.id, reinforcement.units);
             }
             return false;
+        }
+
+        launchDecisiveAttack(faction, owned) {
+            const state = this.game.state;
+            const movingArmies = state.armies.filter((army) =>
+                army.ownerId === faction.id && !army.reinforcementRouteId).length;
+            if (movingArmies >= this.getMaximumTacticalArmies(owned.length)) return false;
+
+            const attack = this.findBestAttack(faction, owned, {
+                enemyOnly: true,
+                minimumPowerRatio: 1.35
+            });
+            if (!attack || !this.issueOrder(faction.id, attack.source.id, attack.target.id, attack.units)) return false;
+            this.decisiveAttacksLaunched += 1;
+            return true;
         }
 
         redistributeRearSurplus(faction, owned) {
@@ -815,9 +836,11 @@
             return result.ok;
         }
 
-        findBestAttack(faction, owned) {
+        findBestAttack(faction, owned, options = {}) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
+            const enemyOnly = options.enemyOnly === true;
+            const minimumPowerRatio = Math.max(0, Number(options.minimumPowerRatio) || 0);
             const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
                 (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
             const candidates = [];
@@ -829,6 +852,7 @@
                 source.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
                     if (!target || target.isImpassable || this.game.areAllied(target.ownerId, faction.id)) return;
+                    if (enemyOnly && target.ownerId === null) return;
                     if (source.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id &&
@@ -842,6 +866,7 @@
                     const type = C.TERRITORY_TYPES[target.terrain];
                     const projectedPower = available * attackMultiplier;
                     const powerRatio = projectedPower / defensePower;
+                    if (powerRatio < minimumPowerRatio) return;
                     let score = powerRatio * 7 - required * 0.08;
                     score += target.ownerId === null ? 6 : 2;
                     score += (type.productionMultiplier - 1) * 18;
@@ -855,6 +880,7 @@
                         source,
                         target,
                         units: C.Geometry.clamp(desired, 1, available),
+                        powerRatio,
                         score
                     });
                 });
