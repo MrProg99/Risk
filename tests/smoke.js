@@ -137,10 +137,16 @@
         foodCapital.units = 100;
         foodCapital.productionProgress = 0;
         const fedProduction = foodGame.getProductionMultiplier(foodCapital);
-        foodCapital.units = 230;
+        foodCapital.units = 239;
         const shortFoodState = foodGame.getFactionFoodState(1);
-        check(shortFoodState.productionMultiplier === 0.8 && Math.abs(foodGame.getProductionMultiplier(foodCapital) - fedProduction * 0.8) < 0.0001, "une légère pénurie réduit le recrutement à 80 %");
-        foodCapital.units = 300;
+        check(shortFoodState.productionMultiplier === 0.75 && Math.abs(foodGame.getProductionMultiplier(foodCapital) - fedProduction * 0.75) < 0.0001, "une légère pénurie réduit le recrutement à 75 %");
+        foodCapital.units = 279;
+        check(foodGame.getFactionFoodState(1).productionMultiplier === 0.4, "une charge alimentaire entre 125 % et 140 % réduit le recrutement à 40 %");
+        foodCapital.units = 319;
+        check(foodGame.getFactionFoodState(1).productionMultiplier === 0.10 && foodGame.getFactionFoodState(1).attritionRate === 0.05, "une charge alimentaire entre 140 % et 160 % réduit le recrutement à 10 % et renforce l’attrition");
+        foodCapital.units = 339;
+        check(foodGame.getFactionFoodState(1).productionMultiplier === 0 && foodGame.getFactionFoodState(1).attritionRate === 0.08, "une charge alimentaire supérieure à 160 % arrête le recrutement et provoque une forte attrition");
+        foodCapital.units = 319;
         foodCapital.productionProgress = 0;
         foodFarm.productionProgress = 0;
         const unitsBeforeFoodAttrition = foodGame.getFactionStats(1).totalUnits;
@@ -813,6 +819,13 @@
         const foodAiDecision = foodAiGame.aiSystem.manageFoodSupply(foodAiGame.state.getFaction(2), foodAiGame.state.getTerritoriesOwnedBy(2));
         check(foodAiDecision && foodAiFarm.productionMode === "food", "l’IA ne convertit un territoire qu’après avoir dépassé 110 % de charge alimentaire");
         check(foodAiGame.getFactionFoodState(2).capacity >= 280, "la décision alimentaire de l’IA augmente réellement sa capacité de ravitaillement");
+
+        check(
+            foodAiGame.aiSystem.getFoodTerritoryLimit(30, 0.95) === 6 &&
+            foodAiGame.aiSystem.getFoodTerritoryLimit(30, 0.80) === 9 &&
+            foodAiGame.aiSystem.getFoodTerritoryLimit(30, 0.60) === 12,
+            "l'IA plafonne ses villes alimentaires a 20 %, 30 % ou 40 % selon la gravite de la penurie"
+        );
 
         const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiLogisticsGame.newGame(515151);

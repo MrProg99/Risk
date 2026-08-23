@@ -1047,9 +1047,12 @@
             this.elements.foodSupply.textContent = `${stats.food.demand} / ${stats.food.capacity}`;
             this.elements.foodStat.classList.toggle("warning", stats.food.ratio < 1 && stats.food.ratio >= this.game.foodAttritionThreshold);
             this.elements.foodStat.classList.toggle("critical", stats.food.ratio < this.game.foodAttritionThreshold);
+            const attritionDetail = stats.food.attritionRate > 0
+                ? ` · attrition ${this.formatNumber(stats.food.attritionRate * 100)} % du déficit toutes les ${this.formatNumber(this.game.foodAttritionIntervalMs / 1000)} s`
+                : "";
             this.elements.foodSupply.title = stats.food.ratio >= 1
                 ? `${Math.max(0, stats.food.capacity - stats.food.demand)} points de nourriture disponibles`
-                : `Pénurie : recrutement ×${this.formatNumber(stats.food.productionMultiplier)}`;
+                : `Pénurie : recrutement ×${this.formatNumber(stats.food.productionMultiplier)}${attritionDetail}`;
             this.elements.productionRate.textContent = `+${this.formatNumber(stats.productionPerMinute)}/min`;
             this.refreshResearchStatus();
             this.refreshAbilities();

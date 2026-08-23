@@ -36,7 +36,7 @@
             this.airstrikeDamageRatio = C.Geometry.clamp(Number(options.airstrikeDamageRatio ?? 0.10), 0.01, 0.9);
             this.capitalFoodCapacity = Math.max(0, Number(options.capitalFoodCapacity ?? 200));
             this.territoryBaseFoodCapacity = Math.max(0, Number(options.territoryBaseFoodCapacity ?? 10));
-            this.foodAttritionThreshold = C.Geometry.clamp(Number(options.foodAttritionThreshold ?? 0.75), 0.1, 1);
+            this.foodAttritionThreshold = C.Geometry.clamp(Number(options.foodAttritionThreshold ?? (1 / 1.40)), 0.1, 1);
             this.foodAttritionIntervalMs = Math.max(2000, Number(options.foodAttritionIntervalMs ?? 10000));
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
@@ -1138,7 +1138,7 @@
 
         getFactionFoodState(factionId) {
             const faction = this.state.getFaction(factionId);
-            if (!faction) return { capacity: 0, demand: 0, ratio: 1, productionMultiplier: 1, shortage: 0, foodTerritoryCount: 0 };
+            if (!faction) return { capacity: 0, demand: 0, ratio: 1, productionMultiplier: 1, attritionRate: 0, shortage: 0, foodTerritoryCount: 0 };
             const territories = this.state.getTerritoriesOwnedBy(faction.id);
             const capital = this.state.getTerritory(faction.capitalTerritoryId);
             const capitalCapacity = capital && capital.ownerId === faction.id ? this.capitalFoodCapacity : 0;
@@ -1152,9 +1152,11 @@
             const capacity = capitalCapacity + passiveTerritoryCapacity + territoryCapacity;
             const ratio = demand > 0 ? capacity / demand : 1;
             let productionMultiplier = 1;
-            if (ratio < 0.70) productionMultiplier = 0.20;
-            else if (ratio < 0.85) productionMultiplier = 0.50;
-            else if (ratio < 1) productionMultiplier = 0.80;
+            if (ratio < 1 / 1.60) productionMultiplier = 0;
+            else if (ratio < 1 / 1.40) productionMultiplier = 0.10;
+            else if (ratio < 1 / 1.25) productionMultiplier = 0.40;
+            else if (ratio < 1 / 1.10) productionMultiplier = 0.75;
+            const attritionRate = ratio < 1 / 1.60 ? 0.08 : ratio < 1 / 1.40 ? 0.05 : 0;
             return {
                 capacity,
                 capitalCapacity,
@@ -1163,6 +1165,7 @@
                 demand,
                 ratio,
                 productionMultiplier,
+                attritionRate,
                 shortage: Math.max(0, demand - capacity),
                 foodTerritoryCount: foodTerritories.length
             };
@@ -1179,7 +1182,7 @@
                 faction.foodAttritionProgressMs += deltaMs;
                 while (faction.foodAttritionProgressMs >= this.foodAttritionIntervalMs) {
                     faction.foodAttritionProgressMs -= this.foodAttritionIntervalMs;
-                    const requestedLosses = Math.max(1, Math.ceil(food.shortage * 0.02));
+                    const requestedLosses = Math.max(1, Math.ceil(food.shortage * Math.max(0.02, food.attritionRate)));
                     const losses = this.applyFoodAttrition(faction.id, requestedLosses);
                     if (!losses) break;
                     changed = true;

@@ -273,6 +273,12 @@
             return true;
         }
 
+        getFoodTerritoryLimit(territoryCount, foodRatio) {
+            if (territoryCount <= 0) return 0;
+            const maximumShare = foodRatio < 0.70 ? 0.40 : foodRatio < 0.85 ? 0.30 : 0.20;
+            return Math.max(1, Math.ceil(territoryCount * maximumShare));
+        }
+
         manageFoodSupply(faction, owned) {
             const state = this.game.state;
             const food = this.game.getFactionFoodState(faction.id);
@@ -281,24 +287,30 @@
             // alimentaire avant de sacrifier une ville au mode nourriture.
             const toleratedFoodLoad = 1.10;
             const conversionThreshold = 1 / toleratedFoodLoad;
-            const emergencyThreshold = 0.75;
+            const criticalThreshold = 0.70;
             const returnThreshold = 1.15;
             const returnSafetyFloor = 0.98;
+            const normalFoodLimit = this.getFoodTerritoryLimit(owned.length, 1);
+            const currentFoodCount = owned.filter((territory) => territory.productionMode === "food").length;
+            const foodTerritoryLimit = this.getFoodTerritoryLimit(owned.length, food.ratio);
             const canChange = (territory) =>
                 state.elapsedMs - (territory.productionModeChangedAtMs || 0) >= minimumModeDurationMs;
 
-            if (food.demand > 0 && food.ratio < conversionThreshold) {
-                const emergency = food.ratio < emergencyThreshold;
+            if (food.demand > 0 && food.ratio < conversionThreshold && currentFoodCount < foodTerritoryLimit) {
+                const critical = food.ratio < criticalThreshold;
                 const candidates = owned
-                    .filter((territory) => territory.productionMode === "units" && (emergency || canChange(territory)))
-                    .filter((territory) => emergency || (!territory.isCapital && !territory.installation && !territory.rareSite && territory.terrain !== "airport"))
+                    .filter((territory) => territory.productionMode === "units" && (critical || canChange(territory)))
+                    .filter((territory) => critical || (!territory.isCapital && !territory.installation && !territory.rareSite && territory.terrain !== "airport"))
                     .map((territory) => {
                         const hostileNeighbors = territory.neighbors
                             .map((id) => state.getTerritory(id))
                             .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
                         const capacity = this.game.getPotentialTerritoryFoodCapacity(territory);
-                        const strategicPenalty = (territory.isCapital ? 80 : 0) + (territory.installation ? 50 : 0) + (territory.rareSite ? 35 : 0);
-                        return { territory, score: capacity * 2 - hostileNeighbors * 90 - strategicPenalty };
+                        const strategicPenalty = (territory.isCapital ? 120 : 0) +
+                            (territory.installation ? 70 : 0) +
+                            (territory.rareSite ? 50 : 0) +
+                            (territory.terrain === "airport" ? 45 : 0);
+                        return { territory, score: capacity * 2 - hostileNeighbors * 110 - strategicPenalty };
                     })
                     .sort((first, second) => second.score - first.score);
                 const selected = candidates[0]?.territory;
@@ -316,13 +328,15 @@
                 }
             }
 
-            if (food.ratio > returnThreshold) {
+            const hasExcessFoodTerritories = currentFoodCount > normalFoodLimit;
+            if (food.ratio > returnThreshold || hasExcessFoodTerritories) {
                 const candidates = owned
                     .filter((territory) => territory.productionMode === "food" && canChange(territory))
                     .map((territory) => {
                         const contribution = this.game.getTerritoryFoodCapacity(territory);
                         const capacityAfterChange = food.capacity - contribution;
-                        if (food.demand > 0 && capacityAfterChange / food.demand < returnSafetyFloor) return null;
+                        const requiredSafety = hasExcessFoodTerritories ? conversionThreshold : returnSafetyFloor;
+                        if (food.demand > 0 && capacityAfterChange / food.demand < requiredSafety) return null;
                         const hostileNeighbors = territory.neighbors
                             .map((id) => state.getTerritory(id))
                             .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
