@@ -49,6 +49,21 @@
             return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
         }
 
+        static formatError(error) {
+            const code = String(error?.code || "").toLowerCase();
+            const message = String(error?.message || "");
+            if (/permission[-_]?denied/.test(code) || /permission[_ -]?denied|access denied/i.test(message)) {
+                return "Accès Firebase refusé. Publiez les règles Frontières mises à jour dans Realtime Database.";
+            }
+            if (code.includes("operation-not-allowed") || code.includes("admin-restricted-operation")) {
+                return "L’authentification anonyme Firebase doit être activée dans Authentication > Sign-in method.";
+            }
+            if (code.includes("network-request-failed")) {
+                return "Connexion à Firebase impossible. Vérifiez Internet, puis réessayez.";
+            }
+            return message || "Connexion au salon impossible.";
+        }
+
         static buildFactionSetups(room) {
             const participants = Object.values(room.players || {}).concat(FirebaseMultiplayer.buildAIPlayers(room));
             return participants.sort((a, b) => a.slot - b.slot).map((player) => {

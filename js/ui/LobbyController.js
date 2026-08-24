@@ -92,7 +92,7 @@
                     if (!this.room) await this.connectToRoom(configuration);
                     else if (this.room.meta.hostUid === this.network.uid) await this.network.startRoom();
                 } catch (error) {
-                    this.summary.textContent = error.message || "Connexion au salon impossible.";
+                    this.summary.textContent = C.FirebaseMultiplayer?.formatError(error) || error.message || "Connexion au salon impossible.";
                     this.startButton.disabled = false;
                 }
             });

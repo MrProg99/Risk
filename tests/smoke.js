@@ -208,6 +208,8 @@
         };
         const multiplayerSetups = C.FirebaseMultiplayer.buildFactionSetups(multiplayerRoom);
         check(multiplayerSetups[0].definitionId === multiplayerSetups[1].definitionId && multiplayerSetups[0].color !== multiplayerSetups[1].color, "deux joueurs peuvent choisir la même race tout en conservant des couleurs distinctes");
+        check(/règles Frontières/.test(C.FirebaseMultiplayer.formatError({ code: "PERMISSION_DENIED" })), "le lobby explique clairement un refus des regles Firebase");
+        check(/authentification anonyme/.test(C.FirebaseMultiplayer.formatError({ code: "auth/operation-not-allowed" })), "le lobby explique clairement lorsque l'authentification anonyme est desactivee");
         const humanVsAiRoom = {
             meta: { teamSize: 2, maxPlayers: 4, opponentMode: "ai" },
             players: {

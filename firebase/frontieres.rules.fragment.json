@@ -2,7 +2,7 @@
   "frontieres": {
     "rooms": {
       "$roomCode": {
-        ".read": "auth != null && ((!data.exists() && false) || data.child('meta/status').val() == 'lobby' || data.child('players').child(auth.uid).exists())",
+        ".read": "auth != null && (!data.exists() || data.child('meta/status').val() == 'lobby' || data.child('players').child(auth.uid).exists())",
         ".write": "auth != null && !data.exists() && newData.child('meta/hostUid').val() == auth.uid && newData.child('players').child(auth.uid).exists()",
         "meta": {
           ".write": "auth != null && root.child('frontieres/rooms').child($roomCode).child('meta/hostUid').val() == auth.uid",
