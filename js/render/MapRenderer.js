@@ -867,27 +867,55 @@
                 ctx.setLineDash([]);
 
                 ctx.translate(x, y);
-                ctx.rotate(angle);
-                ctx.beginPath();
-                ctx.moveTo(14, 0);
-                ctx.lineTo(-8, -9);
-                ctx.lineTo(-5, 0);
-                ctx.lineTo(-8, 9);
-                ctx.closePath();
-                ctx.fillStyle = faction.color;
-                ctx.shadowColor = faction.color;
-                ctx.shadowBlur = 12;
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                ctx.rotate(-angle);
+                if (army.logisticsPurpose === "paratrooper") {
+                    const sway = Math.sin(now / 180 + army.id) * 2;
+                    ctx.translate(sway, 0);
+                    ctx.beginPath();
+                    ctx.arc(0, -7, 13, Math.PI, Math.PI * 2);
+                    ctx.lineTo(0, 7);
+                    ctx.closePath();
+                    ctx.fillStyle = C.Geometry.rgba(faction.color, .92);
+                    ctx.shadowColor = "#bcefff";
+                    ctx.shadowBlur = 13;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.strokeStyle = "rgba(225,248,255,.92)";
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-12, -7);
+                    ctx.lineTo(-4, 7);
+                    ctx.moveTo(12, -7);
+                    ctx.lineTo(4, 7);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(0, 9, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = "#e8fbff";
+                    ctx.fill();
+                    ctx.fillRect(-2, 12, 4, 7);
+                } else {
+                    ctx.rotate(angle);
+                    ctx.beginPath();
+                    ctx.moveTo(14, 0);
+                    ctx.lineTo(-8, -9);
+                    ctx.lineTo(-5, 0);
+                    ctx.lineTo(-8, 9);
+                    ctx.closePath();
+                    ctx.fillStyle = faction.color;
+                    ctx.shadowColor = faction.color;
+                    ctx.shadowBlur = 12;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.rotate(-angle);
+                }
 
+                const labelY = army.logisticsPurpose === "paratrooper" ? 23 : 12;
                 ctx.fillStyle = "rgba(4, 10, 13, .9)";
-                ctx.fillRect(-12, 12, 24, 15);
+                ctx.fillRect(-12, labelY, 24, 15);
                 ctx.fillStyle = "#fff";
                 ctx.font = "700 10px sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText(String(army.units), 0, 20);
+                ctx.fillText(String(army.units), 0, labelY + 8);
                 ctx.restore();
             });
         }

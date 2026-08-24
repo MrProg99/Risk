@@ -136,6 +136,9 @@
                     teamSize,
                     maxPlayers: teamSize * 2,
                     opponentMode: options.opponentMode === "human" ? "human" : "ai",
+                    aiDifficulty: ["relaxed", "normal", "hard", "relentless"].includes(options.aiDifficulty)
+                        ? options.aiDifficulty
+                        : "normal",
                     mapType: options.mapType === "hourglass" ? "hourglass" : "standard",
                     seed: null,
                     createdAt: now,

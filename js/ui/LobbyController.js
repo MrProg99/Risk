@@ -2,6 +2,18 @@
     "use strict";
 
     class LobbyController {
+        static normalizeAIDifficulty(value) {
+            return ["relaxed", "normal", "hard", "relentless"].includes(value) ? value : "normal";
+        }
+
+        static getAIProductionMultiplier(value) {
+            return { relaxed: 0.75, normal: 1, hard: 1.20, relentless: 1.40 }[LobbyController.normalizeAIDifficulty(value)];
+        }
+
+        static getAIDifficultyLabel(value) {
+            return { relaxed: "Détendu", normal: "Normal", hard: "Difficile", relentless: "Implacable" }[LobbyController.normalizeAIDifficulty(value)];
+        }
+
         constructor(factionDefinitions = C.FACTION_DEFINITIONS, network = null) {
             this.factionDefinitions = factionDefinitions.slice();
             this.network = network;
@@ -16,6 +28,7 @@
             this.gameApp = document.getElementById("game-app");
             this.multiplayerOptions = document.getElementById("multiplayer-options");
             this.soloPlayerOptions = document.getElementById("solo-player-options");
+            this.aiDifficultyOptions = document.getElementById("ai-difficulty-options");
             this.mapOptions = document.getElementById("map-options");
             this.roomCodeField = document.getElementById("room-code-field");
             this.teamSizeField = document.getElementById("team-size-field");
@@ -104,6 +117,7 @@
             const playerId = Number(factionInput.value);
             const playerCount = Number(countInput.value);
             const mode = this.form.elements.gameMode?.value || "solo";
+            const aiDifficulty = LobbyController.normalizeAIDifficulty(this.form.elements.aiDifficulty?.value);
             return {
                 mode,
                 playerId,
@@ -112,6 +126,8 @@
                 roomCode: this.form.elements.roomCode?.value || "",
                 teamSize: Number(this.form.elements.teamSize?.value) || 1,
                 opponentMode: this.form.elements.opponentMode?.value === "human" ? "human" : "ai",
+                aiDifficulty,
+                aiProductionMultiplier: LobbyController.getAIProductionMultiplier(aiDifficulty),
                 mapType: this.form.elements.mapType?.value === "hourglass" ? "hourglass" : "standard",
                 teamId: Number(this.form.elements.preferredTeam?.value) || 1,
                 raceId: playerId,
@@ -132,6 +148,10 @@
             const online = configuration.mode !== "solo";
             if (this.multiplayerOptions) this.multiplayerOptions.hidden = !online;
             if (this.soloPlayerOptions) this.soloPlayerOptions.hidden = online;
+            if (this.aiDifficultyOptions) {
+                this.aiDifficultyOptions.hidden = configuration.mode === "join" ||
+                    (configuration.mode === "host" && configuration.opponentMode !== "ai");
+            }
             if (this.mapOptions) this.mapOptions.hidden = configuration.mode === "join";
             if (this.roomCodeField) this.roomCodeField.hidden = configuration.mode !== "join";
             if (this.teamSizeField) this.teamSizeField.hidden = configuration.mode !== "host";
@@ -140,11 +160,14 @@
             if (this.room) return this.renderRoom(this.room);
             if (!online) {
                 const opponents = configuration.playerCount - 1;
-                this.summary.textContent = `${selectedFaction.name} contre ${opponents} adversaire${opponents > 1 ? "s" : ""} contrôlé${opponents > 1 ? "s" : ""} par l’ordinateur.`;
+                this.summary.textContent = `${selectedFaction.name} contre ${opponents} adversaire${opponents > 1 ? "s" : ""} contrôlé${opponents > 1 ? "s" : ""} par l’ordinateur · IA ${LobbyController.getAIDifficultyLabel(configuration.aiDifficulty)}.`;
                 this.startButton.textContent = `Lancer la partie · ${configuration.playerCount} joueurs`;
             } else if (configuration.mode === "host") {
                 const opponents = configuration.opponentMode === "ai" ? "une équipe IA" : "des joueurs humains";
-                this.summary.textContent = `Créer un salon ${configuration.teamSize}v${configuration.teamSize} contre ${opponents}, avec la race ${selectedFaction.name}.`;
+                const difficulty = configuration.opponentMode === "ai"
+                    ? ` · IA ${LobbyController.getAIDifficultyLabel(configuration.aiDifficulty)}`
+                    : "";
+                this.summary.textContent = `Créer un salon ${configuration.teamSize}v${configuration.teamSize} contre ${opponents}, avec la race ${selectedFaction.name}${difficulty}.`;
                 this.startButton.textContent = "Créer le salon";
             } else {
                 this.summary.textContent = `Rejoindre une équipe avec la race ${selectedFaction.name}.`;
@@ -197,6 +220,8 @@
                         aiFactionIds,
                         seed: Number(room.meta.seed),
                         mapType: room.meta.mapType === "hourglass" ? "hourglass" : "standard",
+                        aiDifficulty: LobbyController.normalizeAIDifficulty(room.meta.aiDifficulty),
+                        aiProductionMultiplier: LobbyController.getAIProductionMultiplier(room.meta.aiDifficulty),
                         isHost: room.meta.hostUid === this.network.uid,
                         network: this.network
                     }));

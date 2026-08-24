@@ -533,6 +533,45 @@
                 }
             }
 
+            if (completed.includes(C.ABILITY_DEFINITIONS.paratrooper.technologyId) && (cooldowns.paratrooper || 0) <= 0) {
+                const definition = C.ABILITY_DEFINITIONS.paratrooper;
+                const visibility = this.game.getTerritoryVisibilityMap(faction.id);
+                const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
+                    (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+                const candidates = this.game.state.territories
+                    .filter((territory) => territory.ownerId !== null && !territory.isImpassable &&
+                        !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id))
+                    .map((territory) => {
+                        const defensePower = Math.max(1, territory.units * this.game.getDefenseMultiplier(territory));
+                        const powerRatio = definition.units * attackMultiplier / defensePower;
+                        const alliedNeighbors = territory.neighbors
+                            .map((territoryId) => this.game.state.getTerritory(territoryId))
+                            .filter((neighbor) => neighbor && this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                        const deepStrikeValue = alliedNeighbors === 0 ? 18 : alliedNeighbors === 1 ? 7 : 0;
+                        const strategicValue = (territory.isCapital ? 18 : 0) +
+                            (territory.installation ? 13 : 0) +
+                            (territory.terrain === "airport" ? 12 : 0) +
+                            (territory.productionMode === "food" ? 9 : 0) +
+                            (territory.rareSite ? 10 : 0);
+                        return { territory, powerRatio, score: powerRatio * 14 + deepStrikeValue + strategicValue - territory.units * 0.12 };
+                    })
+                    .filter((candidate) => candidate.powerRatio >= 1.25)
+                    .sort((first, second) => second.score - first.score);
+                if (candidates.length) {
+                    const result = this.game.executeCommand({
+                        type: "USE_ABILITY",
+                        playerId: faction.id,
+                        abilityId: "paratrooper",
+                        targetTerritoryId: candidates[0].territory.id
+                    });
+                    if (result.ok) {
+                        this.abilitiesUsed += 1;
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+
             if (completed.includes(C.ABILITY_DEFINITIONS.nuclear.technologyId) && (cooldowns.nuclear || 0) <= 0) {
                 const definition = C.ABILITY_DEFINITIONS.nuclear;
                 const visibility = this.game.getTerritoryVisibilityMap(faction.id);

@@ -38,11 +38,13 @@
             this.territoryBaseFoodCapacity = Math.max(0, Number(options.territoryBaseFoodCapacity ?? 10));
             this.foodAttritionThreshold = C.Geometry.clamp(Number(options.foodAttritionThreshold ?? (1 / 1.40)), 0.1, 1);
             this.foodAttritionIntervalMs = Math.max(2000, Number(options.foodAttritionIntervalMs ?? 10000));
+            this.permanentAiFactionIds = [...new Set(Array.isArray(options.aiFactionIds)
+                ? options.aiFactionIds.map(Number)
+                : this.activeFactionIds.filter((factionId) => factionId !== this.playerId))];
+            this.aiProductionMultiplier = C.Geometry.clamp(Number(options.aiProductionMultiplier ?? 1), 0.5, 2);
             this.aiSystem = new C.AISystem(this, {
                 enabled: options.enableAI !== false,
-                factionIds: Array.isArray(options.aiFactionIds)
-                    ? options.aiFactionIds.map(Number)
-                    : this.activeFactionIds.filter((factionId) => factionId !== this.playerId)
+                factionIds: this.permanentAiFactionIds.slice()
             });
             this.eventSystem = new C.EventSystem(this, {
                 enabled: options.enableWorldEvents !== false
@@ -555,6 +557,32 @@
                 this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, units: definition.units });
                 this.state.touch();
                 return { ok: true, units: definition.units };
+            }
+            if (definition.id === "paratrooper") {
+                if (target.ownerId === null || this.areAllied(target.ownerId, playerId)) {
+                    return { ok: false, error: "Les parachutistes doivent attaquer un territoire ennemi." };
+                }
+                if (!this.isTerritoryVisible(target.id, playerId)) {
+                    return { ok: false, error: "Le largage exige une cible ennemie visible." };
+                }
+                const army = new C.Army({
+                    id: this.state.nextArmyId++,
+                    ownerId: playerId,
+                    fromTerritoryId: target.id,
+                    toTerritoryId: target.id,
+                    finalTerritoryId: target.id,
+                    units: definition.units,
+                    durationMs: definition.warningMs,
+                    start: { x: target.center.x - 140, y: target.center.y - 320 },
+                    end: { ...target.center },
+                    logisticsPurpose: "paratrooper"
+                });
+                this.state.armies.push(army);
+                faction.abilityCooldowns.paratrooper = definition.cooldownMs;
+                this.addEvent(`${faction.name} lance un largage de ${definition.units} parachutistes sur ${target.name}.`, "combat");
+                this.notify({ type: "ABILITY_LAUNCHED", abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, armyId: army.id, units: definition.units });
+                this.state.touch();
+                return { ok: true, army };
             }
             return { ok: false, error: "Capacité non prise en charge." };
         }
@@ -1229,7 +1257,10 @@
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
             const capitalMultiplier = territory.isCapital ? 1 + this.capitalProductionBonus : 1;
             const foodMultiplier = faction ? this.getFactionFoodState(faction.id).productionMultiplier : 1;
-            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * capitalMultiplier * this.unitProductionMultiplier * foodMultiplier;
+            const aiDifficultyMultiplier = faction && this.permanentAiFactionIds.includes(faction.id)
+                ? this.aiProductionMultiplier
+                : 1;
+            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * capitalMultiplier * this.unitProductionMultiplier * foodMultiplier * aiDifficultyMultiplier;
         }
 
         getTerritoryVisibilityMap(factionId = this.playerId, range = this.visibilityRange) {
@@ -1405,6 +1436,7 @@
                 faction.abilityCooldowns = {
                     missile: Number(dynamic.abilityCooldowns?.missile) || 0,
                     reinforcement: Number(dynamic.abilityCooldowns?.reinforcement) || 0,
+                    paratrooper: Number(dynamic.abilityCooldowns?.paratrooper) || 0,
                     nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0
                 };
             });

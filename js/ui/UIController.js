@@ -47,6 +47,8 @@
                 abilityMissileStatus: byId("ability-missile-status"),
                 abilityReinforcement: byId("ability-reinforcement"),
                 abilityReinforcementStatus: byId("ability-reinforcement-status"),
+                abilityParatrooper: byId("ability-paratrooper"),
+                abilityParatrooperStatus: byId("ability-paratrooper-status"),
                 abilityNuclear: byId("ability-nuclear"),
                 abilityNuclearStatus: byId("ability-nuclear-status"),
                 newMap: byId("new-map"),
@@ -105,8 +107,7 @@
                 attackOutput: byId("attack-output"),
                 attackMax: byId("attack-max"),
                 attackButton: byId("attack-button"),
-                selectionTip: byId("selection-tip"),
-                eventList: byId("event-list")
+                selectionTip: byId("selection-tip")
             };
         }
 
@@ -139,6 +140,7 @@
             this.elements.airstrikeButton.addEventListener("click", () => this.toggleAirstrikeTargeting());
             this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
+            this.elements.abilityParatrooper.addEventListener("click", () => this.toggleAbilityTargeting("paratrooper"));
             this.elements.abilityNuclear.addEventListener("click", () => this.toggleAbilityTargeting("nuclear"));
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
@@ -170,9 +172,6 @@
                 const playerStart = this.game.state.getTerritoriesOwnedBy(this.game.playerId)[0];
                 if (playerStart) this.renderer.focusTerritory(playerStart.id, 0.72);
                 this.renderStaticGameInfo();
-                this.renderEvents();
-            } else if (change.type === "EVENT_ADDED") {
-                this.renderEvents();
             } else if (change.type === "TERRITORY_CAPTURED") {
                 const faction = this.game.state.getFaction(change.ownerId);
                 this.renderer.pulseTerritory(change.territoryId, faction ? faction.color : "#d8ff68");
@@ -197,7 +196,9 @@
                 if (change.factionId === this.game.playerId) {
                     this.showToast(change.abilityId === "nuclear"
                         ? "Bombe nucléaire lancée — impact dans 8 secondes. Zone périphérique dangereuse."
-                        : "Missile lancé — impact dans 5 secondes.");
+                        : change.abilityId === "paratrooper"
+                            ? "35 parachutistes en approche — largage dans 7 secondes."
+                            : "Missile lancé — impact dans 5 secondes.");
                 }
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_RESOLVED") {
@@ -221,7 +222,7 @@
                 const definition = C.WORLD_EVENT_DEFINITIONS[change.worldEvent.type];
                 change.worldEvent.territoryIds.forEach((territoryId) =>
                     this.renderer.pulseTerritory(territoryId, definition ? definition.color : "#ff844d"));
-                if (definition) this.showToast(`${definition.name} — consultez le journal tactique.`);
+                if (definition) this.showToast(`${definition.name} en cours.`);
                 this.refreshDynamic();
             } else if (change.type === "WORLD_EVENT_ENDED" || change.type === "BARBARIAN_RAID_RESOLVED") {
                 this.refreshDynamic();
@@ -637,6 +638,8 @@
             this.refreshAbilities();
             const targetingMessage = abilityId === "reinforcement"
                 ? "Cliquez sur un de vos territoires pour recevoir 35 unités."
+                : abilityId === "paratrooper"
+                    ? "Choisissez un territoire ennemi visible pour larguer 35 parachutistes."
                 : abilityId === "nuclear"
                     ? "Choisissez une cible ennemie visible. Le souffle touchera aussi tous ses voisins."
                     : "Cliquez sur un territoire ennemi visible.";
@@ -669,18 +672,22 @@
         refreshAbilities() {
             const faction = this.game.state.getFaction(this.game.playerId);
             if (!faction) return;
-            ["missile", "reinforcement", "nuclear"].forEach((abilityId) => {
+            ["missile", "reinforcement", "paratrooper", "nuclear"].forEach((abilityId) => {
                 const definition = C.ABILITY_DEFINITIONS[abilityId];
                 const button = abilityId === "missile"
                     ? this.elements.abilityMissile
                     : abilityId === "reinforcement"
                         ? this.elements.abilityReinforcement
-                        : this.elements.abilityNuclear;
+                        : abilityId === "paratrooper"
+                            ? this.elements.abilityParatrooper
+                            : this.elements.abilityNuclear;
                 const status = abilityId === "missile"
                     ? this.elements.abilityMissileStatus
                     : abilityId === "reinforcement"
                         ? this.elements.abilityReinforcementStatus
-                        : this.elements.abilityNuclearStatus;
+                        : abilityId === "paratrooper"
+                            ? this.elements.abilityParatrooperStatus
+                            : this.elements.abilityNuclearStatus;
                 const unlocked = faction.research.completedTechnologyIds.includes(definition.technologyId);
                 const cooldown = Math.max(0, faction.abilityCooldowns?.[abilityId] || 0);
                 const ready = unlocked && cooldown <= 0;
@@ -1002,21 +1009,6 @@
                     : "Lancer l’offensive ";
         }
 
-        renderEvents() {
-            this.elements.eventList.replaceChildren();
-            this.game.state.events.slice(0, 12).forEach((event) => {
-                const item = document.createElement("div");
-                item.className = `event-item ${event.tone}`;
-                const time = document.createElement("span");
-                time.className = "event-time";
-                time.textContent = this.formatTime(event.timeMs);
-                const message = document.createElement("span");
-                message.textContent = event.message;
-                item.append(time, message);
-                this.elements.eventList.append(item);
-            });
-        }
-
         renderPauseState() {
             document.body.classList.toggle("simulation-paused", this.game.paused);
             this.elements.togglePause.setAttribute("aria-pressed", String(this.game.paused));
@@ -1074,13 +1066,6 @@
 
         formatNumber(value) {
             return Math.abs(value - Math.round(value)) < 0.05 ? String(Math.round(value)) : value.toFixed(1);
-        }
-
-        formatTime(milliseconds) {
-            const totalSeconds = Math.floor(milliseconds / 1000);
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
         }
 
         formatDuration(milliseconds) {

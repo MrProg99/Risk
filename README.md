@@ -15,7 +15,9 @@ La simulation multijoueur est autoritaire chez l’hôte. Les autres navigateurs
 
 Pendant cette prise de relais, l’IA coopère défensivement avec son équipe. Elle peut envoyer un convoi ponctuel vers une capitale, une installation, un site rare ou un territoire alimentaire allié lorsque les forces ennemies voisines deviennent dangereuses. Elle conserve ses propres garnisons, ne mobilise jamais plus de 25 % de son surplus, limite son aide à deux convois simultanés et attend 20 secondes avant de soutenir de nouveau la même position. Elle évite aussi de provoquer une pénurie chez le destinataire, sauf pour sauver une capitale en situation critique.
 
-Au lancement, un lobby permet de choisir entre **2 et 4 joueurs** ainsi que la faction commandée. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
+Au lancement, un lobby permet de choisir entre **2 et 4 joueurs**, la faction commandée et le niveau de l’ordinateur. **Détendu** réduit son recrutement territorial de 25 %, **Normal** conserve l’équilibrage actuel, **Difficile** l’augmente de 20 % et **Implacable** de 40 %. La stratégie et les capacités restent identiques à tous les niveaux. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
+
+Le bonus de difficulté appartient uniquement aux factions IA permanentes. Il ne modifie ni la nourriture, ni les renforts et capacités gratuits, et ne s’applique jamais à une faction humaine reprise temporairement après une déconnexion.
 
 Les musiques `Musique/Music1.mp3` à `Musique/Music4.mp3` démarrent avec la partie et jouent successivement. La playlist recommence après le quatrième morceau. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
 
@@ -74,9 +76,7 @@ La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lor
 
 La fiche **Flux logistique actif** permet de suivre les expéditions et les livraisons, puis d’arrêter la ligne. Choisir une nouvelle destination depuis la même origine redirige les productions futures. Une ligne coupée par la perte d’un relais se met en pause et reprend automatiquement si un itinéraire allié redevient disponible.
 
-Les arrivées normales de renforts, les livraisons périodiques des flux et les relais automatiques des hubs ne sont pas inscrits dans le journal des événements. Leurs unités et compteurs sont toujours actualisés dans l’interface, tandis que le journal conserve les ordres initiaux et les incidents logistiques importants.
-
-La logistique des factions contrôlées par l’ordinateur est également silencieuse : transferts, convois, rassemblements et lignes continues ne surchargent plus le journal. Leurs attaques, conquêtes, recherches et frappes importantes restent annoncées. Les ordres de renfort donnés par un joueur humain demeurent visibles.
+Le **Canal tactique** n’occupe plus une rangée sous la carte afin de maximiser la surface de jeu. Les événements importants restent conservés dans l’état sérialisable pour la simulation et Firebase; les alertes qui exigent une réaction immédiate sont présentées directement sur la carte par les notifications, animations et sons. Les arrivées ordinaires et la logistique automatisée demeurent silencieuses.
 
 Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 
@@ -108,7 +108,7 @@ Chaque carte possède au minimum **quatre aéroports**, reconnaissables à leur 
 
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de seize technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. La Mobilisation d’urgence est indépendante, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
+Le bouton **Recherche** ouvre un arbre de dix-sept technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. Les Parachutistes exigent la Mobilisation d’urgence, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
 
@@ -118,9 +118,11 @@ Le **Missile tactique** demande quatre minutes de recherche. Une fois débloqué
 
 La **Mobilisation d’urgence** demande trois minutes trente de recherche. Elle ajoute immédiatement 35 unités sur un territoire appartenant au joueur, puis se recharge pendant deux minutes trente. Ces unités consomment la nourriture normalement; l’interface avertit le joueur lorsque cette mobilisation risque de provoquer une pénurie.
 
+Les **Parachutistes** deviennent accessibles après la Mobilisation d’urgence et demandent quatre minutes trente de recherche. Ils permettent de larguer une force de 35 unités sur n’importe quel territoire ennemi visible, sans tenir compte des frontières, montagnes ou lacs. Le largage dure sept secondes et les parachutistes consomment immédiatement de la nourriture pendant leur vol. À l’arrivée, ils livrent un combat normal : tous les bonus offensifs, défensifs et territoriaux s’appliquent. La recharge est de quatre minutes.
+
 L’**Arme nucléaire** devient accessible après le Missile tactique et demande six minutes de recherche. Après huit secondes d’alerte, elle détruit 30 % des forces sur la cible et 15 % sur chacun de ses territoires voisins. Le souffle est indiscriminé et peut donc atteindre les garnisons du lanceur ou de ses alliés; il laisse toujours au moins une unité. Sa recharge est de cinq minutes. La carte affiche la zone périphérique avant l’impact, puis un flash, des ondes de choc et un nuage ascendant.
 
-Chaque faction possède ses propres recharges. L’IA recherche et utilise les trois capacités : elle réserve les renforts aux fronts menacés, cible avec ses missiles les grandes concentrations et ne déclenche une frappe nucléaire que si les pertes ennemies prévues justifient les dommages collatéraux alliés. Les ordres passent par la commande sérialisable `USE_ABILITY`, et les frappes en attente, leurs animations ainsi que les recharges sont incluses dans les instantanés Firebase.
+Chaque faction possède ses propres recharges. L’IA recherche et utilise les quatre capacités : elle réserve les renforts aux fronts menacés, largue ses parachutistes sur les positions visibles qu’ils peuvent raisonnablement vaincre, cible avec ses missiles les grandes concentrations et ne déclenche une frappe nucléaire que si les pertes ennemies prévues justifient les dommages collatéraux alliés. Les ordres passent par la commande sérialisable `USE_ABILITY`; les largages en vol, les frappes en attente, leurs animations et les recharges sont inclus dans les instantanés Firebase.
 
 ### Événements mondiaux
 
@@ -148,7 +150,7 @@ js/
   render/     Lecture de l’état et rendu Canvas uniquement
   input/      Conversion des interactions pointeur en sélections
   network/    Configuration Firebase, salons, présence, commandes et instantanés
-  ui/         Panneaux, commandes et journal
+  ui/         Panneaux, commandes et notifications
   main.js     Boucle d’exécution et assemblage des composants
 tests/
   smoke.html  Vérifications exécutables directement dans le navigateur

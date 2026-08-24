@@ -67,6 +67,17 @@
                     </div>
                 </fieldset>
 
+                <fieldset class="lobby-section" id="ai-difficulty-options">
+                    <legend><span>IA</span> Niveau de l’ordinateur</legend>
+                    <p>La stratégie reste identique; seule la production d’unités des IA permanentes change.</p>
+                    <div class="ai-difficulty-choices">
+                        <label><input type="radio" name="aiDifficulty" value="relaxed"><span><strong>Détendu</strong><small>Production −25 %</small></span></label>
+                        <label><input type="radio" name="aiDifficulty" value="normal" checked><span><strong>Normal</strong><small>Production standard</small></span></label>
+                        <label><input type="radio" name="aiDifficulty" value="hard"><span><strong>Difficile</strong><small>Production +20 %</small></span></label>
+                        <label><input type="radio" name="aiDifficulty" value="relentless"><span><strong>Implacable</strong><small>Production +40 %</small></span></label>
+                    </div>
+                </fieldset>
+
                 <fieldset class="lobby-section" id="map-options">
                     <legend><span>02</span> Type de carte</legend>
                     <p>Choisissez la géographie qui structurera les fronts.</p>
@@ -176,6 +187,9 @@
                     </button>
                     <button class="ability-button reinforcement" id="ability-reinforcement" type="button" title="Mobilisation d’urgence">
                         <span>+</span><span>Renfort<small id="ability-reinforcement-status">Verrouillé</small></span>
+                    </button>
+                    <button class="ability-button paratrooper" id="ability-paratrooper" type="button" title="Largage de parachutistes">
+                        <span>♢</span><span>Parachutistes<small id="ability-paratrooper-status">Verrouillé</small></span>
                     </button>
                     <button class="ability-button nuclear" id="ability-nuclear" type="button" title="Bombe nucléaire">
                         <span>☢</span><span>Nucléaire<small id="ability-nuclear-status">Verrouillé</small></span>
@@ -364,16 +378,6 @@
             </aside>
         </main>
 
-        <section class="event-console" aria-label="Journal des événements">
-            <div class="console-title">
-                <span class="console-pulse"></span>
-                <div>
-                    <p class="eyebrow">Canal tactique</p>
-                    <h2>Journal des événements</h2>
-                </div>
-            </div>
-            <div class="event-list" id="event-list" aria-live="polite"></div>
-        </section>
     </div>
 
     <script defer src="js/data/territoryTypes.js"></script>

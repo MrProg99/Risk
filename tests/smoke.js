@@ -174,6 +174,9 @@
                     <input type="radio" name="playerCount" value="4">
                     <input type="radio" name="mapType" value="standard">
                     <input type="radio" name="mapType" value="hourglass" checked>
+                    <input type="radio" name="aiDifficulty" value="normal">
+                    <input type="radio" name="aiDifficulty" value="hard" checked>
+                    <div id="ai-difficulty-options"></div>
                     <div id="lobby-factions"></div>
                     <p id="lobby-summary"></p>
                     <button id="start-game" type="submit"></button>
@@ -190,6 +193,7 @@
         lobbyController.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
         check(Boolean(submittedLobbyConfiguration && submittedLobbyConfiguration.playerId === 2 && submittedLobbyConfiguration.playerCount === 3), "le formulaire du lobby transmet la race et le nombre de joueurs sélectionnés");
         check(submittedLobbyConfiguration.mapType === "hourglass", "le lobby transmet le type de carte Sablier au moteur");
+        check(submittedLobbyConfiguration.aiDifficulty === "hard" && submittedLobbyConfiguration.aiProductionMultiplier === 1.20, "le lobby transmet le niveau Difficile et son bonus de production");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
         lobbyController.close();
         lobbyFixture.remove();
@@ -198,6 +202,22 @@
         check(duelGame.state.factions.map((faction) => faction.id).join(",") === "4,1", "une partie peut démarrer avec seulement deux factions choisies dans le lobby");
         check(duelGame.aiSystem.factionIds.length === 1 && duelGame.aiSystem.factionIds[0] === 1, "l’ordinateur contrôle tous les participants sauf la faction du joueur");
         check(duelGame.state.getTerritoriesOwnedBy(4).length === 1 && duelGame.state.getTerritoriesOwnedBy(1).length === 1, "chaque participant du lobby reçoit un territoire de départ");
+        const difficultyGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, aiFactionIds: [2], aiProductionMultiplier: 1.40, enableWorldEvents: false, timeScale: 1 });
+        difficultyGame.newGame(565657);
+        const difficultyHumanTerritory = difficultyGame.state.getTerritoriesOwnedBy(1)[0];
+        const difficultyAiTerritory = difficultyGame.state.getTerritoriesOwnedBy(2)[0];
+        [difficultyHumanTerritory, difficultyAiTerritory].forEach((territory) => {
+            territory.terrain = "plain";
+            territory.rareSite = null;
+            territory.production = 1;
+            territory.productionMode = "units";
+            territory.units = 20;
+        });
+        const humanProduction = difficultyGame.getProductionMultiplier(difficultyHumanTerritory);
+        const aiProduction = difficultyGame.getProductionMultiplier(difficultyAiTerritory);
+        check(Math.abs((aiProduction / humanProduction) - 1.40) < 0.0001, "le niveau Implacable augmente uniquement le recrutement territorial de l’IA de 40 %");
+        difficultyGame.aiSystem.factionIds.push(1);
+        check(difficultyGame.getProductionMultiplier(difficultyHumanTerritory) === humanProduction, "une faction humaine reprise temporairement par l’IA ne reçoit pas le bonus de difficulté");
 
         const multiplayerRoom = {
             players: {
@@ -571,7 +591,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 16, "l’arbre propose trois axes progressifs et un axe de capacités");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 17, "l’arbre propose trois axes progressifs et un axe de capacités");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -606,7 +626,7 @@
         abilityTarget.units = 100;
         abilityTarget.productionMode = "food";
         abilityTarget.installation = null;
-        researchFaction.research.completedTechnologyIds.push("ability-missile", "ability-reinforcement", "ability-nuclear");
+        researchFaction.research.completedTechnologyIds.push("ability-missile", "ability-reinforcement", "ability-paratrooper", "ability-nuclear");
         const missileLaunch = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: abilityTarget.id });
         check(missileLaunch.ok && researchGame.state.abilityActions.length === 1 && abilityTarget.units === 100, "le missile crée une alerte différée de cinq secondes");
         for (let tick = 0; tick < 5; tick += 1) researchGame.update(1000);
@@ -638,8 +658,21 @@
         const unitsBeforeMobilization = researchTerritory.units;
         const mobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: researchTerritory.id });
         check(mobilization.ok && researchTerritory.units === unitsBeforeMobilization + 35, "la mobilisation d’urgence ajoute 35 unités sur un territoire contrôlé");
+        abilityTarget.ownerId = 2;
+        abilityTarget.units = 10;
+        abilityTarget.terrain = "plain";
+        abilityTarget.rareSite = null;
+        abilityTarget.installation = null;
+        abilityTarget.isCapital = false;
+        const foodDemandBeforeParatroopers = researchGame.getFactionFoodState(1).demand;
+        const paratrooperLaunch = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "paratrooper", targetTerritoryId: abilityTarget.id });
+        check(paratrooperLaunch.ok && paratrooperLaunch.army.units === 35 && paratrooperLaunch.army.logisticsPurpose === "paratrooper", "la capacité Parachutistes crée une force aéroportée de 35 unités sans route terrestre");
+        check(researchGame.getFactionFoodState(1).demand === foodDemandBeforeParatroopers + 35, "les parachutistes en vol consomment immédiatement la nourriture de leur faction");
         const abilitySnapshot = researchGame.createNetworkSnapshot();
-        check(abilitySnapshot.factions[0].abilityCooldowns.missile > 0 && abilitySnapshot.factions[0].abilityCooldowns.reinforcement > 0 && abilitySnapshot.factions[0].abilityCooldowns.nuclear > 0, "les recharges de capacités sont incluses dans l’instantané multijoueur");
+        check(abilitySnapshot.factions[0].abilityCooldowns.missile > 0 && abilitySnapshot.factions[0].abilityCooldowns.reinforcement > 0 && abilitySnapshot.factions[0].abilityCooldowns.paratrooper > 0 && abilitySnapshot.factions[0].abilityCooldowns.nuclear > 0, "les recharges de capacités sont incluses dans l’instantané multijoueur");
+        check(abilitySnapshot.armies.some((army) => army.logisticsPurpose === "paratrooper"), "le largage en cours est inclus dans l’instantané Firebase");
+        for (let tick = 0; tick < 7; tick += 1) researchGame.update(1000);
+        check(abilityTarget.ownerId === 1 && abilityTarget.units > 0 && !researchGame.state.armies.some((army) => army.logisticsPurpose === "paratrooper"), "les parachutistes combattent à l’arrivée et capturent une cible insuffisamment défendue");
 
         const playedFrequencies = [];
         const startedNotes = [];
@@ -843,6 +876,16 @@
             .forEach((territory) => { territory.ownerId = 1; territory.units = 60; });
         const nuclearAiDecision = aiGame.aiSystem.considerAbilities(abilityAiFaction, aiGame.state.getTerritoriesOwnedBy(2));
         check(nuclearAiDecision && aiGame.state.abilityActions.some((action) => action.abilityId === "nuclear" && action.factionId === 2), "l’IA lance une frappe nucléaire rentable tout en limitant les pertes alliées");
+        abilityAiFaction.research.completedTechnologyIds.push("ability-paratrooper");
+        abilityAiFaction.abilityCooldowns.paratrooper = 0;
+        abilityAiTarget.ownerId = 1;
+        abilityAiTarget.units = 10;
+        abilityAiTarget.terrain = "plain";
+        abilityAiTarget.rareSite = null;
+        abilityAiTarget.installation = null;
+        abilityAiTarget.isCapital = false;
+        const paratrooperAiDecision = aiGame.aiSystem.considerAbilities(abilityAiFaction, aiGame.state.getTerritoriesOwnedBy(2));
+        check(paratrooperAiDecision && aiGame.state.armies.some((army) => army.ownerId === 2 && army.toTerritoryId === abilityAiTarget.id && army.logisticsPurpose === "paratrooper"), "l’IA largue ses parachutistes sur une cible ennemie visible et vulnérable");
 
         const foodAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, enableWorldEvents: false, timeScale: 1 });
         foodAiGame.newGame(747474);

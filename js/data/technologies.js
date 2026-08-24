@@ -32,7 +32,7 @@
             icon: "☄",
             color: "#b58cff",
             description: "Débloquer des interventions stratégiques à long délai de récupération.",
-            technologyIds: ["ability-missile", "ability-reinforcement", "ability-nuclear"]
+            technologyIds: ["ability-missile", "ability-reinforcement", "ability-paratrooper", "ability-nuclear"]
         }
     ];
 
@@ -202,6 +202,17 @@
             effects: { unlockAbility: "reinforcement" },
             effectLabel: "+35 unités · recharge 2 min 30"
         },
+        "ability-paratrooper": {
+            id: "ability-paratrooper",
+            branchId: "abilities",
+            tier: 2,
+            name: "Parachutistes",
+            description: "Forme une unité aéroportée capable d’attaquer un territoire ennemi visible sans emprunter les frontières.",
+            durationMs: 270000,
+            prerequisiteId: "ability-reinforcement",
+            effects: { unlockAbility: "paratrooper" },
+            effectLabel: "Largage de 35 unités · recharge 4 min"
+        },
         "ability-nuclear": {
             id: "ability-nuclear",
             branchId: "abilities",
@@ -230,6 +241,14 @@
             name: "Mobilisation d’urgence",
             technologyId: "ability-reinforcement",
             cooldownMs: 150000,
+            units: 35
+        },
+        paratrooper: {
+            id: "paratrooper",
+            name: "Parachutistes",
+            technologyId: "ability-paratrooper",
+            cooldownMs: 240000,
+            warningMs: 7000,
             units: 35
         },
         nuclear: {
