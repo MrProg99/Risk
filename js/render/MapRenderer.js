@@ -491,10 +491,10 @@
                     ctx.fillText(territory.rareSite.icon, center.x, center.y - 26.5);
                 } else {
                     ctx.fillStyle = "rgba(229, 241, 237, .75)";
-                    ctx.font = "13px Georgia, serif";
+                    ctx.font = "600 16px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText(type.icon, center.x, center.y - 22);
+                    ctx.fillText(type.icon, center.x, center.y - 23.5);
                 }
 
                 const label = String(territory.units);
@@ -514,10 +514,15 @@
 
                 if (territory.ownerId !== null) {
                     const foodMode = territory.productionMode === "food";
-                    const progress = foodMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
+                    const researchMode = territory.productionMode === "research";
+                    const progress = foodMode || researchMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
                     ctx.beginPath();
                     ctx.arc(center.x, center.y + 1, radius + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-                    ctx.strokeStyle = foodMode ? "rgba(158,215,122,.92)" : faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
+                    ctx.strokeStyle = foodMode
+                        ? "rgba(158,215,122,.92)"
+                        : researchMode
+                            ? "rgba(181,140,255,.96)"
+                            : faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
                     ctx.lineWidth = 2;
                     ctx.stroke();
                     if (foodMode) {
@@ -535,6 +540,21 @@
                         ctx.textAlign = "center";
                         ctx.textBaseline = "middle";
                         ctx.fillText("F", foodX, foodY + 0.5);
+                    } else if (researchMode) {
+                        const researchX = center.x + radius + 7;
+                        const researchY = center.y - radius + 1;
+                        ctx.beginPath();
+                        ctx.arc(researchX, researchY, 7, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgba(31,18,49,.95)";
+                        ctx.fill();
+                        ctx.strokeStyle = "#b58cff";
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                        ctx.fillStyle = "#d8beff";
+                        ctx.font = "800 7px sans-serif";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText("R", researchX, researchY + 0.5);
                     }
                 }
 

@@ -155,6 +155,46 @@
         check(foodGame.getFactionStats(1).totalUnits < unitsBeforeFoodAttrition, "une capacité inférieure à 75 % provoque une attrition progressive");
         check(foodCapital.units >= 1 && foodFarm.units >= 1, "l’attrition alimentaire ne vide jamais entièrement une garnison territoriale");
         check(foodGame.state.toJSON().territories.some((territory) => territory.productionMode === "units"), "le mode de production est inclus dans l’état sérialisable");
+
+        const researchModeGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        researchModeGame.newGame(424243);
+        researchModeGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) territory.ownerId = null;
+            territory.isCapital = false;
+            territory.productionMode = "units";
+            territory.productionModeChangedAtMs = 0;
+        });
+        const researchModeTerritories = researchModeGame.state.territories
+            .filter((territory) => !territory.isImpassable && !territory.installation && territory.terrain !== "airport" && !territory.rareSite)
+            .slice(0, 6);
+        researchModeTerritories.forEach((territory, index) => {
+            territory.ownerId = 1;
+            territory.units = 1;
+            territory.terrain = "plain";
+            territory.rareSite = null;
+            territory.productionMode = index === 0 ? "units" : "research";
+        });
+        const researchModeFaction = researchModeGame.state.getFaction(1);
+        researchModeFaction.capitalTerritoryId = researchModeTerritories[0].id;
+        researchModeTerritories[0].isCapital = true;
+        const researchModeCommand = researchModeGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: researchModeTerritories[0].id, mode: "research" });
+        check(researchModeCommand.ok && researchModeTerritories[0].productionMode === "research" && researchModeGame.getProductionMultiplier(researchModeTerritories[0]) === 0, "un territoire peut abandonner le recrutement pour être affecté à la recherche");
+        check(Math.abs(researchModeGame.getResearchRate(1) - 1.50) < 0.0001, "six laboratoires standards restent plafonnés à +50 % de vitesse scientifique");
+        check(researchModeGame.getTerritoryPassiveFoodCapacity(researchModeTerritories[1]) === 10, "un laboratoire conserve la nourriture passive de son territoire");
+        const researchModeSnapshot = researchModeGame.createNetworkSnapshot();
+        check(researchModeSnapshot.territories.filter((territory) => territory.productionMode === "research").length === 6, "l’affectation Recherche est incluse dans les instantanés multijoueurs");
+        researchModeTerritories.forEach((territory) => {
+            territory.productionMode = "units";
+            territory.productionModeChangedAtMs = 0;
+        });
+        researchModeFaction.research.activeTechnologyId = "construction-1";
+        researchModeGame.state.elapsedMs = 50000;
+        const conservativeResearchDecision = researchModeGame.aiSystem.manageResearchAllocation(researchModeFaction, researchModeTerritories);
+        check(conservativeResearchDecision && researchModeTerritories.filter((territory) => territory.productionMode === "research").length === 1, "avec six territoires stables, l’IA n’ouvre qu’un seul laboratoire intérieur");
+        check(!researchModeGame.aiSystem.manageResearchAllocation(researchModeFaction, researchModeTerritories), "l’IA respecte son plafond conservateur de laboratoires");
+        researchModeTerritories.forEach((territory) => { territory.units = 100; });
+        check(researchModeGame.aiSystem.manageResearchAllocation(researchModeFaction, researchModeTerritories) && !researchModeTerritories.some((territory) => territory.productionMode === "research"), "l’IA ferme son laboratoire lorsque la couverture alimentaire devient dangereuse");
+        check(researchModeGame.aiSystem.getResearchTerritoryLimit(5) === 0 && researchModeGame.aiSystem.getResearchTerritoryLimit(6) === 1 && researchModeGame.aiSystem.getResearchTerritoryLimit(12) === 2 && researchModeGame.aiSystem.getResearchTerritoryLimit(21) === 3, "les plafonds de recherche de l’IA progressent prudemment avec son territoire");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");

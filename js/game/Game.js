@@ -611,7 +611,7 @@
         setTerritoryProductionMode(command) {
             const playerId = Number(command.playerId);
             const territory = this.state.getTerritory(command.territoryId);
-            const mode = command.mode === "food" ? "food" : command.mode === "units" ? "units" : null;
+            const mode = ["units", "food", "research"].includes(command.mode) ? command.mode : null;
             if (!territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
             if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
             if (!mode) return { ok: false, error: "Mode de production inconnu." };
@@ -622,7 +622,11 @@
             territory.productionProgress = 0;
             this.state.touch();
             const faction = this.state.getFaction(playerId);
-            const modeLabel = mode === "food" ? "la production alimentaire" : "le recrutement";
+            const modeLabel = mode === "food"
+                ? "la production alimentaire"
+                : mode === "research"
+                    ? "la recherche scientifique"
+                    : "le recrutement";
             this.addLogisticsEvent(`${faction.name} affecte ${territory.name} à ${modeLabel}.`, playerId);
             this.notify({ type: "TERRITORY_MODE_CHANGED", territoryId: territory.id, playerId, mode });
             return { ok: true, territory };
@@ -1083,6 +1087,8 @@
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
+                    target.productionMode = "units";
+                    target.productionModeChangedAtMs = this.state.elapsedMs;
                     target.installationProgressMs = 0;
                     target.isCapital = false;
                     target.airstrikeCooldownMs = 0;
@@ -1104,6 +1110,8 @@
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
+                target.productionMode = "units";
+                target.productionModeChangedAtMs = this.state.elapsedMs;
                 target.installationProgressMs = 0;
                 target.isCapital = false;
                 target.airstrikeCooldownMs = 0;
@@ -1342,8 +1350,18 @@
             const scienceCenters = territories.filter((territory) => territory.terrain === "science").length;
             const powerPlants = territories.filter((territory) => territory.terrain === "power").length;
             const spaceCenters = territories.filter((territory) => territory.rareSite?.id === "space-center").length;
-            const territorialBonus = scienceCenters * 0.08 + powerPlants * 0.04 + spaceCenters * 0.15;
+            const assignedResearchBonus = Math.min(0.50, territories.reduce((sum, territory) =>
+                sum + this.getTerritoryResearchBonus(territory), 0));
+            const territorialBonus = scienceCenters * 0.08 + powerPlants * 0.04 + spaceCenters * 0.15 + assignedResearchBonus;
             return 1 + territorialBonus * faction.bonuses.sciencePowerBonusMultiplier;
+        }
+
+        getTerritoryResearchBonus(territory) {
+            if (!territory || territory.ownerId === null || territory.isImpassable || territory.productionMode !== "research") return 0;
+            if (territory.rareSite?.id === "space-center") return 0.35;
+            if (territory.terrain === "science") return 0.25;
+            if (territory.terrain === "power") return 0.15;
+            return 0.10;
         }
 
         getResearchState(factionId) {
@@ -1432,7 +1450,7 @@
                 territory.installationProgressMs = Number(dynamic.installationProgressMs) || 0;
                 territory.isCapital = Boolean(dynamic.isCapital);
                 territory.airstrikeCooldownMs = Number(dynamic.airstrikeCooldownMs) || 0;
-                territory.productionMode = dynamic.productionMode === "food" ? "food" : "units";
+                territory.productionMode = ["food", "research"].includes(dynamic.productionMode) ? dynamic.productionMode : "units";
                 territory.productionModeChangedAtMs = Number(dynamic.productionModeChangedAtMs) || 0;
                 if (previousOwnerId !== territory.ownerId) {
                     this.notify({

@@ -78,6 +78,7 @@
                 productionModeDetail: byId("production-mode-detail"),
                 modeUnits: byId("mode-units"),
                 modeFood: byId("mode-food"),
+                modeResearch: byId("mode-research"),
                 territoryProduction: byId("territory-production"),
                 bonusList: byId("bonus-list"),
                 airportPanel: byId("airport-panel"),
@@ -144,6 +145,7 @@
             this.elements.abilityNuclear.addEventListener("click", () => this.toggleAbilityTargeting("nuclear"));
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
+            this.elements.modeResearch.addEventListener("click", () => this.setTerritoryMode("research"));
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
             this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
             this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
@@ -796,6 +798,8 @@
                 ? "Impossible"
                 : territory.productionMode === "food"
                 ? `+${this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory)} nourriture`
+                : territory.productionMode === "research"
+                ? `+${Math.round(this.game.getTerritoryResearchBonus(territory) * 100)} % recherche`
                 : territory.ownerId === null
                 ? "Inactive"
                 : `+${this.formatNumber(this.game.getTerritoryProductionPerMinute(territory))}/min`;
@@ -812,15 +816,20 @@
             this.elements.productionModePanel.hidden = !canCommand;
             if (!canCommand) return;
             const foodMode = territory.productionMode === "food";
+            const researchMode = territory.productionMode === "research";
+            this.elements.productionModePanel.classList.toggle("research", researchMode);
             const foodCapacity = this.game.getPotentialTerritoryFoodCapacity(territory);
             const passiveCapacity = territory.isCapital
                 ? this.game.capitalFoodCapacity
                 : this.game.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
             const famine = this.game.eventSystem.isTerritoryAffected(territory.id, "famine");
-            this.elements.modeUnits.classList.toggle("active", !foodMode);
+            this.elements.modeUnits.classList.toggle("active", !foodMode && !researchMode);
             this.elements.modeFood.classList.toggle("active", foodMode);
-            this.elements.productionModeStatus.textContent = foodMode ? "NOURRITURE" : "RECRUTEMENT";
-            this.elements.productionModeDetail.textContent = foodMode
+            this.elements.modeResearch.classList.toggle("active", researchMode);
+            this.elements.productionModeStatus.textContent = foodMode ? "NOURRITURE" : researchMode ? "RECHERCHE" : "RECRUTEMENT";
+            this.elements.productionModeDetail.textContent = researchMode
+                ? `Ce territoire ne recrute plus, conserve sa nourriture passive et augmente la vitesse scientifique de ${Math.round(this.game.getTerritoryResearchBonus(territory) * 100)} %. Le bonus cumulé des affectations est plafonné à 50 %.`
+                : foodMode
                 ? territory.isCapital
                     ? `La capitale ne recrute plus, conserve ses ${passiveCapacity} nourritures et ${famine ? `voit son bonus local de ${foodCapacity} suspendu par la famine` : `ajoute ${foodCapacity} points grâce à son terrain`}.`
                     : famine
@@ -848,7 +857,9 @@
             this.renderTerritoryPanel();
             this.showToast(mode === "food"
                 ? `${territory.name} produit maintenant de la nourriture.`
-                : `${territory.name} reprend le recrutement.`);
+                : mode === "research"
+                    ? `${territory.name} se consacre maintenant à la recherche.`
+                    : `${territory.name} reprend le recrutement.`);
         }
 
         renderAirportPanel(territory) {
