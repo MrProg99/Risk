@@ -8,6 +8,7 @@
             this.input = input;
             this.audio = audio;
             this.selectedTerritoryId = null;
+            this.multiSelectedTerritoryIds = new Set();
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
@@ -113,7 +114,7 @@
         }
 
         bindEvents() {
-            this.input.onTerritoryClick((territory) => this.handleTerritoryClick(territory));
+            this.input.onTerritoryClick((territory, event) => this.handleTerritoryClick(territory, event));
             this.input.onTerritoryRightClick((territory) => this.handleTerritoryRightClick(territory));
             this.input.onQuickTransfer((source, target) => this.handleQuickTransfer(source, target));
             this.input.onContinuousTransfer((source, target) => this.handleContinuousTransfer(source, target));
@@ -376,7 +377,7 @@
             });
         }
 
-        handleTerritoryClick(territory) {
+        handleTerritoryClick(territory, event = {}) {
             if (!territory) {
                 this.clearSelection();
                 return;
@@ -396,6 +397,40 @@
             if (this.airstrikeSourceId !== null) {
                 this.launchAirstrikeAt(territory);
                 return;
+            }
+
+            if (event.shiftKey) {
+                if (territory.isImpassable || territory.ownerId !== this.game.playerId) {
+                    this.showToast("La sélection multiple accepte uniquement vos territoires franchissables.");
+                    return;
+                }
+                const current = this.game.state.getTerritory(this.selectedTerritoryId);
+                if (!this.multiSelectedTerritoryIds.size && current && current.ownerId === this.game.playerId && !current.isImpassable) {
+                    this.multiSelectedTerritoryIds.add(current.id);
+                }
+                if (this.multiSelectedTerritoryIds.has(territory.id)) this.multiSelectedTerritoryIds.delete(territory.id);
+                else this.multiSelectedTerritoryIds.add(territory.id);
+                const selectedIds = [...this.multiSelectedTerritoryIds];
+                this.selectedTerritoryId = selectedIds.includes(this.selectedTerritoryId)
+                    ? this.selectedTerritoryId
+                    : selectedIds[0] ?? null;
+                this.targetTerritoryId = null;
+                this.plannedRoute = [];
+                this.lastRouteKey = null;
+                this.syncSelection();
+                this.showToast(selectedIds.length
+                    ? `${selectedIds.length} territoire${selectedIds.length > 1 ? "s" : ""} dans le groupe.`
+                    : "Sélection multiple annulée.");
+                return;
+            }
+
+            const leavingMultiSelection = this.multiSelectedTerritoryIds.size > 0;
+            this.multiSelectedTerritoryIds.clear();
+            if (leavingMultiSelection) {
+                this.selectedTerritoryId = null;
+                this.targetTerritoryId = null;
+                this.plannedRoute = [];
+                this.lastRouteKey = null;
             }
 
             if (territory.isImpassable) {
@@ -453,6 +488,32 @@
                 this.showToast("Impossible de donner un ordre dans le brouillard de guerre.");
                 return;
             }
+            const groupedSources = typeof this.getMultiSelectedTerritories === "function"
+                ? this.getMultiSelectedTerritories()
+                : [];
+            if (groupedSources.length > 1) {
+                if (!this.game.areAllied(territory.ownerId, this.game.playerId)) {
+                    this.showToast("Une sélection multiple peut renforcer uniquement un territoire allié.");
+                    return;
+                }
+                const result = this.game.executeCommand({
+                    type: "BATCH_SEND_REINFORCEMENTS",
+                    playerId: this.game.playerId,
+                    fromTerritoryIds: groupedSources.map((source) => source.id),
+                    toTerritoryId: territory.id
+                });
+                if (!result.ok) return this.showToast(result.error);
+                this.clearSelection();
+                if (result.pending) {
+                    this.showToast("Ordre de renfort groupé transmis à l’hôte.");
+                } else {
+                    const skipped = result.skippedCount
+                        ? ` · ${result.skippedCount} source${result.skippedCount > 1 ? "s" : ""} ignorée${result.skippedCount > 1 ? "s" : ""}`
+                        : "";
+                    this.showToast(`${result.totalUnits} renforts envoyés depuis ${result.sentCount} territoires vers ${territory.name}${skipped}.`);
+                }
+                return;
+            }
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
 
             if (!source || source.ownerId !== this.game.playerId) {
@@ -492,6 +553,27 @@
 
         handleQuickTransfer(source, target) {
             if (!source || !target || source.id === target.id) return;
+            const groupedSources = typeof this.getMultiSelectedTerritories === "function"
+                ? this.getMultiSelectedTerritories()
+                : [];
+            if (groupedSources.length > 1 && groupedSources.some((territory) => territory.id === source.id)) {
+                if (!this.game.isTerritoryVisible(target.id, this.game.playerId)) {
+                    this.showToast("Le transfert groupé exige une destination visible.");
+                    return;
+                }
+                const result = this.game.executeCommand({
+                    type: "BATCH_SEND_REINFORCEMENTS",
+                    playerId: this.game.playerId,
+                    fromTerritoryIds: groupedSources.map((territory) => territory.id),
+                    toTerritoryId: target.id
+                });
+                if (!result.ok) return this.showToast(result.error);
+                this.clearSelection();
+                if (result.pending) return this.showToast("Transfert groupé transmis à l’hôte.");
+                const skipped = result.skippedCount ? ` · ${result.skippedCount} source${result.skippedCount > 1 ? "s" : ""} ignorée${result.skippedCount > 1 ? "s" : ""}` : "";
+                this.showToast(`${result.totalUnits} renforts transférés depuis ${result.sentCount} territoires vers ${target.name}${skipped}.`);
+                return;
+            }
             if (!this.game.isTerritoryVisible(source.id, this.game.playerId) ||
                 !this.game.isTerritoryVisible(target.id, this.game.playerId)) {
                 this.showToast("Le transfert ne peut pas traverser une zone sans visibilité.");
@@ -531,6 +613,27 @@
 
         handleContinuousTransfer(source, target) {
             if (!source || !target || source.id === target.id) return;
+            const groupedSources = typeof this.getMultiSelectedTerritories === "function"
+                ? this.getMultiSelectedTerritories()
+                : [];
+            if (groupedSources.length > 1 && groupedSources.some((territory) => territory.id === source.id)) {
+                if (!this.game.isTerritoryVisible(target.id, this.game.playerId)) {
+                    this.showToast("Le flux groupé exige une destination visible.");
+                    return;
+                }
+                const result = this.game.executeCommand({
+                    type: "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES",
+                    playerId: this.game.playerId,
+                    fromTerritoryIds: groupedSources.map((territory) => territory.id),
+                    toTerritoryId: target.id
+                });
+                if (!result.ok) return this.showToast(result.error);
+                this.clearSelection();
+                if (result.pending) return this.showToast("Création des flux groupés transmise à l’hôte.");
+                const skipped = result.skippedCount ? ` · ${result.skippedCount} source${result.skippedCount > 1 ? "s" : ""} ignorée${result.skippedCount > 1 ? "s" : ""}` : "";
+                this.showToast(`${result.createdCount} flux continus dirigés vers ${target.name}${skipped}.`);
+                return;
+            }
             if (!this.game.isTerritoryVisible(source.id, this.game.playerId) ||
                 !this.game.isTerritoryVisible(target.id, this.game.playerId)) {
                 this.showToast("Le flux continu ne peut pas être établi dans une zone sans visibilité.");
@@ -616,6 +719,7 @@
 
         clearSelection() {
             this.selectedTerritoryId = null;
+            this.multiSelectedTerritoryIds.clear();
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
@@ -651,6 +755,7 @@
 
         clearTerritorySelectionOnly() {
             this.selectedTerritoryId = null;
+            this.multiSelectedTerritoryIds.clear();
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
@@ -710,8 +815,24 @@
         }
 
         syncSelection() {
-            this.renderer.setSelection(this.selectedTerritoryId, this.targetTerritoryId, this.plannedRoute);
+            this.renderer.setSelection(
+                this.selectedTerritoryId,
+                this.targetTerritoryId,
+                this.plannedRoute,
+                [...this.multiSelectedTerritoryIds]
+            );
             this.renderTerritoryPanel();
+        }
+
+        getMultiSelectedTerritories() {
+            const valid = [...this.multiSelectedTerritoryIds]
+                .map((territoryId) => this.game.state.getTerritory(territoryId))
+                .filter((territory) => territory && !territory.isImpassable && territory.ownerId === this.game.playerId);
+            const validIds = new Set(valid.map((territory) => territory.id));
+            [...this.multiSelectedTerritoryIds].forEach((territoryId) => {
+                if (!validIds.has(territoryId)) this.multiSelectedTerritoryIds.delete(territoryId);
+            });
+            return valid;
         }
 
         renderStaticGameInfo() {
@@ -764,6 +885,11 @@
         }
 
         renderTerritoryPanel() {
+            const groupedTerritories = this.getMultiSelectedTerritories();
+            if (groupedTerritories.length > 1) {
+                this.renderMultiTerritoryPanel(groupedTerritories);
+                return;
+            }
             let territory = this.game.state.getTerritory(this.selectedTerritoryId);
             if (territory && !this.game.isTerritoryVisible(territory.id, this.game.playerId)) {
                 this.selectedTerritoryId = null;
@@ -785,6 +911,7 @@
             const ownerColor = faction ? faction.color : "#66777d";
             this.elements.emptySelection.hidden = true;
             this.elements.territoryDetails.hidden = false;
+            this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Ctrl + glisser droit transfère des unités ; Alt + glisser droit crée un flux continu.";
             this.elements.territoryName.textContent = territory.name;
             this.elements.territoryId.textContent = `T-${String(territory.id).padStart(2, "0")}`;
             this.elements.ownerName.textContent = territory.isImpassable ? "Zone infranchissable" : faction ? faction.name : "Forces neutres";
@@ -809,6 +936,57 @@
             this.renderAirportPanel(territory);
             this.renderActiveRoute(territory);
             this.renderAttackPanel(territory);
+        }
+
+        renderMultiTerritoryPanel(territories) {
+            const faction = this.game.state.getFaction(this.game.playerId);
+            const totalUnits = territories.reduce((sum, territory) => sum + territory.units, 0);
+            const availableUnits = territories.reduce((sum, territory) => sum + Math.max(0, territory.units - 1), 0);
+            const modes = {
+                units: territories.filter((territory) => territory.productionMode === "units").length,
+                food: territories.filter((territory) => territory.productionMode === "food").length,
+                research: territories.filter((territory) => territory.productionMode === "research").length
+            };
+            const commonMode = Object.entries(modes).find(([, count]) => count === territories.length)?.[0] || null;
+            const potentialProduction = territories.reduce((sum, territory) =>
+                sum + this.game.getTerritoryProductionPerMinute({ ...territory, productionMode: "units" }), 0);
+
+            this.elements.emptySelection.hidden = true;
+            this.elements.territoryDetails.hidden = false;
+            this.elements.territoryName.textContent = `${territories.length} territoires sélectionnés`;
+            this.elements.territoryId.textContent = "GROUPE";
+            this.elements.ownerName.textContent = faction.name;
+            this.elements.ownerSwatch.style.background = faction.color;
+            this.elements.ownerSwatch.style.color = faction.color;
+            this.elements.selectedUnits.textContent = totalUnits;
+            this.elements.terrainIcon.textContent = "⊕";
+            this.elements.terrainName.textContent = "Sélection multiple";
+            this.elements.resourceName.textContent = `${availableUnits} unités disponibles`;
+            this.elements.territoryProduction.textContent = `+${this.formatNumber(potentialProduction)}/min potentiel`;
+
+            this.elements.productionModePanel.hidden = false;
+            this.elements.productionModePanel.classList.toggle("research", commonMode === "research");
+            this.elements.modeUnits.classList.toggle("active", commonMode === "units");
+            this.elements.modeFood.classList.toggle("active", commonMode === "food");
+            this.elements.modeResearch.classList.toggle("active", commonMode === "research");
+            this.elements.productionModeStatus.textContent = commonMode ? commonMode.toUpperCase() : "MIXTE";
+            this.elements.productionModeDetail.textContent = `Recrutement : ${modes.units} · Nourriture : ${modes.food} · Recherche : ${modes.research}. Une affectation sera appliquée à tout le groupe.`;
+
+            this.elements.bonusList.replaceChildren();
+            [
+                `${territories.length} territoires commandés ensemble`,
+                `${availableUnits} unités peuvent être concentrées en conservant une unité par source`,
+                "Clic droit sur un territoire allié : envoyer automatiquement 80 % de chaque garnison disponible"
+            ].forEach((label) => {
+                const item = document.createElement("li");
+                item.textContent = label;
+                this.elements.bonusList.append(item);
+            });
+            this.elements.airportPanel.hidden = true;
+            this.elements.activeRoutePanel.hidden = true;
+            this.elements.attackPanel.hidden = true;
+            this.elements.selectionTip.hidden = false;
+            this.elements.selectionTip.querySelector("p").textContent = "Shift + clic ajoute ou retire un territoire. Clic droit sur un allié concentre les renforts, puis désélectionne le groupe.";
         }
 
         renderProductionMode(territory) {
@@ -841,6 +1019,22 @@
         }
 
         setTerritoryMode(mode) {
+            const groupedTerritories = this.getMultiSelectedTerritories();
+            if (groupedTerritories.length > 1) {
+                const result = this.game.executeCommand({
+                    type: "BATCH_SET_TERRITORY_MODE",
+                    playerId: this.game.playerId,
+                    territoryIds: groupedTerritories.map((territory) => territory.id),
+                    mode
+                });
+                if (!result.ok) return this.showToast(result.error);
+                const count = result.pending ? groupedTerritories.length : result.changedCount;
+                this.clearSelection();
+                this.showToast(result.pending
+                    ? `Affectation groupée de ${groupedTerritories.length} territoires transmise à l’hôte.`
+                    : `${count} territoire${count > 1 ? "s" : ""} affecté${count > 1 ? "s" : ""} à ${mode === "food" ? "la nourriture" : mode === "research" ? "la recherche" : "la production militaire"}.`);
+                return;
+            }
             const territory = this.game.state.getTerritory(this.selectedTerritoryId);
             if (!territory) return;
             const result = this.game.executeCommand({

@@ -525,6 +525,9 @@
             if (command.type === "AIRSTRIKE") return this.launchAirstrike(command);
             if (command.type === "USE_ABILITY") return this.useAbility(command);
             if (command.type === "SET_TERRITORY_MODE") return this.setTerritoryProductionMode(command);
+            if (command.type === "BATCH_SET_TERRITORY_MODE") return this.setTerritoryProductionModeBatch(command);
+            if (command.type === "BATCH_SEND_REINFORCEMENTS") return this.sendBatchReinforcements(command);
+            if (command.type === "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES") return this.createContinuousReinforcementRoutesBatch(command);
             return { ok: false, error: `Commande inconnue : ${command.type}` };
         }
 
@@ -627,9 +630,37 @@
                 : mode === "research"
                     ? "la recherche scientifique"
                     : "le recrutement";
-            this.addLogisticsEvent(`${faction.name} affecte ${territory.name} à ${modeLabel}.`, playerId);
+            if (!command.silentLog) this.addLogisticsEvent(`${faction.name} affecte ${territory.name} à ${modeLabel}.`, playerId);
             this.notify({ type: "TERRITORY_MODE_CHANGED", territoryId: territory.id, playerId, mode });
             return { ok: true, territory };
+        }
+
+        setTerritoryProductionModeBatch(command) {
+            const playerId = Number(command.playerId);
+            const mode = ["units", "food", "research"].includes(command.mode) ? command.mode : null;
+            const territoryIds = [...new Set((Array.isArray(command.territoryIds) ? command.territoryIds : [])
+                .slice(0, 120).map(Number))];
+            if (!mode) return { ok: false, error: "Mode de production inconnu." };
+            if (!territoryIds.length) return { ok: false, error: "Aucun territoire sélectionné." };
+            const territories = territoryIds.map((territoryId) => this.state.getTerritory(territoryId));
+            if (territories.some((territory) => !territory || territory.isImpassable || territory.ownerId !== playerId)) {
+                return { ok: false, error: "La sélection contient un territoire qui ne vous appartient pas." };
+            }
+            const changed = territories.filter((territory) => territory.productionMode !== mode);
+            changed.forEach((territory) => this.setTerritoryProductionMode({
+                type: "SET_TERRITORY_MODE",
+                playerId,
+                territoryId: territory.id,
+                mode,
+                silentLog: true
+            }));
+            if (changed.length) {
+                const faction = this.state.getFaction(playerId);
+                const modeLabel = mode === "food" ? "la nourriture" : mode === "research" ? "la recherche" : "le recrutement";
+                this.addLogisticsEvent(`${faction.name} affecte ${changed.length} territoires à ${modeLabel}.`, playerId);
+                this.notify({ type: "TERRITORY_MODE_BATCH_CHANGED", territoryIds: changed.map((territory) => territory.id), playerId, mode });
+            }
+            return { ok: true, territories, changedCount: changed.length };
         }
 
         executeAuthoritativeCommand(command) {
@@ -764,11 +795,65 @@
             from.units -= units;
             this.state.armies.push(army);
             this.state.touch();
-            if (!command.reinforcementRouteId) {
+            if (!command.reinforcementRouteId && !command.silentLog) {
                 this.addLogisticsEvent(`${faction.name} achemine ${units} renforts vers ${destination.name} — ${path.length - 1} étapes.`, playerId);
             }
             this.notify({ type: "ARMY_SENT", armyId: army.id, route: path });
             return { ok: true, army, path };
+        }
+
+        sendBatchReinforcements(command) {
+            if (this.paused) return { ok: false, error: "La simulation est en pause." };
+            const playerId = Number(command.playerId);
+            const destination = this.state.getTerritory(command.toTerritoryId);
+            if (!destination || destination.isImpassable || !this.areAllied(destination.ownerId, playerId)) {
+                return { ok: false, error: "La destination groupée doit être un territoire allié." };
+            }
+            const sourceIds = [...new Set((Array.isArray(command.fromTerritoryIds) ? command.fromTerritoryIds : [])
+                .slice(0, 120).map(Number))];
+            if (!sourceIds.length) return { ok: false, error: "Aucun territoire source sélectionné." };
+            const candidates = sourceIds.map((sourceId) => this.state.getTerritory(sourceId))
+                .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable && source.units > 1)
+                .map((source) => ({
+                    source,
+                    path: this.findAlliedPath(playerId, source.id, destination.id),
+                    units: Math.max(1, Math.floor((source.units - 1) * this.quickTransferRatio))
+                }))
+                .filter((candidate) => candidate.path && candidate.path.length > 1);
+            if (!candidates.length) {
+                return { ok: false, error: "Aucune source sélectionnée ne possède un itinéraire allié valide." };
+            }
+            const armies = [];
+            let totalUnits = 0;
+            candidates.forEach((candidate) => {
+                const result = this.sendReinforcementRoute({
+                    type: "SEND_REINFORCEMENT_ROUTE",
+                    playerId,
+                    fromTerritoryId: candidate.source.id,
+                    toTerritoryId: destination.id,
+                    units: candidate.units,
+                    silentLog: true
+                });
+                if (!result.ok) return;
+                armies.push(result.army);
+                totalUnits += candidate.units;
+            });
+            const faction = this.state.getFaction(playerId);
+            this.addLogisticsEvent(`${faction.name} concentre ${totalUnits} renforts depuis ${armies.length} territoires vers ${destination.name}.`, playerId);
+            this.notify({
+                type: "BATCH_REINFORCEMENTS_SENT",
+                playerId,
+                fromTerritoryIds: armies.map((army) => army.fromTerritoryId),
+                toTerritoryId: destination.id,
+                totalUnits
+            });
+            return {
+                ok: true,
+                armies,
+                totalUnits,
+                sentCount: armies.length,
+                skippedCount: sourceIds.length - armies.length
+            };
         }
 
         createContinuousReinforcementRoute(command) {
@@ -802,7 +887,7 @@
             const faction = this.state.getFaction(playerId);
             const action = previousRoute ? "redirige sa ligne continue" : "ouvre une ligne de renfort continue";
             const mode = route.relayAllReinforcements ? " · HUB : garnison et arrivées relayées" : "";
-            this.addLogisticsEvent(`${faction.name} ${action} : ${from.name} → ${destination.name}${mode}.`, playerId);
+            if (!command.silentLog) this.addLogisticsEvent(`${faction.name} ${action} : ${from.name} → ${destination.name}${mode}.`, playerId);
             this.notify({ type: "REINFORCEMENT_ROUTE_CREATED", routeId: route.id, replacedRouteId: previousRoute ? previousRoute.id : null });
 
             if (route.relayAllReinforcements && from.units > 1) {
@@ -824,6 +909,52 @@
                 }
             }
             return { ok: true, route };
+        }
+
+        createContinuousReinforcementRoutesBatch(command) {
+            const playerId = Number(command.playerId);
+            const destination = this.state.getTerritory(command.toTerritoryId);
+            if (!destination || destination.isImpassable || !this.areAllied(destination.ownerId, playerId)) {
+                return { ok: false, error: "La destination groupée doit être un territoire allié." };
+            }
+            const sourceIds = [...new Set((Array.isArray(command.fromTerritoryIds) ? command.fromTerritoryIds : [])
+                .slice(0, 120).map(Number))];
+            if (!sourceIds.length) return { ok: false, error: "Aucun territoire source sélectionné." };
+            const candidates = sourceIds.map((sourceId) => this.state.getTerritory(sourceId))
+                .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable)
+                .map((source) => ({ source, path: this.findAlliedPath(playerId, source.id, destination.id) }))
+                .filter((candidate) => candidate.path && candidate.path.length > 1);
+            if (!candidates.length) {
+                return { ok: false, error: "Aucune source sélectionnée ne possède un itinéraire allié valide." };
+            }
+            const routes = [];
+            candidates.forEach((candidate) => {
+                const previousRoute = this.state.reinforcementRoutes.find((route) =>
+                    route.active && route.ownerId === playerId && route.fromTerritoryId === candidate.source.id);
+                const result = this.createContinuousReinforcementRoute({
+                    type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+                    playerId,
+                    fromTerritoryId: candidate.source.id,
+                    toTerritoryId: destination.id,
+                    relayAllReinforcements: Boolean(previousRoute?.relayAllReinforcements),
+                    silentLog: true
+                });
+                if (result.ok) routes.push(result.route);
+            });
+            const faction = this.state.getFaction(playerId);
+            this.addLogisticsEvent(`${faction.name} dirige ${routes.length} flux continus vers ${destination.name}.`, playerId);
+            this.notify({
+                type: "CONTINUOUS_REINFORCEMENT_ROUTES_BATCH_CREATED",
+                playerId,
+                routeIds: routes.map((route) => route.id),
+                toTerritoryId: destination.id
+            });
+            return {
+                ok: true,
+                routes,
+                createdCount: routes.length,
+                skippedCount: sourceIds.length - routes.length
+            };
         }
 
         cancelContinuousReinforcementRoute(command) {

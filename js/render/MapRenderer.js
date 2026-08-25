@@ -7,6 +7,7 @@
             this.context = canvas.getContext("2d");
             this.game = game;
             this.selectedTerritoryId = null;
+            this.multiSelectedTerritoryIds = [];
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.hoveredTerritoryId = null;
@@ -289,6 +290,23 @@
         drawSelection(ctx, state, now) {
             const selected = state.getTerritory(this.selectedTerritoryId);
             if (!selected) return;
+
+            const groupedTerritories = this.multiSelectedTerritoryIds
+                .map((territoryId) => state.getTerritory(territoryId))
+                .filter((territory) => territory && this.isTerritoryVisible(territory.id));
+            if (groupedTerritories.length > 1) {
+                const pulse = (Math.sin(now / 240) + 1) / 2;
+                groupedTerritories.forEach((territory) => {
+                    this.tracePolygon(ctx, territory.polygon);
+                    ctx.strokeStyle = `rgba(208, 179, 255, ${0.76 + pulse * 0.22})`;
+                    ctx.lineWidth = 4;
+                    ctx.shadowColor = "rgba(181, 140, 255, .7)";
+                    ctx.shadowBlur = 9 + pulse * 7;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                });
+                return;
+            }
 
             if (!selected.isImpassable) {
                 selected.neighbors.forEach((id) => {
@@ -946,18 +964,30 @@
             if (!source) return;
 
             const isContinuous = this.transferPreview.mode === "continuous";
+            const previewSources = [...new Set((this.transferPreview.sourceTerritoryIds || [source.id]).map(Number))]
+                .map((territoryId) => state.getTerritory(territoryId))
+                .filter(Boolean);
+            const isGroup = previewSources.length > 1;
             const target = state.getTerritory(this.transferPreview.targetTerritoryId);
-            const hasDestination = Boolean(target && target.id !== source.id);
+            const hasDestination = Boolean(target && (isGroup || target.id !== source.id));
             const isAlliedDestination = hasDestination &&
-                source.ownerId === this.game.playerId &&
+                previewSources.every((candidate) => candidate.ownerId === this.game.playerId) &&
                 this.game.areAllied(target.ownerId, this.game.playerId);
-            const path = isAlliedDestination
-                ? this.game.findAlliedPath(this.game.playerId, source.id, target.id)
-                : null;
-            const units = source.units > 1
-                ? Math.max(1, Math.floor((source.units - 1) * this.game.quickTransferRatio))
-                : 0;
-            const isValid = Boolean(path && path.length > 1 && (isContinuous || units > 0));
+            const candidates = previewSources.map((candidateSource) => ({
+                source: candidateSource,
+                path: isAlliedDestination
+                    ? this.game.findAlliedPath(this.game.playerId, candidateSource.id, target.id)
+                    : null,
+                units: candidateSource.units > 1
+                    ? Math.max(1, Math.floor((candidateSource.units - 1) * this.game.quickTransferRatio))
+                    : 0
+            }));
+            const validCandidates = candidates.filter((candidate) =>
+                candidate.path && candidate.path.length > 1 && (isContinuous || candidate.units > 0));
+            const mainCandidate = validCandidates[0] || candidates[0];
+            const path = mainCandidate?.path || null;
+            const units = validCandidates.reduce((sum, candidate) => sum + candidate.units, 0);
+            const isValid = validCandidates.length > 0;
             const color = !hasDestination
                 ? isContinuous ? "#8beee8" : "#7ae8df"
                 : isValid
@@ -965,10 +995,27 @@
                     : "#ff766d";
             const route = path
                 ? path.map((territoryId) => state.getTerritory(territoryId)).filter(Boolean)
-                : [source, target || { center: this.transferPreview.pointer }];
+                : [mainCandidate?.source || source, target || { center: this.transferPreview.pointer }];
             const end = route[route.length - 1].center;
 
             ctx.save();
+            if (isGroup && hasDestination) {
+                validCandidates.slice(1).forEach((candidate) => {
+                    const candidateRoute = candidate.path.map((territoryId) => state.getTerritory(territoryId)).filter(Boolean);
+                    if (candidateRoute.length < 2) return;
+                    ctx.beginPath();
+                    ctx.moveTo(candidateRoute[0].center.x, candidateRoute[0].center.y);
+                    for (let index = 1; index < candidateRoute.length; index += 1) {
+                        ctx.lineTo(candidateRoute[index].center.x, candidateRoute[index].center.y);
+                    }
+                    ctx.strokeStyle = C.Geometry.rgba(color, .48);
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([8, 7]);
+                    ctx.lineDashOffset = -(now / 55) % 15;
+                    ctx.stroke();
+                });
+                ctx.setLineDash([]);
+            }
             ctx.beginPath();
             ctx.moveTo(route[0].center.x, route[0].center.y);
             for (let index = 1; index < route.length; index += 1) {
@@ -1011,9 +1058,11 @@
             }
 
             const label = !hasDestination
-                ? isContinuous ? "ALT · FLUX CONTINU" : "CTRL · TRANSFERT"
+                ? isContinuous ? isGroup ? `ALT · ${previewSources.length} FLUX` : "ALT · FLUX CONTINU" : isGroup ? `CTRL · ${previewSources.length} SOURCES` : "CTRL · TRANSFERT"
                 : isValid
-                    ? isContinuous ? "FLUX CONTINU" : `${units} UNITÉ${units > 1 ? "S" : ""}`
+                    ? isContinuous
+                        ? isGroup ? `${validCandidates.length} FLUX CONTINUS` : "FLUX CONTINU"
+                        : isGroup ? `${units} UNITÉS · ${validCandidates.length} SOURCES` : `${units} UNITÉ${units > 1 ? "S" : ""}`
                     : !isContinuous && units < 1
                         ? "AUCUNE UNITÉ DISPONIBLE"
                         : "DESTINATION INVALIDE";
@@ -1078,19 +1127,21 @@
             return this.visibilityMap.has(Number(territoryId));
         }
 
-        setSelection(selectedTerritoryId, targetTerritoryId = null, plannedRoute = []) {
+        setSelection(selectedTerritoryId, targetTerritoryId = null, plannedRoute = [], multiSelectedTerritoryIds = []) {
             this.selectedTerritoryId = selectedTerritoryId;
             this.targetTerritoryId = targetTerritoryId;
             this.plannedRoute = plannedRoute.slice();
+            this.multiSelectedTerritoryIds = multiSelectedTerritoryIds.slice();
         }
 
         setHovered(territoryId) {
             this.hoveredTerritoryId = territoryId;
         }
 
-        setTransferPreview(fromTerritoryId, clientX, clientY, targetTerritoryId = null, mode = "quick") {
+        setTransferPreview(fromTerritoryId, clientX, clientY, targetTerritoryId = null, mode = "quick", sourceTerritoryIds = [fromTerritoryId]) {
             this.transferPreview = {
                 fromTerritoryId,
+                sourceTerritoryIds: sourceTerritoryIds.slice(),
                 targetTerritoryId,
                 mode,
                 pointer: this.screenToWorld(clientX, clientY)

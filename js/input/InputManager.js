@@ -28,7 +28,8 @@
                         event.clientX,
                         event.clientY,
                         territory ? territory.id : null,
-                        drag.mode
+                        drag.mode,
+                        drag.sourceTerritoryIds
                     );
                     this.canvas.style.cursor = drag.moved ? "alias" : "crosshair";
                     return;
@@ -63,15 +64,22 @@
                     const source = this.renderer.getTerritoryAt(event.clientX, event.clientY);
                     if (!source) return;
                     const mode = event.altKey ? "continuous" : "quick";
+                    const selectedGroup = Array.isArray(this.renderer.multiSelectedTerritoryIds)
+                        ? this.renderer.multiSelectedTerritoryIds.map(Number)
+                        : [];
+                    const sourceTerritoryIds = selectedGroup.length > 1 && selectedGroup.includes(source.id)
+                        ? selectedGroup
+                        : [source.id];
                     this.rightDrag = {
                         startX: event.clientX,
                         startY: event.clientY,
                         moved: false,
                         pointerId: event.pointerId,
                         sourceTerritoryId: source.id,
+                        sourceTerritoryIds,
                         mode
                     };
-                    this.renderer.setTransferPreview(source.id, event.clientX, event.clientY, source.id, mode);
+                    this.renderer.setTransferPreview(source.id, event.clientX, event.clientY, source.id, mode, sourceTerritoryIds);
                     this.capturePointer(event.pointerId);
                     this.canvas.style.cursor = "crosshair";
                     return;

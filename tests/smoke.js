@@ -289,6 +289,59 @@
         check(humanTeamAverageX < humanVsAiGame.state.mapWidth / 2 && aiTeamAverageX > humanVsAiGame.state.mapWidth / 2, "sur le Sablier, les deux équipes commencent de part et d’autre du point central");
         const teamGame = new C.Game({ playerId: 1, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         teamGame.newGame(313131);
+        const groupGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        groupGame.newGame(313133);
+        const groupTerritories = groupGame.state.territories.filter((territory) => !territory.isImpassable);
+        groupTerritories.forEach((territory) => {
+            territory.ownerId = 1;
+            territory.units = 5;
+            territory.productionMode = "units";
+        });
+        const groupDestination = groupTerritories[0];
+        const groupSources = groupTerritories.slice(1, 4);
+        groupSources[0].units = 11;
+        groupSources[1].units = 21;
+        groupSources[2].units = 6;
+        const batchMode = groupGame.executeCommand({
+            type: "BATCH_SET_TERRITORY_MODE",
+            playerId: 1,
+            territoryIds: groupSources.map((territory) => territory.id),
+            mode: "research"
+        });
+        check(batchMode.ok && batchMode.changedCount === 3 && groupSources.every((territory) => territory.productionMode === "research"), "une commande groupée affecte plusieurs territoires à la recherche");
+        groupGame.executeCommand({ type: "BATCH_SET_TERRITORY_MODE", playerId: 1, territoryIds: groupSources.map((territory) => territory.id), mode: "units" });
+        const batchReinforcement = groupGame.executeCommand({
+            type: "BATCH_SEND_REINFORCEMENTS",
+            playerId: 1,
+            fromTerritoryIds: groupSources.map((territory) => territory.id).concat(groupDestination.id),
+            toTerritoryId: groupDestination.id
+        });
+        check(batchReinforcement.ok && batchReinforcement.sentCount === 3 && batchReinforcement.skippedCount === 1 && batchReinforcement.totalUnits === 28, "le renfort groupé envoie 80 % depuis chaque source valide et ignore la destination");
+        check(groupSources.map((territory) => territory.units).join(",") === "3,5,2", "le renfort groupé conserve au moins une garnison dans chaque territoire source");
+        const batchContinuous = groupGame.executeCommand({
+            type: "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES",
+            playerId: 1,
+            fromTerritoryIds: groupSources.map((territory) => territory.id).concat(groupDestination.id),
+            toTerritoryId: groupDestination.id
+        });
+        check(batchContinuous.ok && batchContinuous.createdCount === 3 && batchContinuous.skippedCount === 1 && groupSources.every((source) => groupGame.state.reinforcementRoutes.some((route) => route.active && route.fromTerritoryId === source.id && route.toTerritoryId === groupDestination.id)), "Alt peut créer un flux continu depuis chaque territoire du groupe");
+        const hostileGroupTarget = groupTerritories[4];
+        hostileGroupTarget.ownerId = 2;
+        check(!groupGame.executeCommand({ type: "BATCH_SEND_REINFORCEMENTS", playerId: 1, fromTerritoryIds: groupSources.map((territory) => territory.id), toTerritoryId: hostileGroupTarget.id }).ok, "un ordre groupé ne peut pas transformer un renfort en attaque accidentelle");
+        const shiftSelectionStub = {
+            game: groupGame,
+            selectedTerritoryId: groupSources[0].id,
+            multiSelectedTerritoryIds: new Set(),
+            targetTerritoryId: null,
+            plannedRoute: [],
+            lastRouteKey: null,
+            targetingAbilityId: null,
+            airstrikeSourceId: null,
+            syncSelection: () => {},
+            showToast: () => {}
+        };
+        C.UIController.prototype.handleTerritoryClick.call(shiftSelectionStub, groupSources[1], { shiftKey: true });
+        check(shiftSelectionStub.multiSelectedTerritoryIds.has(groupSources[0].id) && shiftSelectionStub.multiSelectedTerritoryIds.has(groupSources[1].id), "Shift + clic ajoute le territoire courant et le nouveau territoire à la sélection multiple");
         const teamSource = teamGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((id) => {
             const neighbor = teamGame.state.getTerritory(id);
             return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(id);
@@ -1151,6 +1204,7 @@
         const previewModes = [];
         let previewCleared = false;
         const gestureRenderer = {
+            multiSelectedTerritoryIds: [1, 3],
             game: {
                 state: {
                     getTerritory: (territoryId) => gestureTerritories.find((territory) => territory.id === territoryId)
@@ -1158,9 +1212,10 @@
             },
             getTerritoryAt: (clientX) => clientX < 50 ? gestureTerritories[0] : gestureTerritories[1],
             setHovered: () => {},
-            setTransferPreview: (_sourceId, _x, _y, _targetId, mode) => {
+            setTransferPreview: (_sourceId, _x, _y, _targetId, mode, sourceTerritoryIds) => {
                 previewUpdates += 1;
                 previewModes.push(mode);
+                if (Array.isArray(sourceTerritoryIds) && sourceTerritoryIds.length > 1) previewModes.push("group");
             },
             clearTransferPreview: () => { previewCleared = true; },
             panByScreenDelta: () => {},
@@ -1179,6 +1234,7 @@
         gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, ctrlKey: true, clientX: 90, clientY: 10 }));
         gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, clientX: 90, clientY: 10 }));
         check(Boolean(quickGesture && quickGesture[0] === 1 && quickGesture[1] === 2 && previewUpdates >= 2 && previewCleared), "Ctrl + glisser droit produit un ordre entre l’origine et la destination");
+        check(previewModes.includes("group"), "l’aperçu Ctrl ou Alt reconnaît toutes les sources de la sélection multiple");
         check(regularRightClicks === 1, "le clic droit simple reste disponible après un transfert rapide");
         gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, altKey: true, clientX: 10, clientY: 10, pointerId: 42 }));
         gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, altKey: true, clientX: 90, clientY: 10, pointerId: 42 }));
