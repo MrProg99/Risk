@@ -308,8 +308,10 @@
                 let impacts = [];
                 if (action.abilityId === "missile" && target && faction && !target.isImpassable && !this.areAllied(target.ownerId, action.factionId)) {
                     const definition = C.ABILITY_DEFINITIONS.missile;
+                    const damageRatio = Number(action.damageRatio) || definition.damageRatio;
+                    const maximumDamage = Number(action.maximumDamage) || definition.maximumDamage;
                     damage = target.units > 1
-                        ? Math.min(target.units - 1, definition.maximumDamage, Math.max(1, Math.round(target.units * definition.damageRatio)))
+                        ? Math.min(target.units - 1, maximumDamage, Math.max(1, Math.round(target.units * damageRatio)))
                         : 0;
                     target.units -= damage;
                     this.addEvent(`${faction.name} frappe ${target.name} avec un missile tactique : ${damage} perte${damage > 1 ? "s" : ""}.`, "combat");
@@ -317,6 +319,8 @@
                     this.addEvent(`Le missile de ${faction.name} manque sa cible stratégique à ${target.name}.`, "combat");
                 } else if (action.abilityId === "nuclear" && target && faction && !target.isImpassable) {
                     const definition = C.ABILITY_DEFINITIONS.nuclear;
+                    const centerDamageRatio = Number(action.centerDamageRatio) || definition.centerDamageRatio;
+                    const adjacentDamageRatio = Number(action.adjacentDamageRatio) || definition.adjacentDamageRatio;
                     const affectedTerritories = [target, ...target.neighbors
                         .map((territoryId) => this.state.getTerritory(territoryId))
                         .filter((territory) => territory && !territory.isImpassable)];
@@ -326,7 +330,7 @@
                         seen.add(territory.id);
                         return true;
                     }).map((territory) => {
-                        const ratio = territory.id === target.id ? definition.centerDamageRatio : definition.adjacentDamageRatio;
+                        const ratio = territory.id === target.id ? centerDamageRatio : adjacentDamageRatio;
                         const losses = territory.units > 1
                             ? Math.min(territory.units - 1, Math.max(1, Math.round(territory.units * ratio)))
                             : 0;
@@ -533,15 +537,32 @@
             if (!faction || !target || target.isImpassable) return { ok: false, error: "Cible invalide." };
             if (!definition) return { ok: false, error: "Capacité inconnue." };
             if (!faction.research.completedTechnologyIds.includes(definition.technologyId)) return { ok: false, error: "Cette capacité doit d’abord être recherchée." };
+            const abilityLevel = C.getFactionAbilityLevel(faction, definition.id);
+            const abilityStats = C.getFactionAbilityStats(faction, definition.id);
             const cooldown = Number(faction.abilityCooldowns?.[definition.id]) || 0;
             if (cooldown > 0) return { ok: false, error: `Capacité en recharge (${Math.ceil(cooldown / 1000)} s).` };
 
             if (definition.id === "missile" || definition.id === "nuclear") {
                 if (this.areAllied(target.ownerId, playerId)) return { ok: false, error: "Impossible de viser un territoire allié." };
                 if (!this.isTerritoryVisible(target.id, playerId)) return { ok: false, error: "Cette frappe exige une cible ennemie visible." };
-                const action = { id: this.state.nextAbilityActionId++, abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, createdAtMs: this.state.elapsedMs, executeAtMs: this.state.elapsedMs + definition.warningMs };
+                const action = {
+                    id: this.state.nextAbilityActionId++,
+                    abilityId: definition.id,
+                    abilityLevel,
+                    factionId: playerId,
+                    targetTerritoryId: target.id,
+                    createdAtMs: this.state.elapsedMs,
+                    executeAtMs: this.state.elapsedMs + abilityStats.warningMs
+                };
+                if (definition.id === "missile") {
+                    action.damageRatio = abilityStats.damageRatio;
+                    action.maximumDamage = abilityStats.maximumDamage;
+                } else {
+                    action.centerDamageRatio = abilityStats.centerDamageRatio;
+                    action.adjacentDamageRatio = abilityStats.adjacentDamageRatio;
+                }
                 this.state.abilityActions.push(action);
-                faction.abilityCooldowns[definition.id] = definition.cooldownMs;
+                faction.abilityCooldowns[definition.id] = abilityStats.cooldownMs;
                 this.addEvent(definition.id === "nuclear"
                     ? `ALERTE NUCLÉAIRE : ${faction.name} vise ${target.name}. Impact et souffle périphérique dans 8 secondes.`
                     : `ALERTE MISSILE : ${faction.name} verrouille ${target.name}. Impact dans 5 secondes.`, "combat");
@@ -551,12 +572,12 @@
             }
             if (definition.id === "reinforcement") {
                 if (target.ownerId !== playerId) return { ok: false, error: "Les renforts doivent rejoindre un de vos territoires." };
-                target.units += definition.units;
-                faction.abilityCooldowns.reinforcement = definition.cooldownMs;
-                this.addLogisticsEvent(`${faction.name} mobilise ${definition.units} renforts d’urgence à ${target.name}.`, faction.id);
-                this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, units: definition.units });
+                target.units += abilityStats.units;
+                faction.abilityCooldowns.reinforcement = abilityStats.cooldownMs;
+                this.addLogisticsEvent(`${faction.name} mobilise ${abilityStats.units} renforts d’urgence à ${target.name}.`, faction.id);
+                this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, units: abilityStats.units });
                 this.state.touch();
-                return { ok: true, units: definition.units };
+                return { ok: true, units: abilityStats.units, abilityLevel };
             }
             if (definition.id === "paratrooper") {
                 if (target.ownerId === null || this.areAllied(target.ownerId, playerId)) {
@@ -571,16 +592,16 @@
                     fromTerritoryId: target.id,
                     toTerritoryId: target.id,
                     finalTerritoryId: target.id,
-                    units: definition.units,
-                    durationMs: definition.warningMs,
+                    units: abilityStats.units,
+                    durationMs: abilityStats.warningMs,
                     start: { x: target.center.x - 140, y: target.center.y - 320 },
                     end: { ...target.center },
                     logisticsPurpose: "paratrooper"
                 });
                 this.state.armies.push(army);
-                faction.abilityCooldowns.paratrooper = definition.cooldownMs;
-                this.addEvent(`${faction.name} lance un largage de ${definition.units} parachutistes sur ${target.name}.`, "combat");
-                this.notify({ type: "ABILITY_LAUNCHED", abilityId: definition.id, factionId: playerId, targetTerritoryId: target.id, armyId: army.id, units: definition.units });
+                faction.abilityCooldowns.paratrooper = abilityStats.cooldownMs;
+                this.addEvent(`${faction.name} lance un largage de ${abilityStats.units} parachutistes sur ${target.name}.`, "combat");
+                this.notify({ type: "ABILITY_LAUNCHED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, armyId: army.id, units: abilityStats.units });
                 this.state.touch();
                 return { ok: true, army };
             }

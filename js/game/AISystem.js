@@ -510,6 +510,7 @@
             const cooldowns = faction.abilityCooldowns || {};
 
             if (completed.includes(C.ABILITY_DEFINITIONS.reinforcement.technologyId) && (cooldowns.reinforcement || 0) <= 0) {
+                const definition = C.getFactionAbilityStats(faction, "reinforcement");
                 const food = this.game.getFactionFoodState(faction.id);
                 const targets = owned.map((territory) => {
                     const hostileStrength = territory.neighbors
@@ -523,7 +524,7 @@
                 const best = targets[0];
                 const freeCapacity = food.capacity - food.demand;
                 const emergency = best && best.territory.isCapital && best.danger >= 0.9;
-                if (best && best.danger >= 1.15 && (freeCapacity >= C.ABILITY_DEFINITIONS.reinforcement.units || emergency)) {
+                if (best && best.danger >= 1.15 && (freeCapacity >= definition.units || emergency)) {
                     const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "reinforcement", targetTerritoryId: best.territory.id });
                     if (result.ok) {
                         this.abilitiesUsed += 1;
@@ -534,7 +535,7 @@
             }
 
             if (completed.includes(C.ABILITY_DEFINITIONS.paratrooper.technologyId) && (cooldowns.paratrooper || 0) <= 0) {
-                const definition = C.ABILITY_DEFINITIONS.paratrooper;
+                const definition = C.getFactionAbilityStats(faction, "paratrooper");
                 const visibility = this.game.getTerritoryVisibilityMap(faction.id);
                 const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
                     (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
@@ -573,7 +574,7 @@
             }
 
             if (completed.includes(C.ABILITY_DEFINITIONS.nuclear.technologyId) && (cooldowns.nuclear || 0) <= 0) {
-                const definition = C.ABILITY_DEFINITIONS.nuclear;
+                const definition = C.getFactionAbilityStats(faction, "nuclear");
                 const visibility = this.game.getTerritoryVisibilityMap(faction.id);
                 const candidates = this.game.state.territories
                     .filter((territory) => territory.ownerId !== null && !territory.isImpassable && !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id))

@@ -591,7 +591,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 17, "l’arbre propose trois axes progressifs et un axe de capacités");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 21, "l’arbre propose trois axes progressifs et huit recherches de capacités sur deux niveaux");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -673,6 +673,47 @@
         check(abilitySnapshot.armies.some((army) => army.logisticsPurpose === "paratrooper"), "le largage en cours est inclus dans l’instantané Firebase");
         for (let tick = 0; tick < 7; tick += 1) researchGame.update(1000);
         check(abilityTarget.ownerId === 1 && abilityTarget.units > 0 && !researchGame.state.armies.some((army) => army.logisticsPurpose === "paratrooper"), "les parachutistes combattent à l’arrivée et capturent une cible insuffisamment défendue");
+
+        const upgradedAbilityGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        upgradedAbilityGame.newGame(818182);
+        const upgradedFaction = upgradedAbilityGame.state.getFaction(1);
+        upgradedFaction.research.completedTechnologyIds.push("ability-missile");
+        const secondAbilityResearch = upgradedAbilityGame.executeCommand({ type: "START_RESEARCH", playerId: 1, technologyId: "ability-missile-2" });
+        check(secondAbilityResearch.ok && upgradedFaction.research.activeTechnologyId === "ability-missile-2", "une capacité déjà débloquée peut être recherchée une seconde fois");
+        upgradedFaction.research.activeTechnologyId = null;
+        upgradedFaction.research.progressMs = 0;
+        upgradedFaction.research.completedTechnologyIds.push(
+            "ability-missile-2",
+            "ability-reinforcement", "ability-reinforcement-2",
+            "ability-paratrooper", "ability-paratrooper-2",
+            "ability-nuclear", "ability-nuclear-2"
+        );
+        const upgradedHome = upgradedAbilityGame.state.getTerritoriesOwnedBy(1)[0];
+        const upgradedTarget = upgradedHome.neighbors
+            .map((id) => upgradedAbilityGame.state.getTerritory(id))
+            .find((territory) => territory && !territory.isImpassable);
+        upgradedTarget.ownerId = 2;
+        upgradedTarget.units = 100;
+        upgradedTarget.terrain = "plain";
+        upgradedTarget.productionMode = "food";
+        upgradedTarget.isCapital = false;
+        const upgradedMissile = upgradedAbilityGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "missile", targetTerritoryId: upgradedTarget.id });
+        check(upgradedMissile.ok && upgradedMissile.action.abilityLevel === 2 && upgradedMissile.action.damageRatio === 0.35 && upgradedMissile.action.maximumDamage === 60, "Missile tactique II mémorise 35 % de dégâts et un plafond de 60 dans la frappe");
+        for (let tick = 0; tick < 5; tick += 1) upgradedAbilityGame.update(1000);
+        check(upgradedTarget.units === 65, "Missile tactique II applique réellement 35 % de dégâts à l’impact");
+        const upgradedHomeUnits = upgradedHome.units;
+        const upgradedReinforcement = upgradedAbilityGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: upgradedHome.id });
+        check(upgradedReinforcement.ok && upgradedReinforcement.units === 50 && upgradedHome.units === upgradedHomeUnits + 50, "Mobilisation d’urgence II fournit 50 unités");
+        const upgradedParatroopers = upgradedAbilityGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "paratrooper", targetTerritoryId: upgradedTarget.id });
+        check(upgradedParatroopers.ok && upgradedParatroopers.army.units === 50, "Parachutistes II largue une force de 50 unités");
+        const upgradedNuclear = upgradedAbilityGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "nuclear", targetTerritoryId: upgradedTarget.id });
+        check(upgradedNuclear.ok && upgradedNuclear.action.centerDamageRatio === 0.40 && upgradedNuclear.action.adjacentDamageRatio === 0.20, "Arme nucléaire II mémorise un souffle de 40 % au centre et 20 % autour");
+        const upgradedAbilitySnapshot = upgradedAbilityGame.createNetworkSnapshot();
+        check(upgradedAbilitySnapshot.factions[0].research.completedTechnologyIds.includes("ability-nuclear-2") && upgradedAbilitySnapshot.abilityActions.some((action) => action.abilityLevel === 2), "les améliorations et les frappes de niveau II sont incluses dans l’instantané Firebase");
+        const upgradedAiFaction = upgradedAbilityGame.state.getFaction(2);
+        upgradedAiFaction.research.completedTechnologyIds = Object.keys(C.TECHNOLOGIES).filter((technologyId) =>
+            !(technologyId.startsWith("ability-") && technologyId.endsWith("-2")));
+        check(upgradedAbilityGame.aiSystem.chooseResearch(upgradedAiFaction) && upgradedAiFaction.research.activeTechnologyId.endsWith("-2"), "l’IA sélectionne aussi une seconde recherche de capacité lorsqu’elle devient disponible");
 
         const playedFrequencies = [];
         const startedNotes = [];

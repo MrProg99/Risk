@@ -632,14 +632,15 @@
                 return;
             }
             if ((faction.abilityCooldowns[abilityId] || 0) > 0) return;
+            const abilityStats = C.getFactionAbilityStats(faction, abilityId);
             this.airstrikeSourceId = null;
             this.targetingAbilityId = this.targetingAbilityId === abilityId ? null : abilityId;
             this.clearTerritorySelectionOnly();
             this.refreshAbilities();
             const targetingMessage = abilityId === "reinforcement"
-                ? "Cliquez sur un de vos territoires pour recevoir 35 unités."
+                ? `Cliquez sur un de vos territoires pour recevoir ${abilityStats.units} unités.`
                 : abilityId === "paratrooper"
-                    ? "Choisissez un territoire ennemi visible pour larguer 35 parachutistes."
+                    ? `Choisissez un territoire ennemi visible pour larguer ${abilityStats.units} parachutistes.`
                 : abilityId === "nuclear"
                     ? "Choisissez une cible ennemie visible. Le souffle touchera aussi tous ses voisins."
                     : "Cliquez sur un territoire ennemi visible.";
@@ -664,8 +665,9 @@
             this.refreshAbilities();
             if (result.pending) return this.showToast("Ordre de capacité transmis à l’hôte.");
             if (abilityId === "reinforcement") {
-                const shortage = food.capacity - food.demand < C.ABILITY_DEFINITIONS.reinforcement.units;
-                this.showToast(`35 renforts mobilisés à ${territory.name}${shortage ? " · attention à la nourriture" : ""}.`);
+                const units = Number(result.units) || C.getFactionAbilityStats(this.game.state.getFaction(this.game.playerId), "reinforcement").units;
+                const shortage = food.capacity - food.demand < units;
+                this.showToast(`${units} renforts mobilisés à ${territory.name}${shortage ? " · attention à la nourriture" : ""}.`);
             }
         }
 
@@ -689,12 +691,19 @@
                             ? this.elements.abilityParatrooperStatus
                             : this.elements.abilityNuclearStatus;
                 const unlocked = faction.research.completedTechnologyIds.includes(definition.technologyId);
+                const abilityLevel = C.getFactionAbilityLevel(faction, abilityId);
                 const cooldown = Math.max(0, faction.abilityCooldowns?.[abilityId] || 0);
                 const ready = unlocked && cooldown <= 0;
                 button.disabled = !ready;
                 button.classList.toggle("ready", ready);
                 button.classList.toggle("armed", this.targetingAbilityId === abilityId);
-                status.textContent = !unlocked ? "Verrouillé" : cooldown > 0 ? this.formatDuration(cooldown) : this.targetingAbilityId === abilityId ? "Cible ?" : "Prêt";
+                status.textContent = !unlocked
+                    ? "Verrouillé"
+                    : cooldown > 0
+                        ? `${this.formatDuration(cooldown)} · Niv. ${abilityLevel}`
+                        : this.targetingAbilityId === abilityId
+                            ? `Cible ? · Niv. ${abilityLevel}`
+                            : `Prêt · Niv. ${abilityLevel}`;
             });
         }
 

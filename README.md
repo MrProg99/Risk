@@ -124,6 +124,8 @@ L’**Arme nucléaire** devient accessible après le Missile tactique et demande
 
 Chaque faction possède ses propres recharges. L’IA recherche et utilise les quatre capacités : elle réserve les renforts aux fronts menacés, largue ses parachutistes sur les positions visibles qu’ils peuvent raisonnablement vaincre, cible avec ses missiles les grandes concentrations et ne déclenche une frappe nucléaire que si les pertes ennemies prévues justifient les dommages collatéraux alliés. Les ordres passent par la commande sérialisable `USE_ABILITY`; les largages en vol, les frappes en attente, leurs animations et les recharges sont inclus dans les instantanés Firebase.
 
+Chaque capacité peut être recherchée une seconde fois. Le niveau II porte le missile à **35 % de dégâts** (maximum 60), la mobilisation et les parachutistes à **50 unités**, puis la bombe nucléaire à **40 % au centre et 20 % autour**. Les recharges restent inchangées. L’IA choisit aussi ces améliorations dans son arbre et calcule ses cibles avec les valeurs du niveau acquis.
+
 ### Événements mondiaux
 
 Un événement mondial survient toutes les **60 à 120 secondes** de simulation, avec une alerte huit secondes avant son déclenchement. Le système évite de sélectionner deux fois de suite le même événement.

@@ -31,8 +31,13 @@
             name: "Capacités",
             icon: "☄",
             color: "#b58cff",
-            description: "Débloquer des interventions stratégiques à long délai de récupération.",
-            technologyIds: ["ability-missile", "ability-reinforcement", "ability-paratrooper", "ability-nuclear"]
+            description: "Débloquer puis améliorer des interventions stratégiques à long délai de récupération.",
+            technologyIds: [
+                "ability-missile", "ability-missile-2",
+                "ability-reinforcement", "ability-reinforcement-2",
+                "ability-paratrooper", "ability-paratrooper-2",
+                "ability-nuclear", "ability-nuclear-2"
+            ]
         }
     ];
 
@@ -191,6 +196,17 @@
             effects: { unlockAbility: "missile" },
             effectLabel: "Débloque le missile · recharge 3 min"
         },
+        "ability-missile-2": {
+            id: "ability-missile-2",
+            branchId: "abilities",
+            tier: 2,
+            name: "Missile tactique II",
+            description: "Une charge améliorée frappe plus durement les grandes concentrations ennemies.",
+            durationMs: 300000,
+            prerequisiteId: "ability-missile",
+            effects: { upgradeAbility: "missile" },
+            effectLabel: "Dégâts : 25 % → 35 % · maximum 40 → 60"
+        },
         "ability-reinforcement": {
             id: "ability-reinforcement",
             branchId: "abilities",
@@ -201,6 +217,17 @@
             prerequisiteId: null,
             effects: { unlockAbility: "reinforcement" },
             effectLabel: "+35 unités · recharge 2 min 30"
+        },
+        "ability-reinforcement-2": {
+            id: "ability-reinforcement-2",
+            branchId: "abilities",
+            tier: 2,
+            name: "Mobilisation d’urgence II",
+            description: "Des réserves régionales supplémentaires répondent à l’appel de mobilisation.",
+            durationMs: 270000,
+            prerequisiteId: "ability-reinforcement",
+            effects: { upgradeAbility: "reinforcement" },
+            effectLabel: "Renforts : 35 → 50 unités"
         },
         "ability-paratrooper": {
             id: "ability-paratrooper",
@@ -213,6 +240,17 @@
             effects: { unlockAbility: "paratrooper" },
             effectLabel: "Largage de 35 unités · recharge 4 min"
         },
+        "ability-paratrooper-2": {
+            id: "ability-paratrooper-2",
+            branchId: "abilities",
+            tier: 3,
+            name: "Parachutistes II",
+            description: "Une seconde vague accompagne chaque opération aéroportée.",
+            durationMs: 330000,
+            prerequisiteId: "ability-paratrooper",
+            effects: { upgradeAbility: "paratrooper" },
+            effectLabel: "Largage : 35 → 50 unités"
+        },
         "ability-nuclear": {
             id: "ability-nuclear",
             branchId: "abilities",
@@ -223,6 +261,17 @@
             prerequisiteId: "ability-missile",
             effects: { unlockAbility: "nuclear" },
             effectLabel: "−30 % au centre · −15 % autour · recharge 5 min"
+        },
+        "ability-nuclear-2": {
+            id: "ability-nuclear-2",
+            branchId: "abilities",
+            tier: 3,
+            name: "Arme nucléaire II",
+            description: "Une ogive thermonucléaire amplifie la destruction au point d’impact et dans sa périphérie.",
+            durationMs: 450000,
+            prerequisiteId: "ability-nuclear",
+            effects: { upgradeAbility: "nuclear" },
+            effectLabel: "Dégâts : 40 % au centre · 20 % autour"
         }
     };
 
@@ -234,14 +283,16 @@
             cooldownMs: 180000,
             warningMs: 5000,
             damageRatio: 0.25,
-            maximumDamage: 40
+            maximumDamage: 40,
+            level2: { damageRatio: 0.35, maximumDamage: 60 }
         },
         reinforcement: {
             id: "reinforcement",
             name: "Mobilisation d’urgence",
             technologyId: "ability-reinforcement",
             cooldownMs: 150000,
-            units: 35
+            units: 35,
+            level2: { units: 50 }
         },
         paratrooper: {
             id: "paratrooper",
@@ -249,7 +300,8 @@
             technologyId: "ability-paratrooper",
             cooldownMs: 240000,
             warningMs: 7000,
-            units: 35
+            units: 35,
+            level2: { units: 50 }
         },
         nuclear: {
             id: "nuclear",
@@ -259,8 +311,23 @@
             warningMs: 8000,
             effectDurationMs: 3200,
             centerDamageRatio: 0.30,
-            adjacentDamageRatio: 0.15
+            adjacentDamageRatio: 0.15,
+            level2: { centerDamageRatio: 0.40, adjacentDamageRatio: 0.20 }
         }
+    };
+
+    C.getFactionAbilityLevel = function (faction, abilityId) {
+        const definition = C.ABILITY_DEFINITIONS[abilityId];
+        if (!definition || !faction?.research?.completedTechnologyIds.includes(definition.technologyId)) return 0;
+        return faction.research.completedTechnologyIds.includes(`${definition.technologyId}-2`) ? 2 : 1;
+    };
+
+    C.getFactionAbilityStats = function (faction, abilityId) {
+        const definition = C.ABILITY_DEFINITIONS[abilityId];
+        if (!definition) return null;
+        return C.getFactionAbilityLevel(faction, abilityId) >= 2
+            ? { ...definition, ...definition.level2 }
+            : definition;
     };
 
     C.getFactionTechnologyBonus = function (faction, effectName) {
