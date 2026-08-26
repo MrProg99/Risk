@@ -143,6 +143,27 @@
         </div>
     </section>
 
+    <section class="victory-overlay" id="victory-screen" role="dialog" aria-modal="true" aria-labelledby="victory-title" hidden>
+        <div class="victory-panel">
+            <header class="victory-header">
+                <p class="eyebrow" id="victory-outcome">Campagne terminée</p>
+                <h2 id="victory-title">DOMINATION</h2>
+                <p id="victory-subtitle">Une équipe contrôle désormais le continent.</p>
+                <div class="victory-meta">
+                    <span id="victory-duration">00:00</span>
+                    <span>Domination</span>
+                    <span id="victory-map">Carte #000000</span>
+                </div>
+            </header>
+            <section class="victory-team" id="victory-team" aria-live="polite"></section>
+            <div class="victory-standings" id="victory-standings"></div>
+            <footer class="victory-actions">
+                <button class="button button-secondary" id="victory-observe" type="button">Voir la carte</button>
+                <button class="button button-primary" id="victory-restart" type="button">Nouvelle campagne</button>
+            </footer>
+        </div>
+    </section>
+
     <div class="app-shell" id="game-app" inert aria-hidden="true">
         <header class="topbar">
             <div class="brand-block">
@@ -181,6 +202,7 @@
             </section>
 
             <div class="top-actions">
+                <button class="button button-secondary match-summary-button" id="match-summary" type="button" hidden>Bilan</button>
                 <div class="ability-controls" aria-label="Capacités stratégiques">
                     <button class="ability-button missile" id="ability-missile" type="button" title="Missile tactique">
                         <span>☄</span><span>Missile<small id="ability-missile-status">Verrouillé</small></span>

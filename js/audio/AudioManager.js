@@ -10,7 +10,9 @@
                 "Musique/Music1.mp3",
                 "Musique/Music2.mp3",
                 "Musique/Music3.mp3",
-                "Musique/Music4.mp3"
+                "Musique/Music4.mp3",
+                "Musique/Music5.mp3",
+                "Musique/Music6.mp3"
             ];
             const configuredSources = Array.isArray(options.musicSources)
                 ? options.musicSources.filter((source) => typeof source === "string" && source.trim())

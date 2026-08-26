@@ -78,6 +78,7 @@
             const ratio = this.randomBetween(definition.damageMinRatio, definition.damageMaxRatio);
             const damage = Math.min(target.units - 1, Math.max(1, Math.round(target.units * ratio)));
             target.units -= damage;
+            this.game.recordUnitLoss(target.ownerId, damage);
             const worldEvent = this.registerEvent(definition.id, [target.id], definition.visualDurationMs, { damage });
             this.game.addEvent(`Un feu de forêt ravage ${target.name} : ${damage} unité${damage > 1 ? "s" : ""} perdue${damage > 1 ? "s" : ""}.`, "world");
             return worldEvent;

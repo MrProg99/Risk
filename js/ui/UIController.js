@@ -15,6 +15,7 @@
             this.airstrikeSourceId = null;
             this.targetingAbilityId = null;
             this.lastEventId = null;
+            this.lastLostTerritoryId = null;
             this.toastTimer = null;
             this.researchTreeKey = null;
             this.elements = this.collectElements();
@@ -44,6 +45,17 @@
                 researchProgressPercent: byId("research-progress-percent"),
                 researchProgressBar: byId("research-progress-bar"),
                 researchRate: byId("research-rate"),
+                victoryScreen: byId("victory-screen"),
+                victoryOutcome: byId("victory-outcome"),
+                victoryTitle: byId("victory-title"),
+                victorySubtitle: byId("victory-subtitle"),
+                victoryDuration: byId("victory-duration"),
+                victoryMap: byId("victory-map"),
+                victoryTeam: byId("victory-team"),
+                victoryStandings: byId("victory-standings"),
+                victoryObserve: byId("victory-observe"),
+                victoryRestart: byId("victory-restart"),
+                matchSummary: byId("match-summary"),
                 abilityMissile: byId("ability-missile"),
                 abilityMissileStatus: byId("ability-missile-status"),
                 abilityReinforcement: byId("ability-reinforcement"),
@@ -153,8 +165,11 @@
             this.elements.researchScreen.addEventListener("click", (event) => {
                 if (event.target === this.elements.researchScreen) this.closeResearchScreen();
             });
+            this.elements.victoryObserve.addEventListener("click", () => this.hideVictoryScreen());
+            this.elements.victoryRestart.addEventListener("click", () => window.location.reload());
+            this.elements.matchSummary.addEventListener("click", () => this.showVictoryScreen());
             document.addEventListener("keydown", (event) => {
-                if (event.key === "Escape" && !this.elements.researchScreen.hidden) this.closeResearchScreen();
+                this.handleGlobalKeydown(event);
             });
             this.elements.zoomIn.addEventListener("click", () => {
                 this.renderer.zoomBy(1.2);
@@ -169,6 +184,8 @@
 
         handleGameChange(change) {
             if (change.type === "NEW_GAME") {
+                this.lastLostTerritoryId = null;
+                this.hideVictoryScreen(true);
                 this.clearSelection();
                 this.closeResearchScreen(false);
                 this.researchTreeKey = null;
@@ -180,8 +197,9 @@
                 this.renderer.pulseTerritory(change.territoryId, faction ? faction.color : "#d8ff68");
                 if (change.previousOwnerId === this.game.playerId && change.ownerId !== this.game.playerId) {
                     const territory = this.game.state.getTerritory(change.territoryId);
+                    this.lastLostTerritoryId = change.territoryId;
                     this.audio?.playTerritoryLost();
-                    this.showToast(`Territoire perdu : ${territory ? territory.name : "position inconnue"}.`);
+                    this.showToast(`Territoire perdu : ${territory ? territory.name : "position inconnue"} · Espace pour localiser.`);
                 }
                 this.refreshDynamic();
             } else if (change.type === "ATTACK_REPELLED" || change.type === "ARMY_ARRIVED" || change.type === "ARMY_ROUTE_STOPPED") {
@@ -241,9 +259,124 @@
                         this.showToast(`Recherche terminée : ${technology.name}.`);
                     }
                 }
+            } else if (change.type === "GAME_OVER") {
+                this.clearSelection();
+                this.renderPauseState();
+                this.showVictoryScreen();
             } else if (change.type === "PAUSE_CHANGED" || change.type === "TIME_SCALE_CHANGED") {
                 this.renderPauseState();
             }
+        }
+
+        showVictoryScreen() {
+            if (this.game.state.winnerTeamId === null || !this.elements.victoryScreen) return;
+            this.closeResearchScreen(false);
+            this.renderVictoryScreen();
+            this.elements.victoryScreen.hidden = false;
+            this.elements.matchSummary.hidden = true;
+            document.body.classList.add("victory-open");
+            this.elements.victoryObserve.focus();
+        }
+
+        hideVictoryScreen(reset = false) {
+            if (!this.elements.victoryScreen) return;
+            this.elements.victoryScreen.hidden = true;
+            document.body.classList.remove("victory-open");
+            this.elements.matchSummary.hidden = reset || this.game.state.winnerTeamId === null;
+            if (!reset && !this.elements.matchSummary.hidden) this.elements.matchSummary.focus();
+        }
+
+        renderVictoryScreen() {
+            const winnerTeamId = this.game.state.winnerTeamId;
+            const playerFaction = this.game.state.getFaction(this.game.playerId);
+            const playerWon = playerFaction?.teamId === winnerTeamId;
+            const standings = this.game.getFinalStandings();
+            const winners = standings.filter((entry) => entry.teamId === winnerTeamId);
+            const durationMs = this.game.state.victoryAtMs ?? this.game.state.elapsedMs;
+            this.elements.victoryOutcome.textContent = playerWon ? "Campagne victorieuse" : "Campagne terminée";
+            this.elements.victoryTitle.textContent = playerWon ? "VICTOIRE" : "DÉFAITE";
+            this.elements.victorySubtitle.textContent = playerWon
+                ? `Votre équipe impose sa domination après ${this.formatDuration(durationMs)}.`
+                : `L’équipe ${winnerTeamId} impose sa domination après ${this.formatDuration(durationMs)}.`;
+            this.elements.victoryDuration.textContent = this.formatDuration(durationMs);
+            this.elements.victoryMap.textContent = `Carte #${String(this.game.state.seed).padStart(6, "0")}`;
+
+            const dots = document.createElement("span");
+            dots.className = "victory-team-dots";
+            winners.forEach((entry) => {
+                const dot = document.createElement("i");
+                dot.style.setProperty("--faction-color", entry.color);
+                dots.append(dot);
+            });
+            const teamText = document.createElement("span");
+            teamText.append("Équipe dominante : ");
+            const teamName = document.createElement("strong");
+            teamName.textContent = winners.map((entry) => entry.playerName || entry.name).join(" + ");
+            teamText.append(teamName);
+            this.elements.victoryTeam.replaceChildren(dots, teamText);
+
+            this.elements.victoryStandings.replaceChildren(...standings.map((entry, index) => {
+                const card = document.createElement("article");
+                card.className = "victory-player";
+                card.classList.toggle("winner", entry.teamId === winnerTeamId);
+                card.classList.toggle("local-player", entry.factionId === this.game.playerId);
+                card.style.setProperty("--player-color", entry.color);
+
+                const heading = document.createElement("header");
+                heading.className = "victory-player-heading";
+                const dot = document.createElement("span");
+                dot.className = "victory-player-dot";
+                const identity = document.createElement("div");
+                identity.className = "victory-player-identity";
+                const commander = document.createElement("strong");
+                commander.textContent = entry.playerName || entry.name;
+                const detail = document.createElement("small");
+                detail.textContent = `${entry.name} · Équipe ${entry.teamId} · ${entry.isAI ? "IA" : "Humain"}`;
+                identity.append(commander, detail);
+                const rank = document.createElement("span");
+                rank.className = "victory-rank";
+                rank.textContent = entry.teamId === winnerTeamId ? "Vainqueur" : `#${index + 1}`;
+                heading.append(dot, identity, rank);
+
+                const values = [
+                    ["Territoires", entry.territoryCount],
+                    ["Armée finale", entry.totalUnits],
+                    ["Production finale", `+${Math.round(entry.productionPerMinute)}/min`],
+                    ["Pic territorial", entry.statistics.peakTerritories],
+                    ["Captures", entry.statistics.territoriesCaptured],
+                    ["Territoires perdus", entry.statistics.territoriesLost],
+                    ["Unités mobilisées", entry.statistics.unitsProduced],
+                    ["Pertes", entry.statistics.unitsLost],
+                    ["Ennemis détruits", entry.statistics.enemyUnitsDestroyed],
+                    ["Attaques lancées", entry.statistics.attacksLaunched],
+                    ["Combats gagnés", entry.statistics.battlesWon],
+                    ["Recherches / capacités", `${entry.statistics.researchCompleted} / ${entry.statistics.abilitiesUsed}`]
+                ];
+                const statGrid = document.createElement("div");
+                statGrid.className = "victory-stat-grid";
+                values.forEach(([label, value]) => {
+                    const stat = document.createElement("div");
+                    stat.className = "victory-stat";
+                    const caption = document.createElement("span");
+                    caption.textContent = label;
+                    const amount = document.createElement("strong");
+                    amount.textContent = value;
+                    stat.append(caption, amount);
+                    statGrid.append(stat);
+                });
+                card.append(heading, statGrid);
+                return card;
+            }));
+        }
+
+        formatDuration(durationMs) {
+            const totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            return hours > 0
+                ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+                : `${minutes}:${String(seconds).padStart(2, "0")}`;
         }
 
         openResearchScreen() {
@@ -1224,11 +1357,14 @@
         }
 
         renderPauseState() {
+            const ended = this.game.state.winnerTeamId !== null;
             document.body.classList.toggle("simulation-paused", this.game.paused);
             this.elements.togglePause.setAttribute("aria-pressed", String(this.game.paused));
-            this.elements.pauseIcon.textContent = this.game.paused ? "▶" : "Ⅱ";
-            this.elements.pauseLabel.textContent = this.game.paused ? "Reprendre" : "Pause";
-            this.elements.simulationStatus.textContent = this.game.paused
+            this.elements.pauseIcon.textContent = ended ? "◆" : this.game.paused ? "▶" : "Ⅱ";
+            this.elements.pauseLabel.textContent = ended ? "Terminée" : this.game.paused ? "Reprendre" : "Pause";
+            this.elements.simulationStatus.textContent = ended
+                ? "PARTIE TERMINÉE · DOMINATION"
+                : this.game.paused
                 ? "SIMULATION EN PAUSE"
                 : `SIMULATION ACTIVE · RYTHME ${Math.round(this.game.timeScale * 100)} %`;
         }
@@ -1239,6 +1375,35 @@
             const focus = selected || playerStart;
             if (focus) this.renderer.focusTerritory(focus.id);
             this.renderZoomLevel();
+        }
+
+        handleGlobalKeydown(event) {
+            if (event.key === "Escape" && !this.elements.researchScreen.hidden) {
+                this.closeResearchScreen();
+                return;
+            }
+            if (event.code !== "Space" && event.key !== " ") return;
+            const target = event.target;
+            const tagName = String(target?.tagName || "").toUpperCase();
+            if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tagName) || target?.isContentEditable) return;
+            if (this.lastLostTerritoryId === null) return;
+            event.preventDefault();
+            this.focusLastLostTerritory();
+        }
+
+        focusLastLostTerritory() {
+            const territory = this.game.state.getTerritory(this.lastLostTerritoryId);
+            if (!territory) {
+                this.lastLostTerritoryId = null;
+                return false;
+            }
+            if (!this.elements.researchScreen.hidden) this.closeResearchScreen(false);
+            const focusZoom = Math.max(Number(this.renderer.zoom) || 0, 0.78);
+            this.renderer.focusTerritory(territory.id, focusZoom);
+            this.renderer.pulseTerritory(territory.id, "#ff766d", true);
+            this.renderZoomLevel();
+            this.showToast(`Dernière perte : ${territory.name}.`);
+            return true;
         }
 
         renderZoomLevel() {

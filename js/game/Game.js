@@ -73,6 +73,10 @@
             this.paused = false;
 
             this.assignStartingTerritories();
+            state.factions.forEach((faction) => {
+                faction.isAI = faction.isAI || this.permanentAiFactionIds.includes(faction.id);
+                faction.statistics.peakTerritories = state.getTerritoriesOwnedBy(faction.id).length;
+            });
             this.assignRareSites();
             this.assignInstallations();
             this.aiSystem.reset();
@@ -258,6 +262,8 @@
                 if (territory.productionProgress >= 1) {
                     const produced = Math.floor(territory.productionProgress);
                     territory.units += produced;
+                    const owner = this.state.getFaction(territory.ownerId);
+                    if (owner) owner.statistics.unitsProduced += produced;
                     territory.productionProgress -= produced;
                     this.dispatchProducedReinforcements(territory, produced);
                     changed = true;
@@ -314,6 +320,7 @@
                         ? Math.min(target.units - 1, maximumDamage, Math.max(1, Math.round(target.units * damageRatio)))
                         : 0;
                     target.units -= damage;
+                    this.recordUnitLoss(target.ownerId, damage, faction.id);
                     this.addEvent(`${faction.name} frappe ${target.name} avec un missile tactique : ${damage} perte${damage > 1 ? "s" : ""}.`, "combat");
                 } else if (action.abilityId === "missile" && target && faction) {
                     this.addEvent(`Le missile de ${faction.name} manque sa cible stratégique à ${target.name}.`, "combat");
@@ -335,6 +342,7 @@
                             ? Math.min(territory.units - 1, Math.max(1, Math.round(territory.units * ratio)))
                             : 0;
                         territory.units -= losses;
+                        this.recordUnitLoss(territory.ownerId, losses, faction.id);
                         return { territoryId: territory.id, damage: losses, ratio };
                     });
                     damage = impacts.reduce((sum, impact) => sum + impact.damage, 0);
@@ -384,6 +392,7 @@
                 if (hit) {
                     damage = Math.min(cannon.damage, target.units - 1);
                     target.units -= damage;
+                    this.recordUnitLoss(target.ownerId, damage, territory.ownerId);
                     changed = true;
                     this.addEvent(`Le canon de ${territory.name} touche ${target.name} : ${damage} unité${damage > 1 ? "s" : ""} ennemie${damage > 1 ? "s" : ""} détruite${damage > 1 ? "s" : ""}.`, "combat");
                 }
@@ -410,6 +419,7 @@
                 if (research.progressMs < technology.durationMs) return;
 
                 research.completedTechnologyIds.push(technology.id);
+                faction.statistics.researchCompleted += 1;
                 research.activeTechnologyId = null;
                 research.progressMs = 0;
                 changed = true;
@@ -491,6 +501,7 @@
                 ? Math.min(target.units - 1, Math.max(1, Math.round(target.units * this.airstrikeDamageRatio)))
                 : 0;
             target.units -= damage;
+            this.recordUnitLoss(target.ownerId, damage, faction.id);
             source.airstrikeCooldownMs = this.airstrikeCooldownMs;
 
             const defender = this.state.getFaction(target.ownerId);
@@ -566,6 +577,7 @@
                 }
                 this.state.abilityActions.push(action);
                 faction.abilityCooldowns[definition.id] = abilityStats.cooldownMs;
+                faction.statistics.abilitiesUsed += 1;
                 this.addEvent(definition.id === "nuclear"
                     ? `ALERTE NUCLÉAIRE : ${faction.name} vise ${target.name}. Impact et souffle périphérique dans 8 secondes.`
                     : `ALERTE MISSILE : ${faction.name} verrouille ${target.name}. Impact dans 5 secondes.`, "combat");
@@ -576,6 +588,8 @@
             if (definition.id === "reinforcement") {
                 if (target.ownerId !== playerId) return { ok: false, error: "Les renforts doivent rejoindre un de vos territoires." };
                 target.units += abilityStats.units;
+                faction.statistics.abilitiesUsed += 1;
+                faction.statistics.unitsProduced += abilityStats.units;
                 faction.abilityCooldowns.reinforcement = abilityStats.cooldownMs;
                 this.addLogisticsEvent(`${faction.name} mobilise ${abilityStats.units} renforts d’urgence à ${target.name}.`, faction.id);
                 this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, units: abilityStats.units });
@@ -603,6 +617,9 @@
                 });
                 this.state.armies.push(army);
                 faction.abilityCooldowns.paratrooper = abilityStats.cooldownMs;
+                faction.statistics.abilitiesUsed += 1;
+                faction.statistics.unitsProduced += abilityStats.units;
+                faction.statistics.attacksLaunched += 1;
                 this.addEvent(`${faction.name} lance un largage de ${abilityStats.units} parachutistes sur ${target.name}.`, "combat");
                 this.notify({ type: "ABILITY_LAUNCHED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, armyId: army.id, units: abilityStats.units });
                 this.state.touch();
@@ -743,6 +760,7 @@
             this.state.touch();
             const targetOwner = this.state.getFaction(to.ownerId);
             const isReinforcement = this.areAllied(to.ownerId, playerId);
+            if (!isReinforcement) faction.statistics.attacksLaunched += 1;
             const action = isReinforcement ? "renforce" : "attaque";
             if (!isReinforcement || !this.isAIControlledFaction(playerId)) {
                 this.addEvent(`${faction.name} ${action} ${to.name} avec ${units} unités${targetOwner ? ` (${targetOwner.name})` : ""}.`, "combat");
@@ -1203,6 +1221,7 @@
             }
 
             const previousOwner = this.state.getFaction(target.ownerId);
+            const defendingUnits = target.units;
             const result = C.CombatSystem.resolve({
                 army,
                 territory: target,
@@ -1211,10 +1230,15 @@
                 random: this.random,
                 capitalDefenseBonus: this.capitalDefenseBonus
             });
+            const attackerSurvivors = result.attackerWon ? result.attackerSurvivors : 0;
+            const defenderSurvivors = result.attackerWon ? 0 : result.defenderSurvivors;
+            this.recordUnitLoss(army.isBarbarian ? null : attacker.id, army.units - attackerSurvivors, previousOwner?.id ?? null);
+            this.recordUnitLoss(previousOwner?.id ?? null, defendingUnits - defenderSurvivors, army.isBarbarian ? null : attacker.id);
 
             if (result.attackerWon) {
                 const wasCapital = target.isCapital;
                 if (army.isBarbarian) {
+                    if (previousOwner) previousOwner.statistics.territoriesLost += 1;
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
@@ -1236,8 +1260,12 @@
                         barbariansWon: true
                     });
                     this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, previousOwnerId: previousOwner ? previousOwner.id : null, ownerId: null });
+                    this.evaluateTeamVictory();
                     return;
                 }
+                attacker.statistics.battlesWon += 1;
+                attacker.statistics.territoriesCaptured += 1;
+                if (previousOwner) previousOwner.statistics.territoriesLost += 1;
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
@@ -1246,6 +1274,10 @@
                 target.installationProgressMs = 0;
                 target.isCapital = false;
                 target.airstrikeCooldownMs = 0;
+                attacker.statistics.peakTerritories = Math.max(
+                    attacker.statistics.peakTerritories,
+                    this.state.getTerritoriesOwnedBy(attacker.id).length
+                );
                 const defeated = previousOwner ? previousOwner.name : "les forces neutres";
                 this.addEvent(`${attacker.name} capture ${target.name} face à ${defeated} — ${result.attackerSurvivors} survivants.`, "capture");
                 if (target.rareSite) {
@@ -1267,6 +1299,7 @@
                 this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, previousOwnerId: previousOwner ? previousOwner.id : null, ownerId: attacker.id });
                 this.evaluateTeamVictory();
             } else {
+                if (previousOwner) previousOwner.statistics.battlesWon += 1;
                 target.units = result.defenderSurvivors;
                 const defenderName = previousOwner ? previousOwner.name : "Les défenseurs neutres";
                 this.addEvent(`${defenderName} repousse ${attacker.name} à ${target.name} — ${result.defenderSurvivors} défenseurs restants.`, army.isBarbarian ? "world" : "combat");
@@ -1373,6 +1406,7 @@
                     const requestedLosses = Math.max(1, Math.ceil(food.shortage * Math.max(0.02, food.attritionRate)));
                     const losses = this.applyFoodAttrition(faction.id, requestedLosses);
                     if (!losses) break;
+                    this.recordUnitLoss(faction.id, losses);
                     changed = true;
                     if (this.state.elapsedMs - faction.lastFoodEventAtMs >= 30000) {
                         faction.lastFoodEventAtMs = this.state.elapsedMs;
@@ -1521,11 +1555,34 @@
             };
         }
 
+        getFinalStandings() {
+            return this.state.factions.map((faction) => {
+                const live = this.getFactionStats(faction.id);
+                return {
+                    factionId: faction.id,
+                    teamId: faction.teamId,
+                    name: faction.name,
+                    playerName: faction.playerName,
+                    isAI: faction.isAI,
+                    color: faction.color,
+                    territoryCount: live.territoryCount,
+                    totalUnits: live.totalUnits,
+                    productionPerMinute: live.productionPerMinute,
+                    statistics: { ...faction.statistics }
+                };
+            }).sort((first, second) =>
+                Number(second.teamId === this.state.winnerTeamId) - Number(first.teamId === this.state.winnerTeamId) ||
+                second.territoryCount - first.territoryCount ||
+                second.totalUnits - first.totalUnits ||
+                second.statistics.territoriesCaptured - first.statistics.territoriesCaptured);
+        }
+
         createNetworkSnapshot() {
             return {
                 revision: this.state.revision,
                 elapsedMs: this.state.elapsedMs,
                 winnerTeamId: this.state.winnerTeamId,
+                victoryAtMs: this.state.victoryAtMs,
                 nextArmyId: this.state.nextArmyId,
                 nextReinforcementRouteId: this.state.nextReinforcementRouteId,
                 nextWorldEventId: this.state.nextWorldEventId,
@@ -1555,7 +1612,8 @@
                         activeTechnologyId: faction.research.activeTechnologyId,
                         progressMs: faction.research.progressMs
                     },
-                    abilityCooldowns: { ...faction.abilityCooldowns }
+                    abilityCooldowns: { ...faction.abilityCooldowns },
+                    statistics: { ...faction.statistics }
                 })),
                 armies: this.state.armies.map((army) => army.toJSON()),
                 reinforcementRoutes: this.state.reinforcementRoutes.map((route) => route.toJSON()),
@@ -1571,6 +1629,7 @@
 
         applyNetworkSnapshot(snapshot) {
             if (!snapshot || Number(snapshot.revision) < this.state.revision) return false;
+            const previousWinnerTeamId = this.state.winnerTeamId;
             (snapshot.territories || []).forEach((dynamic) => {
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
@@ -1609,6 +1668,10 @@
                     paratrooper: Number(dynamic.abilityCooldowns?.paratrooper) || 0,
                     nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0
                 };
+                faction.statistics = {
+                    ...faction.statistics,
+                    ...(dynamic.statistics || {})
+                };
             });
             this.state.armies = (snapshot.armies || []).map((data) => {
                 const army = new C.Army(data);
@@ -1634,8 +1697,17 @@
             this.state.worldEventWarningIssued = Boolean(snapshot.worldEventWarningIssued);
             this.state.lastWorldEventType = snapshot.lastWorldEventType || null;
             this.state.winnerTeamId = snapshot.winnerTeamId ?? null;
+            this.state.victoryAtMs = snapshot.victoryAtMs ?? null;
             this.state.revision = Number(snapshot.revision) || 0;
             this.notify({ type: "NETWORK_SNAPSHOT_APPLIED", revision: this.state.revision });
+            if (previousWinnerTeamId === null && this.state.winnerTeamId !== null) {
+                this.paused = true;
+                this.notify({
+                    type: "GAME_OVER",
+                    winnerTeamId: this.state.winnerTeamId,
+                    victoryAtMs: this.state.victoryAtMs
+                });
+            }
             return true;
         }
 
@@ -1652,6 +1724,17 @@
             });
         }
 
+        recordUnitLoss(victimFactionId, losses, destroyerFactionId = null) {
+            const amount = Math.max(0, Math.floor(Number(losses) || 0));
+            if (!amount) return;
+            const victim = this.state.getFaction(victimFactionId);
+            const destroyer = this.state.getFaction(destroyerFactionId);
+            if (victim) victim.statistics.unitsLost += amount;
+            if (destroyer && !this.areAllied(victimFactionId, destroyer.id)) {
+                destroyer.statistics.enemyUnitsDestroyed += amount;
+            }
+        }
+
         evaluateTeamVictory() {
             if (this.state.winnerTeamId !== null) return this.state.winnerTeamId;
             const livingTeams = new Set(this.state.factions
@@ -1659,8 +1742,15 @@
                 .map((faction) => faction.teamId));
             if (livingTeams.size === 1 && this.state.factions.length > 1) {
                 this.state.winnerTeamId = livingTeams.values().next().value;
+                this.state.victoryAtMs = this.state.elapsedMs;
                 this.addEvent(`L’équipe ${this.state.winnerTeamId} remporte la partie !`, "capture");
                 this.paused = true;
+                this.state.touch();
+                this.notify({
+                    type: "GAME_OVER",
+                    winnerTeamId: this.state.winnerTeamId,
+                    victoryAtMs: this.state.victoryAtMs
+                });
                 return this.state.winnerTeamId;
             }
             return null;
@@ -1692,8 +1782,10 @@
         }
 
         setPaused(paused) {
+            if (this.state.winnerTeamId !== null && !paused) return false;
             this.paused = Boolean(paused);
             this.notify({ type: "PAUSE_CHANGED", paused: this.paused });
+            return true;
         }
 
         setTimeScale(timeScale) {

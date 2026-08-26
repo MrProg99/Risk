@@ -469,7 +469,7 @@
 
                 if (territory.isImpassable) {
                     ctx.fillStyle = "rgba(167, 232, 232, .86)";
-                    ctx.font = "700 19px Georgia, serif";
+                    ctx.font = "700 23px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
                     ctx.fillText(type.icon, center.x, center.y - 1);
@@ -483,36 +483,36 @@
 
                 if (territory.isChokePoint) {
                     ctx.beginPath();
-                    ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
+                    ctx.arc(center.x, center.y - 30, 13, 0, Math.PI * 2);
                     ctx.fillStyle = "rgba(22, 13, 28, .9)";
                     ctx.fill();
                     ctx.strokeStyle = "rgba(205, 150, 255, .9)";
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
                     ctx.fillStyle = "#d7a6ff";
-                    ctx.font = "700 12px Georgia, serif";
+                    ctx.font = "700 15px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("⌛", center.x, center.y - 26.5);
+                    ctx.fillText("⌛", center.x, center.y - 30.5);
                 } else if (territory.rareSite) {
                     ctx.beginPath();
-                    ctx.arc(center.x, center.y - 26, 11, 0, Math.PI * 2);
+                    ctx.arc(center.x, center.y - 30, 13, 0, Math.PI * 2);
                     ctx.fillStyle = "rgba(18, 22, 18, .88)";
                     ctx.fill();
                     ctx.strokeStyle = "rgba(244, 196, 90, .88)";
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
                     ctx.fillStyle = "#f4c45a";
-                    ctx.font = `700 ${territory.rareSite.icon.length > 1 ? 7 : 12}px ${territory.rareSite.icon.length > 1 ? "sans-serif" : "serif"}`;
+                    ctx.font = `700 ${territory.rareSite.icon.length > 1 ? 9 : 15}px ${territory.rareSite.icon.length > 1 ? "sans-serif" : "serif"}`;
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText(territory.rareSite.icon, center.x, center.y - 26.5);
+                    ctx.fillText(territory.rareSite.icon, center.x, center.y - 30.5);
                 } else {
-                    ctx.fillStyle = "rgba(229, 241, 237, .75)";
-                    ctx.font = "600 16px Georgia, serif";
+                    ctx.fillStyle = "rgba(236, 246, 242, .86)";
+                    ctx.font = "600 20px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText(type.icon, center.x, center.y - 23.5);
+                    ctx.fillText(type.icon, center.x, center.y - 26);
                 }
 
                 const label = String(territory.units);
@@ -1152,10 +1152,10 @@
             this.transferPreview = null;
         }
 
-        pulseTerritory(territoryId, color) {
+        pulseTerritory(territoryId, color, force = false) {
             const territory = this.game.state.getTerritory(territoryId);
             const visibility = this.game.getTerritoryVisibilityMap(this.game.playerId);
-            if (territory && this.game.isTerritoryVisible(territory.id, this.game.playerId, visibility)) {
+            if (territory && (force || this.game.isTerritoryVisible(territory.id, this.game.playerId, visibility))) {
                 this.capturePulses.push({ center: { ...territory.center }, color, startedAt: performance.now() });
             }
         }

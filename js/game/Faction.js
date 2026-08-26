@@ -24,6 +24,18 @@
                 progressMs: 0
             };
             this.abilityCooldowns = { missile: 0, reinforcement: 0, paratrooper: 0, nuclear: 0 };
+            this.statistics = {
+                territoriesCaptured: 0,
+                territoriesLost: 0,
+                peakTerritories: 0,
+                unitsProduced: 0,
+                unitsLost: 0,
+                enemyUnitsDestroyed: 0,
+                attacksLaunched: 0,
+                battlesWon: 0,
+                researchCompleted: 0,
+                abilitiesUsed: 0
+            };
         }
 
         toJSON() {
@@ -48,7 +60,8 @@
                     activeTechnologyId: this.research.activeTechnologyId,
                     progressMs: this.research.progressMs
                 },
-                abilityCooldowns: { ...this.abilityCooldowns }
+                abilityCooldowns: { ...this.abilityCooldowns },
+                statistics: { ...this.statistics }
             };
         }
     }

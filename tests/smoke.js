@@ -392,6 +392,79 @@
         check(remoteTeamGame.applyNetworkSnapshot(networkSnapshot) && remoteTeamGame.state.getTerritory(teamDestination.id).units === teamDestination.units, "un instantané réseau léger reproduit l’état dynamique chez un autre joueur");
         check(remoteTeamGame.state.getTerritory(teamSource.id).productionMode === "food", "le mode alimentaire est synchronisé dans les instantanés multijoueurs");
 
+        const victoryGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, aiFactionIds: [2], enableWorldEvents: false, timeScale: 1 });
+        victoryGame.newGame(323232);
+        const victoryLand = victoryGame.state.territories.filter((territory) => !territory.isImpassable);
+        const victorySource = victoryLand.find((territory) => territory.neighbors.some((neighborId) => {
+            const neighbor = victoryGame.state.getTerritory(neighborId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighborId);
+        }));
+        const victoryTarget = victorySource.neighbors
+            .map((neighborId) => victoryGame.state.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !victorySource.isPathBlocked(territory.id));
+        victoryLand.forEach((territory) => {
+            territory.ownerId = null;
+            territory.units = 5;
+            territory.isCapital = false;
+        });
+        victorySource.ownerId = 1;
+        victorySource.units = 50;
+        victorySource.isCapital = true;
+        victoryTarget.ownerId = 2;
+        victoryTarget.units = 1;
+        victoryTarget.isCapital = true;
+        victoryGame.state.getFaction(1).capitalTerritoryId = victorySource.id;
+        victoryGame.state.getFaction(2).capitalTerritoryId = victoryTarget.id;
+        victoryGame.random = () => 0.5;
+        victorySource.productionProgress = 0.99;
+        victoryGame.update(1000);
+        const mobilizedBeforeBattle = victoryGame.state.getFaction(1).statistics.unitsProduced;
+        let gameOverNotice = null;
+        victoryGame.subscribe((change) => {
+            if (change.type === "GAME_OVER") gameOverNotice = change;
+        });
+        const finalAttack = victoryGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 1,
+            fromTerritoryId: victorySource.id,
+            toTerritoryId: victoryTarget.id,
+            units: 20
+        });
+        victoryGame.resolveArmyArrival(finalAttack.army);
+        const victorStats = victoryGame.state.getFaction(1).statistics;
+        const defeatedStats = victoryGame.state.getFaction(2).statistics;
+        check(mobilizedBeforeBattle > 0 && victorStats.unitsProduced === mobilizedBeforeBattle, "les unités produites pendant la campagne alimentent les statistiques du commandant");
+        check(victorStats.attacksLaunched === 1 && victorStats.territoriesCaptured === 1 && victorStats.battlesWon === 1 && victorStats.enemyUnitsDestroyed === 1, "l’offensive finale comptabilise attaque, capture, victoire et défenseurs détruits");
+        check(defeatedStats.territoriesLost === 1 && defeatedStats.unitsLost === 1, "le joueur éliminé conserve ses pertes dans le bilan final");
+        check(victoryGame.state.winnerTeamId === 1 && victoryGame.paused && victoryGame.state.victoryAtMs !== null && gameOverNotice?.winnerTeamId === 1, "la domination de la dernière équipe termine et fige immédiatement la partie");
+        check(victoryGame.setPaused(false) === false && victoryGame.paused, "une partie terminée ne peut pas être relancée depuis le bouton de pause");
+        const finalStandings = victoryGame.getFinalStandings();
+        check(finalStandings.length === 2 && finalStandings[0].factionId === 1 && finalStandings[1].isAI, "le classement final place les vainqueurs en tête et inclut les joueurs IA");
+        const victorySnapshot = victoryGame.createNetworkSnapshot();
+        const remoteVictoryGame = new C.Game({ playerId: 2, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteVictoryGame.newGame(323232);
+        let remoteGameOverNotice = null;
+        remoteVictoryGame.subscribe((change) => {
+            if (change.type === "GAME_OVER") remoteGameOverNotice = change;
+        });
+        check(remoteVictoryGame.applyNetworkSnapshot(victorySnapshot) && remoteGameOverNotice?.winnerTeamId === 1 && remoteVictoryGame.state.getFaction(1).statistics.territoriesCaptured === 1, "la victoire et toutes les statistiques sont synchronisées vers les joueurs multijoueurs");
+
+        const victoryElements = {
+            victoryOutcome: document.createElement("p"),
+            victoryTitle: document.createElement("h2"),
+            victorySubtitle: document.createElement("p"),
+            victoryDuration: document.createElement("span"),
+            victoryMap: document.createElement("span"),
+            victoryTeam: document.createElement("section"),
+            victoryStandings: document.createElement("div")
+        };
+        C.UIController.prototype.renderVictoryScreen.call({
+            game: victoryGame,
+            elements: victoryElements,
+            formatDuration: C.UIController.prototype.formatDuration
+        });
+        check(victoryElements.victoryTitle.textContent === "VICTOIRE" && victoryElements.victoryStandings.children.length === 2 && /IA/.test(victoryElements.victoryStandings.textContent), "l’écran de victoire affiche une fiche statistique pour chaque humain et chaque IA");
+
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
         const playerTerritoryIds = state.getTerritoriesOwnedBy(game.playerId).map((territory) => territory.id);
         const graphDistances = getGraphDistances(state.territories, playerTerritoryIds);
@@ -859,7 +932,11 @@
         musicListeners.ended();
         musicListeners.ended();
         musicListeners.ended();
-        check(fakeMusic.src === "Musique/Music1.mp3" && musicAudioManager.musicTrackIndex === 0 && musicPlayCount === 5, "la playlist recommence après Music4.mp3");
+        check(fakeMusic.src === "Musique/Music5.mp3" && musicAudioManager.musicTrackIndex === 4, "Music5.mp3 est inclus après les quatre morceaux existants");
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music6.mp3" && musicAudioManager.musicTrackIndex === 5, "Music6.mp3 suit automatiquement Music5.mp3");
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music1.mp3" && musicAudioManager.musicTrackIndex === 0 && musicPlayCount === 7, "la playlist recommence après Music6.mp3");
         musicAudioManager.duckBackgroundMusic();
         check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
         clearTimeout(musicAudioManager.musicRestoreTimer);
@@ -911,6 +988,53 @@
             ownerId: 3
         });
         check(territoryLossSounds === 1 && territoryLossToast.includes("Val d’Onyx"), "seule la perte d’un territoire humain joue l’alerte et nomme la position perdue");
+
+        check(territoryLossUiStub.lastLostTerritoryId === 12, "la derniere perte humaine est memorisee pour le raccourci de camera");
+
+        let lossFocusId = null;
+        let lossFocusZoom = null;
+        let lossPulse = null;
+        let lossPrevented = false;
+        let lossZoomRendered = 0;
+        const spaceLossUiStub = {
+            lastLostTerritoryId: 12,
+            game: {
+                state: {
+                    getTerritory: (territoryId) => territoryId === 12 ? { id: 12, name: "Val d'Onyx" } : null
+                }
+            },
+            renderer: {
+                zoom: 0.5,
+                focusTerritory: (territoryId, zoom) => {
+                    lossFocusId = territoryId;
+                    lossFocusZoom = zoom;
+                },
+                pulseTerritory: (territoryId, color, force) => {
+                    lossPulse = { territoryId, color, force };
+                }
+            },
+            elements: { researchScreen: { hidden: true } },
+            closeResearchScreen: () => {},
+            renderZoomLevel: () => { lossZoomRendered += 1; },
+            showToast: () => {},
+            focusLastLostTerritory: C.UIController.prototype.focusLastLostTerritory
+        };
+        C.UIController.prototype.handleGlobalKeydown.call(spaceLossUiStub, {
+            code: "Space",
+            key: " ",
+            target: { tagName: "BODY", isContentEditable: false },
+            preventDefault: () => { lossPrevented = true; }
+        });
+        check(lossPrevented && lossFocusId === 12 && lossFocusZoom >= 0.78 && lossPulse?.territoryId === 12 && lossPulse.force === true && lossZoomRendered === 1, "Espace centre la camera et signale la derniere perte, meme sous le brouillard");
+        lossFocusId = null;
+        lossPrevented = false;
+        C.UIController.prototype.handleGlobalKeydown.call(spaceLossUiStub, {
+            code: "Space",
+            key: " ",
+            target: { tagName: "INPUT", isContentEditable: false },
+            preventDefault: () => { lossPrevented = true; }
+        });
+        check(lossFocusId === null && !lossPrevented, "Espace conserve son comportement normal pendant la saisie dans un champ");
 
         const aiGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         aiGame.newGame(707070);

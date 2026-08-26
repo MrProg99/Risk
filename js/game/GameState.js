@@ -27,6 +27,7 @@
             this.lastWorldEventType = null;
             this.revision = 0;
             this.winnerTeamId = null;
+            this.victoryAtMs = null;
         }
 
         getTerritory(id) {
@@ -78,7 +79,8 @@
                 worldEventWarningIssued: this.worldEventWarningIssued,
                 lastWorldEventType: this.lastWorldEventType,
                 revision: this.revision,
-                winnerTeamId: this.winnerTeamId
+                winnerTeamId: this.winnerTeamId,
+                victoryAtMs: this.victoryAtMs
             };
         }
     }

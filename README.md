@@ -19,13 +19,21 @@ Au lancement, un lobby permet de choisir entre **2 et 4 joueurs**, la faction co
 
 Le bonus de difficulté appartient uniquement aux factions IA permanentes. Il ne modifie ni la nourriture, ni les renforts et capacités gratuits, et ne s’applique jamais à une faction humaine reprise temporairement après une déconnexion.
 
-Les musiques `Musique/Music1.mp3` à `Musique/Music4.mp3` démarrent avec la partie et jouent successivement. La playlist recommence après le quatrième morceau. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
+Les musiques `Musique/Music1.mp3` à `Musique/Music6.mp3` démarrent avec la partie et jouent successivement. La playlist recommence après le sixième morceau. Si un navigateur bloque la première tentative, le système réessaie automatiquement à la prochaine interaction du joueur. Son volume baisse brièvement pendant le carillon de fin de recherche afin de conserver une alerte claire.
 
-La perte d’un territoire humain déclenche une alerte grave de trois notes descendantes et affiche le nom du territoire perdu. Cette alerte fonctionne également lors d’une victoire barbare, mais les pertes territoriales des factions contrôlées par l’ordinateur restent silencieuses.
+La perte d’un territoire humain déclenche une alerte grave de trois notes descendantes et affiche le nom du territoire perdu. Appuyer sur **Espace** centre ensuite la caméra sur la dernière position perdue et la signale par une pulsation rouge; ce rappel reste disponible jusqu’à une nouvelle perte ou une nouvelle partie. La touche est ignorée pendant la saisie dans un champ ou l’utilisation d’un bouton. Cette alerte fonctionne également lors d’une victoire barbare, mais les pertes territoriales des factions contrôlées par l’ordinateur restent silencieuses.
 
 Le rythme normal est réglé à 72 % de la vitesse de simulation initiale. La production, les armées et les décisions de l’ordinateur ralentissent ensemble afin de laisser davantage de temps au joueur pour lire la carte et réagir.
 
 La cadence de recrutement possède en plus un ajustement d’équilibrage global de **-12,5 %**. Les bonus des terrains, factions, sites rares et recherches restent appliqués normalement, et les valeurs `+/min` affichées tiennent compte de cette réduction.
+
+## Victoire et bilan de campagne
+
+La partie se termine par **domination** dès qu’une seule équipe possède encore des territoires. La simulation est alors définitivement mise en pause et l’écran final indique la victoire ou la défaite du joueur, la durée de la campagne et l’équipe dominante.
+
+Chaque commandant, humain comme IA, possède une fiche statistique : territoires et armée finale, production finale, pic territorial, captures, territoires perdus, unités mobilisées, pertes, ennemis détruits, attaques lancées, combats gagnés, recherches et capacités utilisées. Le bouton **Voir la carte** masque le bilan sans reprendre la simulation; le bouton **Bilan** permet ensuite de le rouvrir. **Nouvelle campagne** retourne au lobby.
+
+En multijoueur, le résultat, l’heure de victoire et les statistiques sont inclus dans l’instantané autoritaire de l’hôte. Les règles Firebase existantes n’ont pas besoin d’être modifiées pour ces champs.
 
 ## Nourriture et ravitaillement
 
