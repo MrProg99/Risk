@@ -1320,7 +1320,8 @@
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
-        check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function", "la caméra expose le déplacement et le zoom de la grande carte");
+        check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");
+        check(typeof C.MiniMapRenderer === "function", "la mini-carte possède un moteur de rendu indépendant de la simulation");
 
         const gestureCanvas = document.createElement("canvas");
         const gestureTerritories = [{ id: 1 }, { id: 2 }];
@@ -1378,6 +1379,42 @@
         const cameraXBefore = cameraRenderer.cameraX;
         cameraRenderer.panByScreenDelta(-80, 0);
         check(cameraRenderer.cameraX > cameraXBefore, "le glisser déplace réellement la caméra sur le monde");
+
+        const miniMapPanel = document.createElement("section");
+        const miniMapToggle = document.createElement("button");
+        const miniMapCanvas = document.createElement("canvas");
+        miniMapCanvas.style.width = "240px";
+        miniMapCanvas.style.height = "150px";
+        miniMapPanel.append(miniMapToggle, miniMapCanvas);
+        document.body.append(miniMapPanel);
+        const miniMapRenderer = new C.MiniMapRenderer(miniMapCanvas, game, cameraRenderer, {
+            panel: miniMapPanel,
+            toggleButton: miniMapToggle
+        });
+        miniMapRenderer.render(performance.now() + 1000);
+        check(Boolean(miniMapRenderer.baseSignature && miniMapCanvas.width > 1 && miniMapCanvas.height > 1), "la mini-carte dessine une vue mise en cache de la carte complète");
+        const miniVisibility = game.getTerritoryVisibilityMap(game.playerId);
+        const concealedMiniTerritory = game.state.territories.find((territory) => !territory.isImpassable && !miniVisibility.has(territory.id));
+        const concealedOwner = concealedMiniTerritory.ownerId;
+        const concealedSignatureBefore = miniMapRenderer.getBaseSignature(miniVisibility);
+        concealedMiniTerritory.ownerId = concealedOwner === 2 ? 3 : 2;
+        const concealedSignatureAfter = miniMapRenderer.getBaseSignature(miniVisibility);
+        concealedMiniTerritory.ownerId = concealedOwner;
+        check(concealedSignatureBefore === concealedSignatureAfter, "la mini-carte ne révèle jamais un changement de propriétaire caché par le brouillard");
+        const visibleMiniTerritory = game.state.territories.find((territory) => !territory.isImpassable && miniVisibility.has(territory.id));
+        const visibleOwner = visibleMiniTerritory.ownerId;
+        const visibleSignatureBefore = miniMapRenderer.getBaseSignature(miniVisibility);
+        visibleMiniTerritory.ownerId = visibleOwner === 2 ? 3 : 2;
+        const visibleSignatureAfter = miniMapRenderer.getBaseSignature(miniVisibility);
+        visibleMiniTerritory.ownerId = visibleOwner;
+        check(visibleSignatureBefore !== visibleSignatureAfter, "la mini-carte actualise les couleurs lorsqu’un territoire visible change de propriétaire");
+        cameraRenderer.setCameraPosition(0, 0);
+        const miniRect = miniMapCanvas.getBoundingClientRect();
+        miniMapRenderer.navigateAt(miniRect.left + miniRect.width / 2, miniRect.top + miniRect.height / 2);
+        check(Math.abs(cameraRenderer.cameraX - game.state.mapWidth / 2) < 2 && Math.abs(cameraRenderer.cameraY - game.state.mapHeight / 2) < 2, "un clic au centre de la mini-carte recentre la caméra au centre du monde");
+        miniMapToggle.click();
+        check(miniMapPanel.classList.contains("collapsed") && miniMapToggle.getAttribute("aria-expanded") === "false", "la mini-carte peut être réduite pour libérer la vue");
+        miniMapPanel.remove();
         cameraRenderer.resizeObserver.disconnect();
         cameraCanvas.remove();
 

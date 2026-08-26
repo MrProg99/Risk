@@ -18,6 +18,15 @@
         audio.unlock();
         audio.startBackgroundMusic();
         const renderer = new C.MapRenderer(canvas, game);
+        const miniMap = new C.MiniMapRenderer(
+            document.getElementById("minimap-canvas"),
+            game,
+            renderer,
+            {
+                panel: document.getElementById("minimap-panel"),
+                toggleButton: document.getElementById("toggle-minimap")
+            }
+        );
         const input = new C.InputManager(canvas, renderer);
         const ui = new C.UIController(game, renderer, input, audio);
         game.newGame(configuration.seed);
@@ -81,6 +90,7 @@
                 configuration.network.finishRoom(game.state.winnerTeamId);
             }
             renderer.render(now);
+            miniMap.render(now);
             if (now - lastUiRefresh >= 200) {
                 ui.refreshDynamic();
                 lastUiRefresh = now;
@@ -89,7 +99,7 @@
         }
         requestAnimationFrame(frame);
 
-        window.frontieres = { game, renderer, input, ui, audio, lobby, configuration };
+        window.frontieres = { game, renderer, miniMap, input, ui, audio, lobby, configuration };
     }
 
     function start() {

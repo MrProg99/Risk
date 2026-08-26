@@ -53,6 +53,8 @@ Après l’envoi d’une attaque, d’un renfort ou d’un ordre logistique, le 
 
 La carte étendue se parcourt en maintenant le clic gauche et en faisant glisser la souris. La molette contrôle le zoom autour du pointeur. Les boutons `−`, `+` et `⌖` permettent respectivement de dézoomer, zoomer et revenir sur un territoire de l’Empire.
 
+Une **mini-carte stratégique** rétractable apparaît au-dessus de la légende. Elle montre les couleurs des propriétaires actuellement visibles, les territoires neutres, les lacs, les montagnes et le cadre de la caméra principale. Cliquer ou glisser dans la mini-carte déplace immédiatement la vue. Le deuxième anneau de renseignement y reste assombri et un propriétaire situé sous le brouillard n’est jamais utilisé dans son cache de rendu. Le fond est recalculé au maximum quelques fois par seconde, tandis que le cadre de caméra reste fluide.
+
 Maintenir **Shift** pendant un clic gauche ajoute ou retire un territoire possédé d’une sélection multiple. Les boutons Recrutement, Nourriture et Recherche appliquent alors l’affectation à tout le groupe. Depuis l’un des territoires sélectionnés, **Ctrl + glisser droit** expédie **80 % des unités disponibles de chaque source**, tandis que **Alt + glisser droit** crée ou redirige un flux continu pour chacune d’elles. Un clic droit simple sur une destination alliée reste également disponible pour la concentration immédiate. Une unité demeure dans chaque garnison et les sources sans chemin valide ou sans surplus sont ignorées. Une cible ennemie ne peut pas recevoir un ordre groupé. Un clic normal ou l’exécution de l’action dissout le groupe.
 
 ## Brouillard de guerre

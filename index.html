@@ -249,6 +249,16 @@
                 </div>
 
                 <div class="map-legend" aria-label="Légende des factions" id="faction-legend"></div>
+                <section class="minimap-panel" id="minimap-panel" aria-label="Mini-carte stratégique">
+                    <header class="minimap-header">
+                        <span><i></i> Vue stratégique</span>
+                        <button id="toggle-minimap" type="button" aria-expanded="true" title="Réduire la mini-carte">−</button>
+                    </header>
+                    <div class="minimap-body">
+                        <canvas id="minimap-canvas" aria-label="Mini-carte — cliquez ou glissez pour déplacer la caméra"></canvas>
+                        <span class="minimap-hint">Cliquer ou glisser pour naviguer</span>
+                    </div>
+                </section>
                 <div class="map-navigation" aria-label="Navigation de la carte">
                     <button id="zoom-out" type="button" title="Dézoomer" aria-label="Dézoomer">−</button>
                     <span id="zoom-level">72 %</span>
@@ -422,6 +432,7 @@
     <script defer src="js/game/Game.js"></script>
     <script defer src="js/audio/AudioManager.js"></script>
     <script defer src="js/render/MapRenderer.js"></script>
+    <script defer src="js/render/MiniMapRenderer.js"></script>
     <script defer src="js/input/InputManager.js"></script>
     <script defer src="js/ui/LobbyController.js"></script>
     <script defer src="js/network/FirebaseMultiplayer.js"></script>

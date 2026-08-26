@@ -81,6 +81,12 @@
             this.updateViewTransform();
         }
 
+        setCameraPosition(worldX, worldY) {
+            this.cameraX = Number(worldX) || 0;
+            this.cameraY = Number(worldY) || 0;
+            this.updateViewTransform();
+        }
+
         zoomAt(clientX, clientY, factor) {
             const worldBeforeZoom = this.screenToWorld(clientX, clientY);
             const nextZoom = C.Geometry.clamp(this.zoom * factor, this.minZoom, this.maxZoom);
