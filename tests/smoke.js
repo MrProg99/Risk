@@ -757,7 +757,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 21, "l’arbre propose trois axes progressifs et huit recherches de capacités sur deux niveaux");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 22, "l’arbre propose quatre axes progressifs, dont le réseau ferroviaire et huit recherches de capacités sur deux niveaux");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -1553,6 +1553,183 @@
         check(reverseHubRoute.relayAllReinforcements && hubDestination.units === 11 && hubState.events.some((event) => /boucle logistique/.test(event.message)), "l’historique des convois empêche une boucle infinie entre deux hubs");
         check(hubState.toJSON().reinforcementRoutes.some((route) => route.relayAllReinforcements), "le mode hub et ses compteurs sont inclus dans l’état sérialisable");
         check(Boolean(JSON.stringify(flowState.toJSON())), "les lignes continues sont incluses dans l’état sérialisable");
+
+        check(Boolean(C.BUILDING_TYPES.farm) && C.BUILDING_TYPES.farm.allowedTerrains.length === 1 && C.BUILDING_TYPES.farm.allowedTerrains[0] === "plain", "la ferme est le premier bâtiment du catalogue extensible et reste réservée aux plaines");
+        const farmGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        farmGame.newGame(737373);
+        const farmState = farmGame.state;
+        const farmTerritory = farmState.territories.find((territory) => !territory.isImpassable && !territory.isCapital && !territory.rareSite && !territory.installation);
+        farmTerritory.ownerId = 1;
+        farmTerritory.terrain = "plain";
+        farmTerritory.productionMode = "food";
+        const lockedFarm = farmGame.executeCommand({ type: "BUILD_TERRITORY_BUILDING", playerId: 1, territoryId: farmTerritory.id, buildingId: "farm" });
+        check(!lockedFarm.ok, "la Ferme aménagée exige la recherche Agriculture intensive");
+        const farmFaction = farmState.getFaction(1);
+        farmFaction.research.completedTechnologyIds.push("construction-agriculture");
+        const foodBeforeFarm = farmGame.getTerritoryFoodCapacity(farmTerritory);
+        const farmStarted = farmGame.executeCommand({ type: "BUILD_TERRITORY_BUILDING", playerId: 1, territoryId: farmTerritory.id, buildingId: "farm" });
+        check(farmStarted.ok && farmTerritory.buildingConstruction?.buildingId === "farm" && farmTerritory.productionMode === "construction", "une plaine peut lancer un chantier de Ferme aménagée");
+        check(farmGame.getTerritoryFoodCapacity(farmTerritory) === 0 && farmGame.getTerritoryPassiveFoodCapacity(farmTerritory) === 0 && farmGame.getProductionMultiplier(farmTerritory) === 0, "le chantier agricole suspend nourriture, recrutement et recherche locale");
+        check(!farmGame.executeCommand({ type: "BUILD_RAILROAD", playerId: 1, territoryId: farmTerritory.id }).ok, "un territoire ne peut pas mener un chantier agricole et ferroviaire simultanément");
+        check(!farmGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: farmTerritory.id, mode: "units" }).ok, "l’affectation reste verrouillée pendant la construction d’un bâtiment");
+        farmGame.updateBuildingConstruction(10000);
+        const farmSnapshot = farmGame.createNetworkSnapshot();
+        const farmRemote = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+        farmRemote.newGame(737373);
+        farmRemote.applyNetworkSnapshot(farmSnapshot);
+        const remoteFarmTerritory = farmRemote.state.getTerritory(farmTerritory.id);
+        check(remoteFarmTerritory.buildingConstruction?.buildingId === "farm" && remoteFarmTerritory.buildingConstruction.progressMs === 10000, "le type, la progression et l’affectation précédente d’un bâtiment sont synchronisés pour Firebase");
+        farmGame.updateBuildingConstruction(30000);
+        check(farmTerritory.buildings.includes("farm") && !farmTerritory.buildingConstruction && farmTerritory.productionMode === "food", "la ferme terminée restaure automatiquement l’affectation alimentaire");
+        check(farmGame.getTerritoryFoodCapacity(farmTerritory) === foodBeforeFarm + 50, "la Ferme aménagée ajoute exactement 50 nourritures en mode alimentaire");
+        check(farmFaction.statistics.buildingsConstructed === 1, "la construction d’une ferme est comptabilisée dans les statistiques du joueur");
+        farmFaction.research.completedTechnologyIds.push("construction-railroad");
+        const railBesideFarm = farmGame.executeCommand({ type: "BUILD_RAILROAD", playerId: 1, territoryId: farmTerritory.id });
+        check(railBesideFarm.ok && farmTerritory.buildings.includes("farm"), "une ferme terminée peut cohabiter avec une infrastructure ferroviaire");
+        const farmCaptor = farmTerritory.neighbors
+            .map((neighborId) => farmState.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !farmTerritory.isPathBlocked(territory.id));
+        farmCaptor.ownerId = 2;
+        farmCaptor.units = 500;
+        farmTerritory.units = 1;
+        const farmCapture = farmGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: farmCaptor.id, toTerritoryId: farmTerritory.id, units: 450 });
+        farmGame.resolveArmyArrival(farmCapture.army);
+        check(farmTerritory.ownerId === 2 && farmTerritory.buildings.includes("farm") && !farmTerritory.railroadConstructionActive, "une ferme terminée reste après une conquête tandis qu’un chantier ferroviaire inachevé est annulé");
+
+        const invalidFarmTerritory = farmState.territories.find((territory) => !territory.isImpassable && !territory.isCapital && territory.id !== farmTerritory.id);
+        invalidFarmTerritory.ownerId = 1;
+        invalidFarmTerritory.terrain = "mine";
+        const invalidFarm = farmGame.executeCommand({ type: "BUILD_TERRITORY_BUILDING", playerId: 1, territoryId: invalidFarmTerritory.id, buildingId: "farm" });
+        check(!invalidFarm.ok, "une ferme ne peut pas être construite sur une mine ou un terrain incompatible");
+        invalidFarmTerritory.terrain = "plain";
+        const unfinishedFarm = farmGame.executeCommand({ type: "BUILD_TERRITORY_BUILDING", playerId: 1, territoryId: invalidFarmTerritory.id, buildingId: "farm" });
+        const unfinishedFarmCaptor = invalidFarmTerritory.neighbors
+            .map((neighborId) => farmState.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !invalidFarmTerritory.isPathBlocked(territory.id));
+        unfinishedFarmCaptor.ownerId = 2;
+        unfinishedFarmCaptor.units = 500;
+        invalidFarmTerritory.units = 1;
+        const unfinishedFarmCapture = farmGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: unfinishedFarmCaptor.id, toTerritoryId: invalidFarmTerritory.id, units: 450 });
+        farmGame.resolveArmyArrival(unfinishedFarmCapture.army);
+        check(unfinishedFarm.ok && invalidFarmTerritory.ownerId === 2 && !invalidFarmTerritory.buildingConstruction && !invalidFarmTerritory.buildings.includes("farm"), "la capture d’un chantier agricole inachevé annule la construction sans créer le bâtiment");
+
+        const farmAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false });
+        farmAiGame.newGame(747474);
+        const farmAiFaction = farmAiGame.state.getFaction(2);
+        farmAiFaction.research.completedTechnologyIds.push("construction-agriculture");
+        const farmAiCandidate = farmAiGame.state.territories.find((territory) => !territory.isImpassable && !territory.isCapital && !territory.rareSite && !territory.installation);
+        farmAiCandidate.terrain = "plain";
+        farmAiCandidate.ownerId = 2;
+        farmAiCandidate.neighbors.forEach((neighborId) => {
+            const neighbor = farmAiGame.state.getTerritory(neighborId);
+            if (neighbor && !neighbor.isImpassable) neighbor.ownerId = 2;
+        });
+        const farmAiOwned = farmAiGame.state.getTerritoriesOwnedBy(2);
+        farmAiOwned.forEach((territory) => { territory.units = 1; });
+        const farmAiCapacity = farmAiGame.getFactionFoodState(2).capacity;
+        farmAiGame.state.getTerritory(farmAiFaction.capitalTerritoryId).units += Math.max(0, Math.floor(farmAiCapacity / 1.2) - farmAiOwned.length);
+        const farmAiDecision = farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned);
+        check(farmAiDecision && farmAiCandidate.buildingConstruction?.buildingId === "farm", "l’IA prépare une ferme sur une plaine arrière lorsque sa marge alimentaire approche 120 %");
+        farmAiGame.cancelBuildingConstruction(farmAiCandidate);
+        farmAiOwned.forEach((territory) => { territory.units = 1; });
+        check(!farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned), "l’IA ne construit aucune ferme lorsqu’elle possède déjà une grande réserve alimentaire");
+
+        const railroadGame = new C.Game({
+            playerId: 1,
+            activeFactionIds: [1, 2],
+            enableAI: false,
+            enableWorldEvents: false,
+            timeScale: 1,
+            railroadConstructionDurationMs: 10000
+        });
+        railroadGame.newGame(919191);
+        const railroadState = railroadGame.state;
+        const railroadTarget = railroadState.territories.find((territory) =>
+            !territory.isImpassable &&
+            !territory.isCapital &&
+            territory.neighbors.some((neighborId) => {
+                const neighbor = railroadState.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && !neighbor.isCapital && !territory.isPathBlocked(neighborId);
+            }));
+        const railroadSource = railroadTarget.neighbors
+            .map((neighborId) => railroadState.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !territory.isCapital && !railroadTarget.isPathBlocked(territory.id));
+        [railroadTarget, railroadSource].forEach((territory) => { territory.ownerId = 1; });
+        railroadSource.units = 20;
+        railroadTarget.units = 8;
+        railroadGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: railroadTarget.id, mode: "food" });
+        const railroadLocked = railroadGame.executeCommand({ type: "BUILD_RAILROAD", playerId: 1, territoryId: railroadTarget.id });
+        check(!railroadLocked.ok, "un chemin de fer exige d’abord la recherche correspondante");
+        const railroadFaction = railroadState.getFaction(1);
+        railroadFaction.research.completedTechnologyIds.push("construction-railroad");
+        const foodCapacityBeforeRailroad = railroadGame.getFactionFoodState(1).capacity;
+        const suspendedFood = railroadGame.getTerritoryPassiveFoodCapacity(railroadTarget) + railroadGame.getTerritoryFoodCapacity(railroadTarget);
+        const railroadStarted = railroadGame.executeCommand({ type: "BUILD_RAILROAD", playerId: 1, territoryId: railroadTarget.id });
+        check(railroadStarted.ok && railroadTarget.railroadConstructionActive && railroadTarget.productionMode === "construction", "la construction ferroviaire remplace temporairement l’affectation du territoire");
+        check(railroadGame.getProductionMultiplier(railroadTarget) === 0 && railroadGame.getTerritoryFoodCapacity(railroadTarget) === 0 && railroadGame.getTerritoryPassiveFoodCapacity(railroadTarget) === 0, "un chantier ferroviaire suspend recrutement et nourriture locale");
+        check(railroadGame.getFactionFoodState(1).capacity === foodCapacityBeforeRailroad - suspendedFood, "la capacité alimentaire du chantier est retirée pendant les travaux");
+        const railroadModeLocked = railroadGame.executeCommand({ type: "SET_TERRITORY_MODE", playerId: 1, territoryId: railroadTarget.id, mode: "research" });
+        check(!railroadModeLocked.ok, "l’affectation d’un chantier reste verrouillée jusqu’à son achèvement");
+
+        const convoyToRailroad = railroadGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 1,
+            fromTerritoryId: railroadSource.id,
+            toTerritoryId: railroadTarget.id,
+            units: 5
+        });
+        const targetUnitsBeforeConvoy = railroadTarget.units;
+        railroadGame.resolveArmyArrival(convoyToRailroad.army);
+        check(convoyToRailroad.ok && railroadTarget.units === targetUnitsBeforeConvoy + 5, "les convois peuvent traverser et renforcer un territoire pendant ses travaux");
+
+        railroadGame.updateRailroadConstruction(4500);
+        const railroadSnapshot = railroadGame.createNetworkSnapshot();
+        const railroadRemote = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, railroadConstructionDurationMs: 10000 });
+        railroadRemote.newGame(919191);
+        railroadRemote.applyNetworkSnapshot(railroadSnapshot);
+        const remoteRailroadTarget = railroadRemote.state.getTerritory(railroadTarget.id);
+        check(remoteRailroadTarget.railroadConstructionActive && remoteRailroadTarget.railroadConstructionProgressMs === 4500 && remoteRailroadTarget.productionMode === "construction", "un chantier ferroviaire en cours est entièrement sérialisable pour le multijoueur");
+
+        railroadGame.updateRailroadConstruction(5500);
+        check(railroadTarget.railroad && !railroadTarget.railroadConstructionActive && railroadTarget.productionMode === "food", "la voie terminée restaure l’affectation précédente du territoire");
+        check(railroadGame.getFactionFoodState(1).capacity === foodCapacityBeforeRailroad && railroadFaction.statistics.railroadsBuilt === 1, "la nourriture locale revient et la construction est comptabilisée à l’inauguration");
+        const regularTravelDuration = railroadGame.getTravelDuration(railroadSource, railroadTarget, railroadFaction);
+        railroadSource.railroad = true;
+        const railroadTravelDuration = railroadGame.getTravelDuration(railroadSource, railroadTarget, railroadFaction);
+        check(railroadGame.hasRailroadConnection(railroadSource, railroadTarget) && railroadTravelDuration < regularTravelDuration, "deux territoires ferroviaires adjacents accélèrent les armées de 35 %");
+        const blockedRailPair = railroadState.territories.flatMap((territory) => territory.blockedNeighbors.map((neighborId) => [territory, railroadState.getTerritory(neighborId)]))
+            .find(([first, second]) => first && second && !first.isImpassable && !second.isImpassable);
+        if (blockedRailPair) {
+            blockedRailPair[0].railroad = true;
+            blockedRailPair[1].railroad = true;
+            check(!railroadGame.hasRailroadConnection(blockedRailPair[0], blockedRailPair[1]), "une frontière montagneuse bloque aussi une liaison ferroviaire");
+        }
+
+        const railroadAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false });
+        railroadAiGame.newGame(929292);
+        const railroadAiFaction = railroadAiGame.state.getFaction(2);
+        railroadAiFaction.research.completedTechnologyIds.push("construction-railroad");
+        const aiFoodBeforeRailroad = railroadAiGame.getFactionFoodState(2).capacity;
+        const aiRailroadDecision = railroadAiGame.aiSystem.manageRailroadConstruction(railroadAiFaction, railroadAiGame.state.getTerritoriesOwnedBy(2));
+        const aiRailroadTerritory = railroadAiGame.state.getTerritoriesOwnedBy(2).find((territory) => territory.railroadConstructionActive);
+        check(aiRailroadDecision && Boolean(aiRailroadTerritory), "l’IA sait lancer un chantier ferroviaire dans une position sûre");
+        check(aiFoodBeforeRailroad === railroadAiGame.getFactionFoodState(2).capacity, "la construction dans la capitale ne retire jamais sa capacité nationale permanente de 200 nourritures");
+        const railroadInvader = aiRailroadTerritory.neighbors
+            .map((neighborId) => railroadAiGame.state.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !aiRailroadTerritory.isPathBlocked(territory.id));
+        railroadInvader.ownerId = 1;
+        railroadInvader.units = 500;
+        aiRailroadTerritory.units = 1;
+        const railroadCapture = railroadAiGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 1,
+            fromTerritoryId: railroadInvader.id,
+            toTerritoryId: aiRailroadTerritory.id,
+            units: 450
+        });
+        railroadAiGame.resolveArmyArrival(railroadCapture.army);
+        check(aiRailroadTerritory.ownerId === 1 && !aiRailroadTerritory.railroadConstructionActive && !aiRailroadTerritory.railroad, "la capture d’un chantier inachevé annule proprement les travaux");
+        check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "construction").technologyIds.includes("construction-railroad"), "la recherche Réseau ferroviaire apparaît dans l’arbre Construction");
 
         document.getElementById("result").textContent = `PASS — ${results.length} tests\n${results.join("\n")}`;
         document.body.dataset.status = "pass";

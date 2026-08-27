@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071219">
+    <meta name="description" content="Manuel de jeu de Frontières, jeu de conquête stratégique en temps réel.">
+    <title>Aide — Frontières</title>
+    <link rel="stylesheet" href="css/help.css">
+</head>
+<body>
+    <header class="help-hero" id="haut">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <nav class="hero-bar" aria-label="Navigation principale">
+            <a class="brand" href="index.html" title="Retourner au jeu">
+                <span class="brand-mark"><i></i><i></i><i></i></span>
+                <span><small>Simulation stratégique</small>FRONTIÈRES</span>
+            </a>
+            <a class="return-link" href="index.html">Retour au jeu</a>
+        </nav>
+        <div class="hero-copy">
+            <p class="eyebrow">Manuel du commandant</p>
+            <h1>Conquérir sans perdre le contrôle</h1>
+            <p>Frontières est un jeu de conquête en temps réel. Vos villes recrutent, vos convois avancent et vos ennemis agissent constamment : il faut combattre, nourrir l’armée et organiser un réseau logistique en même temps.</p>
+            <div class="hero-tags"><span>Temps réel</span><span>Domination</span><span>Équipes</span><span>Logistique</span></div>
+        </div>
+    </header>
+
+    <div class="help-layout">
+        <aside class="help-nav">
+            <strong>Sommaire</strong>
+            <a href="#demarrage">Démarrage rapide</a>
+            <a href="#commandes">Commandes</a>
+            <a href="#territoires">Carte et territoires</a>
+            <a href="#production">Production et nourriture</a>
+            <a href="#logistique">Convois, hubs et rails</a>
+            <a href="#combat">Combat et vision</a>
+            <a href="#recherche">Recherche et capacités</a>
+            <a href="#factions">Factions</a>
+            <a href="#evenements">Événements</a>
+            <a href="#multijoueur">Multijoueur</a>
+            <a href="#conseils">Conseils</a>
+        </aside>
+
+        <main class="help-content">
+            <section class="guide-section" id="demarrage">
+                <div class="section-heading"><span>01</span><div><p>Les bases</p><h2>Démarrage rapide</h2></div></div>
+                <div class="steps">
+                    <article><b>1</b><h3>Développez votre territoire</h3><p>Capturez d’abord les positions neutres faibles autour de votre capitale pour augmenter votre production.</p></article>
+                    <article><b>2</b><h3>Surveillez la nourriture</h3><p>L’armée entière consomme des rations. Affectez des villes à la nourriture avant que la pénurie ralentisse le recrutement.</p></article>
+                    <article><b>3</b><h3>Alimentez le front</h3><p>Reliez vos villes arrière à un hub, puis dirigez les renforts vers les frontières importantes.</p></article>
+                    <article><b>4</b><h3>Dominez la carte</h3><p>La partie prend fin lorsqu’une seule équipe contrôle tous les territoires encore contrôlables.</p></article>
+                </div>
+                <div class="callout accent"><strong>Le jeu ne s’arrête jamais.</strong> La production, les recherches, les déplacements, l’IA et les événements continuent pendant que vous consultez les panneaux.</div>
+            </section>
+
+            <section class="guide-section" id="commandes">
+                <div class="section-heading"><span>02</span><div><p>Prise en main</p><h2>Commandes</h2></div></div>
+                <div class="control-grid">
+                    <div><kbd>Clic gauche</kbd><p>Sélectionner un territoire. Cliquez ensuite sur une cible voisine pour préparer une attaque ou un renfort.</p></div>
+                    <div><kbd>Shift</kbd> + <kbd>clic</kbd><p>Ajouter ou retirer vos territoires d’une sélection multiple.</p></div>
+                    <div><kbd>Clic droit</kbd><p>Préparer un convoi vers un territoire allié, même s’il se trouve à plusieurs étapes.</p></div>
+                    <div><kbd>Ctrl</kbd> + <kbd>glisser droit</kbd><p>Envoyer immédiatement 80 % des unités disponibles vers la destination alliée.</p></div>
+                    <div><kbd>Alt</kbd> + <kbd>glisser droit</kbd><p>Créer un flux continu de renforts. Le geste fonctionne aussi avec une sélection multiple.</p></div>
+                    <div><kbd>Espace</kbd><p>Après le son de perte d’un territoire, centrer la caméra sur la dernière position perdue.</p></div>
+                    <div><kbd>Molette</kbd><p>Zoomer ou dézoomer. Glissez la carte avec le bouton gauche sur une zone vide pour vous déplacer.</p></div>
+                    <div><kbd>Mini-carte</kbd><p>Cliquez ou glissez dans la vue stratégique pour déplacer rapidement la caméra.</p></div>
+                </div>
+            </section>
+
+            <section class="guide-section" id="territoires">
+                <div class="section-heading"><span>03</span><div><p>Lire le champ de bataille</p><h2>Carte et territoires</h2></div></div>
+                <p>La couleur indique le propriétaire; le symbole au-dessus des unités indique le terrain. Les territoires gris sont neutres. Les montagnes bloquent une frontière, les lacs ne peuvent jamais être traversés ni conquis.</p>
+                <div class="terrain-grid">
+                    <article><i>◇</i><strong>Plaine</strong><span>Terrain équilibré. Peut recevoir une Ferme aménagée.</span></article>
+                    <article><i>♨</i><strong>Agriculture</strong><span>Production militaire accrue et excellente capacité alimentaire.</span></article>
+                    <article><i>◆</i><strong>Mine</strong><span>Bonus économique et légère défense naturelle.</span></article>
+                    <article><i>⚙</i><strong>Industrie</strong><span>Recrutement militaire plus rapide.</span></article>
+                    <article><i>♜</i><strong>Forteresse</strong><span>Défense fortement augmentée.</span></article>
+                    <article><i>✦</i><strong>Science</strong><span>Production générale et recherche améliorées.</span></article>
+                    <article><i>ϟ</i><strong>Centrale</strong><span>Soutient la recherche et les futurs pouvoirs.</span></article>
+                    <article><i>⌁</i><strong>Radar</strong><span>Installation stratégique identifiable sur la carte.</span></article>
+                    <article><i>✈</i><strong>Aéroport</strong><span>Frappe aérienne à quatre territoires de distance.</span></article>
+                    <article><i>≈</i><strong>Lac</strong><span>Zone totalement infranchissable.</span></article>
+                </div>
+                <div class="two-columns">
+                    <article class="info-card"><h3>Sites rares</h3><p>Titane, métropole, grand barrage, centre spatial, ancienne forteresse et complexe industriel accordent des bonus puissants. Ils constituent des objectifs naturels.</p></article>
+                    <article class="info-card"><h3>Installations</h3><p>Deux canons apparaissent par carte. Une fois capturé, un canon tire toutes les cinq secondes avec 75 % de précision et détruit trois unités ennemies adjacentes.</p></article>
+                </div>
+                <p>Le lobby propose une carte <strong>Continent</strong> aux fronts ouverts ou une carte <strong>Sablier</strong> dont les deux moitiés sont reliées par un point d’étranglement central.</p>
+            </section>
+
+            <section class="guide-section" id="production">
+                <div class="section-heading"><span>04</span><div><p>Soutenir la guerre</p><h2>Production et nourriture</h2></div></div>
+                <div class="three-columns">
+                    <article class="info-card"><h3>Recrutement</h3><p>En mode Recruter, un territoire produit continuellement des unités. Son terrain, sa faction, ses recherches et son alimentation modifient la cadence.</p></article>
+                    <article class="info-card"><h3>Nourriture</h3><p>En mode Nourriture, la ville cesse de recruter et ajoute la capacité alimentaire propre à son terrain. La capitale fournit toujours 200 rations nationales.</p></article>
+                    <article class="info-card"><h3>Recherche</h3><p>En mode Recherche, la ville cesse de recruter et accélère la technologie de sa faction. Les centres scientifiques sont particulièrement efficaces.</p></article>
+                </div>
+                <div class="callout warning"><strong>Pénurie :</strong> si la demande de l’armée dépasse votre capacité alimentaire, le recrutement ralentit progressivement. Une pénurie grave arrête la production et provoque de l’attrition. Les troupes en déplacement consomment également des rations.</div>
+                <h3 class="subheading">Ferme aménagée</h3>
+                <p>Après la recherche <strong>Agriculture intensive</strong>, une Plaine peut construire une ferme en 40 secondes. Le chantier suspend toute production locale. La ferme ajoute ensuite <strong>50 nourritures</strong> lorsque la ville est affectée à la nourriture; elle reste présente après une conquête.</p>
+            </section>
+
+            <section class="guide-section" id="logistique">
+                <div class="section-heading"><span>05</span><div><p>Faire circuler la puissance</p><h2>Convois, hubs et chemins de fer</h2></div></div>
+                <div class="logistics-flow" aria-label="Exemple de réseau logistique">
+                    <span>Villes arrière<small>Production</small></span><b>→</b><span>Hub intérieur<small>Concentration</small></span><b>→</b><span>Réseau ferré<small>+35 % vitesse</small></span><b>→</b><span>Front<small>Combat</small></span>
+                </div>
+                <ul class="feature-list">
+                    <li><strong>Convoi :</strong> une armée de renfort avance d’un territoire allié au suivant et contourne les montagnes.</li>
+                    <li><strong>Flux continu :</strong> chaque nouvelle unité produite par la source part automatiquement vers la destination.</li>
+                    <li><strong>Hub — Tout relayer :</strong> la garnison disponible et tous les renforts reçus repartent vers la destination en laissant un défenseur.</li>
+                    <li><strong>Alliés :</strong> vos convois peuvent traverser leurs territoires et renforcer leurs garnisons sans changer leur propriétaire.</li>
+                    <li><strong>Chemin de fer :</strong> après la recherche correspondante, chaque voie demande 45 secondes de travaux. Deux territoires voisins équipés accélèrent le déplacement de 35 %.</li>
+                </ul>
+                <p>Les chantiers ferroviaires et agricoles suspendent le recrutement, la nourriture locale et la recherche. Les garnisons existantes et les convois peuvent cependant continuer à circuler.</p>
+            </section>
+
+            <section class="guide-section" id="combat">
+                <div class="section-heading"><span>06</span><div><p>Prendre et tenir</p><h2>Combat et brouillard de guerre</h2></div></div>
+                <div class="two-columns">
+                    <article class="info-card"><h3>Résolution</h3><p>Une attaque tient compte des unités engagées, de la puissance de faction, des technologies, du terrain défensif et d’une petite part d’aléatoire. Une victoire place les survivants dans le territoire conquis.</p></article>
+                    <article class="info-card"><h3>Vision partagée</h3><p>Vous voyez jusqu’à deux frontières autour de vos territoires et de ceux de vos alliés. Les positions plus lointaines restent masquées; les armées ennemies cachées ne sont pas affichées.</p></article>
+                </div>
+                <p>Une attaque terrestre normale exige une frontière franchissable. Les parachutistes, missiles, frappes aériennes et armes nucléaires suivent leurs propres règles de portée.</p>
+            </section>
+
+            <section class="guide-section" id="recherche">
+                <div class="section-heading"><span>07</span><div><p>Prendre l’avantage</p><h2>Recherche et capacités</h2></div></div>
+                <p>Une faction ne mène qu’une recherche à la fois. L’arbre comporte quatre axes : <strong>Construction</strong>, <strong>Attaque</strong>, <strong>Défense</strong> et <strong>Capacités</strong>. Les bonus sont permanents et cumulatifs.</p>
+                <div class="ability-grid">
+                    <article><i>☄</i><h3>Missile tactique</h3><p>Détruit 25 % des forces visibles sur une cible, puis 35 % au niveau II. Il ne conquiert jamais à distance.</p></article>
+                    <article><i>+</i><h3>Mobilisation</h3><p>Ajoute immédiatement 35 unités sur un territoire contrôlé, puis 50 au niveau II. Attention à la consommation alimentaire.</p></article>
+                    <article><i>♢</i><h3>Parachutistes</h3><p>Largue 35 unités, puis 50 au niveau II, sur un territoire ennemi visible sans route terrestre.</p></article>
+                    <article><i>☢</i><h3>Arme nucléaire</h3><p>Inflige 30 % au centre et 15 % autour; le niveau II passe à 40 % et 20 %. Le souffle touche aussi les alliés.</p></article>
+                </div>
+                <p>Chaque capacité possède une longue recharge. L’IA recherche, améliore et utilise également toutes ces capacités.</p>
+            </section>
+
+            <section class="guide-section" id="factions">
+                <div class="section-heading"><span>08</span><div><p>Choisir une doctrine</p><h2>Factions</h2></div></div>
+                <div class="faction-grid">
+                    <article class="empire"><span></span><h3>Empire</h3><p>+15 % de puissance d’attaque. Idéal pour transformer rapidement un avantage local en conquête.</p></article>
+                    <article class="tech"><span></span><h3>Technocrates</h3><p>+20 % aux bonus provenant des centrales et centres scientifiques.</p></article>
+                    <article class="horde"><span></span><h3>Horde</h3><p>+30 % de recrutement, mais −10 % de puissance de combat par unité.</p></article>
+                    <article class="nomads"><span></span><h3>Nomades</h3><p>Déplacement plus rapide, particulièrement efficace avec les réseaux logistiques.</p></article>
+                </div>
+                <p>Plusieurs joueurs peuvent choisir la même race en multijoueur; chacun conserve une couleur distincte.</p>
+            </section>
+
+            <section class="guide-section" id="evenements">
+                <div class="section-heading"><span>09</span><div><p>Réagir à l’imprévu</p><h2>Événements mondiaux</h2></div></div>
+                <div class="three-columns">
+                    <article class="info-card"><h3>Famine</h3><p>Un territoire affecté ne produit plus rien pendant la durée de l’événement.</p></article>
+                    <article class="info-card"><h3>Feu de forêt</h3><p>Détruit immédiatement une partie de la garnison sans éliminer son dernier défenseur.</p></article>
+                    <article class="info-card"><h3>Attaque barbare</h3><p>Plusieurs armées apparaissent et attaquent. Une victoire barbare remet le territoire à l’état neutre.</p></article>
+                </div>
+                <p>Une alerte précède les événements majeurs. Ils continuent à progresser pendant les combats et peuvent toucher toutes les factions.</p>
+            </section>
+
+            <section class="guide-section" id="multijoueur">
+                <div class="section-heading"><span>10</span><div><p>Combattre en équipe</p><h2>Multijoueur</h2></div></div>
+                <ol class="number-list">
+                    <li>Dans le lobby, choisissez <strong>Créer en ligne</strong>, le format 1v1, 2v2 ou 3v3, puis transmettez le code du salon.</li>
+                    <li>Les autres joueurs choisissent <strong>Rejoindre</strong> et saisissent ce code.</li>
+                    <li>Chaque joueur contrôle sa faction et ses territoires. Les équipiers partagent leur vision et peuvent échanger des renforts.</li>
+                    <li>Les convois traversent le territoire allié. Si un relais est perdu, le flux se met en pause jusqu’au retour d’un itinéraire sûr.</li>
+                    <li>Une déconnexion conserve la place pendant 30 secondes; l’IA peut ensuite reprendre temporairement le commandement.</li>
+                </ol>
+                <div class="callout"><strong>Conseil :</strong> le multijoueur doit être lancé avec Live Server ou un serveur web. L’ouverture directe du fichier reste adaptée aux parties solo.</div>
+            </section>
+
+            <section class="guide-section" id="conseils">
+                <div class="section-heading"><span>11</span><div><p>Doctrine de campagne</p><h2>Conseils stratégiques</h2></div></div>
+                <div class="tips">
+                    <p><strong>Ne videz pas vos frontières.</strong> Une attaque réussie peut devenir une brèche que l’IA exploitera immédiatement.</p>
+                    <p><strong>Construisez avant la crise.</strong> Une ferme commencée trop tard suspend encore davantage de nourriture pendant 40 secondes.</p>
+                    <p><strong>Évitez un seul super-hub.</strong> Deux voies logistiques donnent une solution de rechange si le centre du réseau est capturé.</p>
+                    <p><strong>Utilisez le terrain.</strong> Une petite armée dans une forteresse peut immobiliser beaucoup plus d’ennemis.</p>
+                    <p><strong>Regardez la mini-carte.</strong> Elle révèle rapidement les fronts qui s’effondrent et les régions arrière trop chargées.</p>
+                    <p><strong>Gardez une marge alimentaire.</strong> Une mobilisation ou un grand convoi augmente immédiatement la demande de rations.</p>
+                </div>
+            </section>
+
+            <footer class="help-footer">
+                <a href="#haut">Retour en haut ↑</a>
+                <p>Vous pouvez garder ce manuel ouvert pendant la partie et revenir à cet onglet à tout moment.</p>
+            </footer>
+        </main>
+    </div>
+</body>
+</html>

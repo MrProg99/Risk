@@ -58,6 +58,8 @@
             this.researchChoicesMade = 0;
             this.abilitiesUsed = 0;
             this.alliedDefenseConvoysSent = 0;
+            this.railroadsConstructed = 0;
+            this.farmsConstructed = 0;
             this.reset();
         }
 
@@ -72,6 +74,8 @@
             this.researchChoicesMade = 0;
             this.abilitiesUsed = 0;
             this.alliedDefenseConvoysSent = 0;
+            this.railroadsConstructed = 0;
+            this.farmsConstructed = 0;
             this.thinkTimers.clear();
             this.offensivePlans.clear();
             this.alliedAidCooldowns.clear();
@@ -113,6 +117,10 @@
             if (this.manageResearchAllocation(faction, owned)) return true;
 
             if (this.manageFoodSupply(faction, owned)) return true;
+
+            if (this.manageFarmConstruction(faction, owned)) return true;
+
+            if (this.manageRailroadConstruction(faction, owned)) return true;
 
             if (this.launchOpportunisticNeutralExpansion(faction, owned)) return true;
 
@@ -510,6 +518,110 @@
                 }
             }
             return false;
+        }
+
+        manageFarmConstruction(faction, owned) {
+            const definition = C.getBuildingType("farm");
+            if (!definition || !faction.research.completedTechnologyIds.includes(definition.prerequisiteTechnologyId)) return false;
+            if (owned.some((territory) => territory.buildingConstruction)) return false;
+
+            const food = this.game.getFactionFoodState(faction.id);
+            // La ferme est une réserve pour la croissance prochaine, pas une réaction
+            // de panique : sous 95 %, l'IA doit d'abord réaffecter des villes existantes.
+            if (food.demand <= 0 || food.ratio >= 1.35) return false;
+            const existingFarms = owned.filter((territory) => territory.buildings.includes(definition.id)).length;
+            const farmLimit = C.Geometry.clamp(Math.ceil(owned.length / 8), 1, 8);
+            if (existingFarms >= farmLimit) return false;
+
+            const state = this.game.state;
+            const routeSources = new Set(state.reinforcementRoutes
+                .filter((route) => route.active && route.ownerId === faction.id)
+                .map((route) => route.fromTerritoryId));
+            const candidates = owned
+                .filter((territory) => definition.allowedTerrains.includes(territory.terrain))
+                .filter((territory) => !territory.buildings.includes(definition.id) && !this.game.isTerritoryUnderConstruction(territory))
+                .filter((territory) => !territory.isCapital && !territory.installation && !territory.rareSite && !territory.railroad)
+                .filter((territory) => !routeSources.has(territory.id) && ["units", "food"].includes(territory.productionMode))
+                .map((territory) => {
+                    const hostileNeighbors = territory.neighbors
+                        .map((neighborId) => state.getTerritory(neighborId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                    if (hostileNeighbors > 0) return null;
+                    const suspendedFood = this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory);
+                    const constructionRatio = (food.capacity - suspendedFood) / food.demand;
+                    if (constructionRatio < 0.95) return null;
+                    const alliedNeighbors = territory.neighbors
+                        .map((neighborId) => state.getTerritory(neighborId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                    return {
+                        territory,
+                        score: (territory.productionMode === "food" ? 80 : 0) + alliedNeighbors * 7 - territory.units * 0.15 - this.game.getProductionMultiplier(territory) * 5
+                    };
+                })
+                .filter(Boolean)
+                .sort((first, second) => second.score - first.score);
+            const selected = candidates[0]?.territory;
+            if (!selected) return false;
+            const result = this.game.executeCommand({
+                type: "BUILD_TERRITORY_BUILDING",
+                playerId: faction.id,
+                territoryId: selected.id,
+                buildingId: definition.id
+            });
+            if (!result.ok) return false;
+            this.ordersIssued += 1;
+            this.farmsConstructed += 1;
+            return true;
+        }
+
+        manageRailroadConstruction(faction, owned) {
+            if (!faction.research.completedTechnologyIds.includes("construction-railroad")) return false;
+            const state = this.game.state;
+            const activeConstructions = owned.filter((territory) => territory.railroadConstructionActive);
+            const simultaneousLimit = C.Geometry.clamp(Math.floor((owned.length + 5) / 10), 1, 3);
+            if (activeConstructions.length >= simultaneousLimit) return false;
+
+            const food = this.game.getFactionFoodState(faction.id);
+            if (food.demand > 0 && food.ratio < 1.25) return false;
+            const activeRouteSources = new Set(state.reinforcementRoutes
+                .filter((route) => route.active && route.ownerId === faction.id)
+                .map((route) => route.fromTerritoryId));
+            const candidates = owned
+                .filter((territory) => !territory.railroad && !territory.railroadConstructionActive && territory.productionMode === "units")
+                .filter((territory) => !territory.neighbors.some((neighborId) => {
+                    if (territory.isPathBlocked(neighborId)) return false;
+                    const neighbor = state.getTerritory(neighborId);
+                    return neighbor && !neighbor.isImpassable && neighbor.ownerId !== null && !this.game.areAllied(neighbor.ownerId, faction.id);
+                }))
+                .map((territory) => {
+                    const suspendedFood = this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory);
+                    const projectedRatio = food.demand > 0 ? (food.capacity - suspendedFood) / food.demand : 1;
+                    if (projectedRatio < 1.20) return null;
+                    const alliedNeighbors = territory.neighbors
+                        .map((neighborId) => state.getTerritory(neighborId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && this.game.areAllied(neighbor.ownerId, faction.id));
+                    const railroadNeighbors = alliedNeighbors.filter((neighbor) => neighbor.railroad).length;
+                    const connectedRoute = activeRouteSources.has(territory.id) ? 1 : 0;
+                    const capitalValue = territory.isCapital ? 1 : 0;
+                    const strategicValue = (territory.rareSite ? 12 : 0) + (territory.installation ? 10 : 0) + (territory.terrain === "airport" ? 8 : 0);
+                    return {
+                        territory,
+                        score: railroadNeighbors * 70 + connectedRoute * 60 + capitalValue * 55 + alliedNeighbors.length * 8 + strategicValue - this.game.getProductionMultiplier(territory) * 4
+                    };
+                })
+                .filter(Boolean)
+                .sort((first, second) => second.score - first.score);
+            const selected = candidates[0]?.territory;
+            if (!selected) return false;
+            const result = this.game.executeCommand({
+                type: "BUILD_RAILROAD",
+                playerId: faction.id,
+                territoryId: selected.id
+            });
+            if (!result.ok) return false;
+            this.ordersIssued += 1;
+            this.railroadsConstructed += 1;
+            return true;
         }
 
         considerAlliedDefense(faction, owned) {
@@ -1132,6 +1244,8 @@
                 const score = (technology) =>
                     (technology.branchId === preferredBranch ? 20 : 0) +
                     (technology.branchId === "abilities" ? 10 : 0) +
+                    (technology.id === "construction-railroad" ? 18 : 0) +
+                    (technology.id === "construction-agriculture" ? 16 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
                 return score(b) - score(a);
             });

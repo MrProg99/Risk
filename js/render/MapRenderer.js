@@ -123,11 +123,14 @@
             this.drawIslandShadow(ctx, state);
             this.drawTerritories(ctx, state, now);
             this.drawLakeSurfaces(ctx, state, now);
+            this.drawRailroads(ctx, state);
             this.drawFogOfWar(ctx, state, now);
             this.drawReinforcementRoutes(ctx, state, now);
             this.drawSelection(ctx, state, now);
             this.drawMountainBarriers(ctx, state);
             this.drawTerritoryMarkers(ctx, state);
+            this.drawRailroadMarkers(ctx, state);
+            this.drawBuildingMarkers(ctx, state);
             this.drawWorldEvents(ctx, state, now);
             this.drawCannonInstallations(ctx, state, now);
             this.drawArmies(ctx, state, now);
@@ -467,6 +470,96 @@
             });
         }
 
+        drawRailroads(ctx, state) {
+            ctx.save();
+            state.territories.forEach((territory) => {
+                if (!territory.railroad || !this.isTerritoryVisible(territory.id)) return;
+                territory.neighbors.forEach((neighborId) => {
+                    if (territory.id >= neighborId || territory.isPathBlocked(neighborId)) return;
+                    const neighbor = state.getTerritory(neighborId);
+                    if (!neighbor?.railroad || !this.isTerritoryVisible(neighbor.id)) return;
+                    ctx.beginPath();
+                    ctx.moveTo(territory.center.x, territory.center.y);
+                    ctx.lineTo(neighbor.center.x, neighbor.center.y);
+                    ctx.strokeStyle = "rgba(5, 10, 12, .88)";
+                    ctx.lineWidth = 7;
+                    ctx.lineCap = "round";
+                    ctx.stroke();
+                    ctx.strokeStyle = "rgba(235, 190, 94, .88)";
+                    ctx.lineWidth = 2.2;
+                    ctx.stroke();
+                    ctx.strokeStyle = "rgba(255, 226, 151, .72)";
+                    ctx.lineWidth = 5.5;
+                    ctx.setLineDash([2, 10]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                });
+            });
+            ctx.restore();
+        }
+
+        drawRailroadMarkers(ctx, state) {
+            state.territories.forEach((territory) => {
+                if ((!territory.railroad && !territory.railroadConstructionActive) || !this.isTerritoryVisible(territory.id)) return;
+                const x = territory.center.x - 25;
+                const y = territory.center.y + 28;
+                const progress = territory.railroadConstructionActive
+                    ? C.Geometry.clamp(territory.railroadConstructionProgressMs / this.game.railroadConstructionDurationMs, 0, 1)
+                    : 1;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, 8.5, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(28, 21, 11, .94)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(6, 10, 11, .92)";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x, y, 8.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                ctx.strokeStyle = territory.railroadConstructionActive ? "#f0b652" : "#e9bd63";
+                ctx.lineWidth = 1.7;
+                ctx.stroke();
+                ctx.fillStyle = territory.railroadConstructionActive ? "#f2c777" : "#ffe0a0";
+                ctx.font = "800 9px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(territory.railroadConstructionActive ? "⌁" : "≡", x, y + 0.5);
+                ctx.restore();
+            });
+        }
+
+        drawBuildingMarkers(ctx, state) {
+            state.territories.forEach((territory) => {
+                const construction = territory.buildingConstruction;
+                const definition = C.getBuildingType(construction?.buildingId || territory.buildings?.[0]);
+                if (!definition || (!construction && !territory.buildings.includes(definition.id)) || !this.isTerritoryVisible(territory.id)) return;
+                const x = territory.center.x + 25;
+                const y = territory.center.y + 28;
+                const progress = construction
+                    ? C.Geometry.clamp(construction.progressMs / definition.constructionDurationMs, 0, 1)
+                    : 1;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, 9, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(15, 28, 12, .95)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(5, 10, 8, .94)";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x, y, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                ctx.strokeStyle = construction ? "#c2d868" : "#9ed77a";
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+                ctx.fillStyle = construction ? "#d8e990" : "#c5efa9";
+                ctx.font = "800 11px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(construction ? "⌁" : definition.icon, x, y + 0.5);
+                ctx.restore();
+            });
+        }
+
         drawTerritoryMarkers(ctx, state) {
             state.territories.forEach((territory) => {
                 const faction = state.getFaction(territory.ownerId);
@@ -539,13 +632,23 @@
                 if (territory.ownerId !== null) {
                     const foodMode = territory.productionMode === "food";
                     const researchMode = territory.productionMode === "research";
-                    const progress = foodMode || researchMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
+                    const constructionMode = this.game.isTerritoryUnderConstruction(territory);
+                    const progress = constructionMode
+                        ? territory.railroadConstructionActive
+                            ? C.Geometry.clamp(territory.railroadConstructionProgressMs / this.game.railroadConstructionDurationMs, 0, 1)
+                            : (() => {
+                                const definition = C.getBuildingType(territory.buildingConstruction?.buildingId);
+                                return definition ? C.Geometry.clamp(territory.buildingConstruction.progressMs / definition.constructionDurationMs, 0, 1) : 0;
+                            })()
+                        : foodMode || researchMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
                     ctx.beginPath();
                     ctx.arc(center.x, center.y + 1, radius + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
                     ctx.strokeStyle = foodMode
                         ? "rgba(158,215,122,.92)"
                         : researchMode
                             ? "rgba(181,140,255,.96)"
+                            : constructionMode
+                                ? "rgba(240,182,82,.98)"
                             : faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
                     ctx.lineWidth = 2;
                     ctx.stroke();

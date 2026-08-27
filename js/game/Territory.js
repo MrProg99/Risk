@@ -24,6 +24,12 @@
             this.airstrikeCooldownMs = 0;
             this.productionMode = "units";
             this.productionModeChangedAtMs = 0;
+            this.railroad = false;
+            this.railroadConstructionActive = false;
+            this.railroadConstructionProgressMs = 0;
+            this.railroadPreviousProductionMode = null;
+            this.buildings = [];
+            this.buildingConstruction = null;
         }
 
         isNeighbor(territoryId) {
@@ -56,7 +62,13 @@
                 isChokePoint: this.isChokePoint,
                 airstrikeCooldownMs: this.airstrikeCooldownMs,
                 productionMode: this.productionMode,
-                productionModeChangedAtMs: this.productionModeChangedAtMs
+                productionModeChangedAtMs: this.productionModeChangedAtMs,
+                railroad: this.railroad,
+                railroadConstructionActive: this.railroadConstructionActive,
+                railroadConstructionProgressMs: this.railroadConstructionProgressMs,
+                railroadPreviousProductionMode: this.railroadPreviousProductionMode,
+                buildings: this.buildings.slice(),
+                buildingConstruction: this.buildingConstruction ? { ...this.buildingConstruction } : null
             };
         }
     }

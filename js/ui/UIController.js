@@ -92,6 +92,19 @@
                 modeUnits: byId("mode-units"),
                 modeFood: byId("mode-food"),
                 modeResearch: byId("mode-research"),
+                railroadPanel: byId("railroad-panel"),
+                railroadStatus: byId("railroad-status"),
+                railroadProgress: byId("railroad-progress"),
+                railroadProgressBar: byId("railroad-progress-bar"),
+                railroadDetail: byId("railroad-detail"),
+                railroadBuild: byId("railroad-build"),
+                buildingPanel: byId("building-panel"),
+                buildingName: byId("building-name"),
+                buildingStatus: byId("building-status"),
+                buildingProgress: byId("building-progress"),
+                buildingProgressBar: byId("building-progress-bar"),
+                buildingDetail: byId("building-detail"),
+                buildingBuild: byId("building-build"),
                 territoryProduction: byId("territory-production"),
                 bonusList: byId("bonus-list"),
                 airportPanel: byId("airport-panel"),
@@ -159,6 +172,8 @@
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
             this.elements.modeResearch.addEventListener("click", () => this.setTerritoryMode("research"));
+            this.elements.railroadBuild.addEventListener("click", () => this.buildRailroad());
+            this.elements.buildingBuild.addEventListener("click", () => this.buildTerritoryBuilding());
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
             this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
             this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
@@ -234,6 +249,23 @@
             } else if (change.type === "TERRITORY_MODE_CHANGED" || change.type === "FOOD_ATTRITION") {
                 if (change.type === "FOOD_ATTRITION" && change.factionId === this.game.playerId) {
                     this.showToast(`Pénurie alimentaire : ${change.losses} unité${change.losses > 1 ? "s" : ""} perdue${change.losses > 1 ? "s" : ""}.`);
+                }
+                this.refreshDynamic();
+            } else if (change.type === "RAILROAD_CONSTRUCTION_STARTED" || change.type === "RAILROAD_CONSTRUCTION_COMPLETED") {
+                if (change.factionId === this.game.playerId) {
+                    const territory = this.game.state.getTerritory(change.territoryId);
+                    this.showToast(change.type === "RAILROAD_CONSTRUCTION_COMPLETED"
+                        ? `Chemin de fer terminé à ${territory?.name || "la position indiquée"}.`
+                        : `Travaux ferroviaires lancés à ${territory?.name || "la position indiquée"}.`);
+                }
+                this.refreshDynamic();
+            } else if (change.type === "BUILDING_CONSTRUCTION_STARTED" || change.type === "BUILDING_CONSTRUCTION_COMPLETED") {
+                if (change.factionId === this.game.playerId) {
+                    const territory = this.game.state.getTerritory(change.territoryId);
+                    const definition = C.getBuildingType(change.buildingId);
+                    this.showToast(change.type === "BUILDING_CONSTRUCTION_COMPLETED"
+                        ? `${definition?.name || "Bâtiment"} terminé à ${territory?.name || "la position indiquée"}.`
+                        : `Construction de ${definition?.name || "bâtiment"} lancée à ${territory?.name || "la position indiquée"}.`);
                 }
                 this.refreshDynamic();
             } else if (change.type === "WORLD_EVENT_WARNING") {
@@ -350,6 +382,8 @@
                     ["Ennemis détruits", entry.statistics.enemyUnitsDestroyed],
                     ["Attaques lancées", entry.statistics.attacksLaunched],
                     ["Combats gagnés", entry.statistics.battlesWon],
+                    ["Rails construits", entry.statistics.railroadsBuilt],
+                    ["Bâtiments construits", entry.statistics.buildingsConstructed],
                     ["Recherches / capacités", `${entry.statistics.researchCompleted} / ${entry.statistics.abilitiesUsed}`]
                 ];
                 const statGrid = document.createElement("div");
@@ -1011,6 +1045,14 @@
             cannon.className = "legend-item";
             cannon.innerHTML = '<span class="legend-cannon">✹</span> Canon';
             this.elements.factionLegend.append(cannon);
+            const railroad = document.createElement("span");
+            railroad.className = "legend-item";
+            railroad.innerHTML = '<span class="legend-railroad">≡</span> Chemin de fer';
+            this.elements.factionLegend.append(railroad);
+            const farm = document.createElement("span");
+            farm.className = "legend-item";
+            farm.innerHTML = '<span class="legend-farm">▦</span> Ferme';
+            this.elements.factionLegend.append(farm);
             const fog = document.createElement("span");
             fog.className = "legend-item";
             fog.innerHTML = `<span class="legend-fog">?</span> Brouillard · au-delà de ${this.game.visibilityRange}`;
@@ -1056,6 +1098,8 @@
             this.elements.resourceName.textContent = territory.resource || "Aucune";
             this.elements.territoryProduction.textContent = territory.isImpassable
                 ? "Impossible"
+                : this.game.isTerritoryUnderConstruction(territory)
+                ? "TRAVAUX"
                 : territory.productionMode === "food"
                 ? `+${this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory)} nourriture`
                 : territory.productionMode === "research"
@@ -1066,6 +1110,8 @@
 
             this.renderBonuses(territory, type, faction);
             this.renderProductionMode(territory);
+            this.renderRailroadPanel(territory);
+            this.renderBuildingPanel(territory);
             this.renderAirportPanel(territory);
             this.renderActiveRoute(territory);
             this.renderAttackPanel(territory);
@@ -1078,7 +1124,8 @@
             const modes = {
                 units: territories.filter((territory) => territory.productionMode === "units").length,
                 food: territories.filter((territory) => territory.productionMode === "food").length,
-                research: territories.filter((territory) => territory.productionMode === "research").length
+                research: territories.filter((territory) => territory.productionMode === "research").length,
+                construction: territories.filter((territory) => this.game.isTerritoryUnderConstruction(territory)).length
             };
             const commonMode = Object.entries(modes).find(([, count]) => count === territories.length)?.[0] || null;
             const potentialProduction = territories.reduce((sum, territory) =>
@@ -1099,11 +1146,18 @@
 
             this.elements.productionModePanel.hidden = false;
             this.elements.productionModePanel.classList.toggle("research", commonMode === "research");
+            this.elements.productionModePanel.classList.toggle("construction", commonMode === "construction");
             this.elements.modeUnits.classList.toggle("active", commonMode === "units");
             this.elements.modeFood.classList.toggle("active", commonMode === "food");
             this.elements.modeResearch.classList.toggle("active", commonMode === "research");
-            this.elements.productionModeStatus.textContent = commonMode ? commonMode.toUpperCase() : "MIXTE";
-            this.elements.productionModeDetail.textContent = `Recrutement : ${modes.units} · Nourriture : ${modes.food} · Recherche : ${modes.research}. Une affectation sera appliquée à tout le groupe.`;
+            const constructionLocked = modes.construction > 0;
+            this.elements.modeUnits.disabled = constructionLocked;
+            this.elements.modeFood.disabled = constructionLocked;
+            this.elements.modeResearch.disabled = constructionLocked;
+            this.elements.productionModeStatus.textContent = commonMode === "construction" ? "TRAVAUX" : commonMode ? commonMode.toUpperCase() : "MIXTE";
+            this.elements.productionModeDetail.textContent = constructionLocked
+                ? `Recrutement : ${modes.units} · Nourriture : ${modes.food} · Recherche : ${modes.research} · Travaux : ${modes.construction}. Les affectations sont verrouillées jusqu’à la fin des chantiers.`
+                : `Recrutement : ${modes.units} · Nourriture : ${modes.food} · Recherche : ${modes.research}. Une affectation sera appliquée à tout le groupe.`;
 
             this.elements.bonusList.replaceChildren();
             [
@@ -1116,6 +1170,8 @@
                 this.elements.bonusList.append(item);
             });
             this.elements.airportPanel.hidden = true;
+            this.elements.railroadPanel.hidden = true;
+            this.elements.buildingPanel.hidden = true;
             this.elements.activeRoutePanel.hidden = true;
             this.elements.attackPanel.hidden = true;
             this.elements.selectionTip.hidden = false;
@@ -1128,17 +1184,24 @@
             if (!canCommand) return;
             const foodMode = territory.productionMode === "food";
             const researchMode = territory.productionMode === "research";
+            const constructionMode = this.game.isTerritoryUnderConstruction(territory);
             this.elements.productionModePanel.classList.toggle("research", researchMode);
+            this.elements.productionModePanel.classList.toggle("construction", constructionMode);
             const foodCapacity = this.game.getPotentialTerritoryFoodCapacity(territory);
             const passiveCapacity = territory.isCapital
                 ? this.game.capitalFoodCapacity
                 : this.game.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
             const famine = this.game.eventSystem.isTerritoryAffected(territory.id, "famine");
-            this.elements.modeUnits.classList.toggle("active", !foodMode && !researchMode);
+            this.elements.modeUnits.disabled = constructionMode;
+            this.elements.modeFood.disabled = constructionMode;
+            this.elements.modeResearch.disabled = constructionMode;
+            this.elements.modeUnits.classList.toggle("active", !foodMode && !researchMode && !constructionMode);
             this.elements.modeFood.classList.toggle("active", foodMode);
             this.elements.modeResearch.classList.toggle("active", researchMode);
-            this.elements.productionModeStatus.textContent = foodMode ? "NOURRITURE" : researchMode ? "RECHERCHE" : "RECRUTEMENT";
-            this.elements.productionModeDetail.textContent = researchMode
+            this.elements.productionModeStatus.textContent = constructionMode ? "TRAVAUX" : foodMode ? "NOURRITURE" : researchMode ? "RECHERCHE" : "RECRUTEMENT";
+            this.elements.productionModeDetail.textContent = constructionMode
+                ? "Le chantier suspend le recrutement, la nourriture passive, la production alimentaire et la contribution scientifique. Les convois peuvent toujours traverser ce territoire."
+                : researchMode
                 ? `Ce territoire ne recrute plus, conserve sa nourriture passive et augmente la vitesse scientifique de ${Math.round(this.game.getTerritoryResearchBonus(territory) * 100)} %. Le bonus cumulé des affectations est plafonné à 50 %.`
                 : foodMode
                 ? territory.isCapital
@@ -1149,6 +1212,145 @@
                 : territory.isCapital
                 ? `La capitale recrute des unités et maintient une capacité de ${passiveCapacity} nourritures.`
                 : `Ce territoire recrute des unités tout en fournissant ${passiveCapacity} nourritures. Le mode nourriture ajouterait ${foodCapacity} points.`;
+        }
+
+        renderRailroadPanel(territory) {
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const canCommand = territory.ownerId === this.game.playerId && !territory.isImpassable;
+            const unlocked = Boolean(faction?.research.completedTechnologyIds.includes("construction-railroad"));
+            const show = !territory.isImpassable && (canCommand || territory.railroad || territory.railroadConstructionActive);
+            this.elements.railroadPanel.hidden = !show;
+            if (!show) return;
+
+            const progress = C.Geometry.clamp(
+                territory.railroadConstructionProgressMs / this.game.railroadConstructionDurationMs,
+                0,
+                1
+            );
+            this.elements.railroadPanel.classList.toggle("active", territory.railroad);
+            this.elements.railroadPanel.classList.toggle("building", territory.railroadConstructionActive);
+            this.elements.railroadProgress.hidden = !territory.railroadConstructionActive;
+            this.elements.railroadProgressBar.style.width = `${Math.round(progress * 100)}%`;
+            this.elements.railroadBuild.hidden = !canCommand || territory.railroad || territory.railroadConstructionActive;
+            this.elements.railroadBuild.disabled = !unlocked || Boolean(territory.buildingConstruction);
+            this.elements.railroadBuild.textContent = unlocked
+                ? territory.buildingConstruction
+                    ? "Autre chantier en cours"
+                    : `Construire · ${Math.round(this.game.railroadConstructionDurationMs / 1000)} s`
+                : "Recherche requise";
+
+            if (territory.railroadConstructionActive) {
+                const remaining = Math.max(0, Math.ceil((this.game.railroadConstructionDurationMs - territory.railroadConstructionProgressMs) / 1000));
+                this.elements.railroadStatus.textContent = `TRAVAUX ${Math.round(progress * 100)} %`;
+                this.elements.railroadDetail.textContent = `${remaining} s restantes. Toute production locale est suspendue; les déplacements et convois restent autorisés.`;
+                return;
+            }
+            if (territory.railroad) {
+                const connected = territory.neighbors
+                    .map((territoryId) => this.game.state.getTerritory(territoryId))
+                    .filter((neighbor) => neighbor && this.game.hasRailroadConnection(territory, neighbor)).length;
+                this.elements.railroadStatus.textContent = "OPÉRATIONNEL";
+                this.elements.railroadDetail.textContent = connected
+                    ? `${connected} liaison${connected > 1 ? "s" : ""} ferroviaire${connected > 1 ? "s" : ""} active${connected > 1 ? "s" : ""}. Les armées y voyagent ${Math.round((this.game.railroadTravelSpeedMultiplier - 1) * 100)} % plus vite.`
+                    : "La gare est prête, mais elle doit rejoindre un territoire voisin également équipé pour accélérer les déplacements.";
+                return;
+            }
+            this.elements.railroadStatus.textContent = unlocked ? "DISPONIBLE" : "À RECHERCHER";
+            this.elements.railroadDetail.textContent = unlocked
+                ? `Le chantier suspendra toute production locale pendant ${Math.round(this.game.railroadConstructionDurationMs / 1000)} secondes, puis restaurera l’affectation actuelle.`
+                : "Recherchez Réseau ferroviaire dans l’axe Construction pour aménager ce territoire.";
+        }
+
+        buildRailroad() {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            if (!territory) return;
+            const result = this.game.executeCommand({
+                type: "BUILD_RAILROAD",
+                playerId: this.game.playerId,
+                territoryId: territory.id
+            });
+            if (!result.ok) return this.showToast(result.error);
+            this.clearSelection();
+            this.showToast(result.pending
+                ? "Ordre de construction ferroviaire transmis à l’hôte."
+                : `Travaux ferroviaires lancés à ${territory.name}.`);
+        }
+
+        renderBuildingPanel(territory) {
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const canCommand = territory.ownerId === this.game.playerId && !territory.isImpassable;
+            const constructionDefinition = C.getBuildingType(territory.buildingConstruction?.buildingId);
+            const installedDefinition = (territory.buildings || [])
+                .map((buildingId) => C.getBuildingType(buildingId))
+                .find(Boolean);
+            const availableDefinition = Object.values(C.BUILDING_TYPES)
+                .find((definition) => definition.allowedTerrains.includes(territory.terrain));
+            const definition = constructionDefinition || installedDefinition || availableDefinition;
+            const show = Boolean(definition && (canCommand || constructionDefinition || installedDefinition));
+            this.elements.buildingPanel.hidden = !show;
+            if (!show) return;
+
+            const installed = territory.buildings.includes(definition.id);
+            const unlocked = !definition.prerequisiteTechnologyId || Boolean(faction?.research.completedTechnologyIds.includes(definition.prerequisiteTechnologyId));
+            const progress = constructionDefinition
+                ? C.Geometry.clamp(territory.buildingConstruction.progressMs / definition.constructionDurationMs, 0, 1)
+                : installed ? 1 : 0;
+            const otherConstruction = territory.railroadConstructionActive || (territory.buildingConstruction && !constructionDefinition);
+            this.elements.buildingName.textContent = `${definition.icon} ${definition.name}`;
+            this.elements.buildingPanel.classList.toggle("active", installed);
+            this.elements.buildingPanel.classList.toggle("building", Boolean(constructionDefinition));
+            this.elements.buildingProgress.hidden = !constructionDefinition;
+            this.elements.buildingProgressBar.style.width = `${Math.round(progress * 100)}%`;
+            this.elements.buildingBuild.dataset.buildingId = definition.id;
+            this.elements.buildingBuild.hidden = !canCommand || installed || Boolean(constructionDefinition);
+            this.elements.buildingBuild.disabled = !unlocked || Boolean(otherConstruction);
+
+            if (constructionDefinition) {
+                const remaining = Math.max(0, Math.ceil((definition.constructionDurationMs - territory.buildingConstruction.progressMs) / 1000));
+                this.elements.buildingStatus.textContent = `TRAVAUX ${Math.round(progress * 100)} %`;
+                this.elements.buildingDetail.textContent = `${remaining} s restantes. Toute production locale est suspendue; la garnison et les convois restent disponibles.`;
+                return;
+            }
+            if (installed) {
+                const foodBonus = Number(definition.effects?.foodCapacityWhenAssigned) || 0;
+                if (territory.railroadConstructionActive) {
+                    this.elements.buildingStatus.textContent = "SUSPENDU";
+                    this.elements.buildingDetail.textContent = `${definition.name} reste en place, mais son bonus est suspendu pendant les travaux ferroviaires.`;
+                    return;
+                }
+                this.elements.buildingStatus.textContent = "OPÉRATIONNEL";
+                this.elements.buildingDetail.textContent = territory.productionMode === "food"
+                    ? `${definition.description} Bonus actuellement actif : +${foodBonus} nourritures.`
+                    : `${definition.description} Passez ce territoire en mode Nourriture pour activer le bonus.`;
+                return;
+            }
+
+            const technology = C.TECHNOLOGIES[definition.prerequisiteTechnologyId];
+            this.elements.buildingStatus.textContent = unlocked ? "DISPONIBLE" : "À RECHERCHER";
+            this.elements.buildingBuild.textContent = unlocked
+                ? otherConstruction ? "Autre chantier en cours" : `Construire · ${Math.round(definition.constructionDurationMs / 1000)} s`
+                : "Recherche requise";
+            this.elements.buildingDetail.textContent = unlocked
+                ? `${definition.description} Le chantier restaurera ensuite l’affectation actuelle.`
+                : `Recherchez ${technology?.name || "la technologie requise"} pour construire ce bâtiment sur une ${C.TERRITORY_TYPES[territory.terrain]?.name || "zone compatible"}.`;
+        }
+
+        buildTerritoryBuilding() {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            const buildingId = this.elements.buildingBuild.dataset.buildingId;
+            if (!territory || !buildingId) return;
+            const result = this.game.executeCommand({
+                type: "BUILD_TERRITORY_BUILDING",
+                playerId: this.game.playerId,
+                territoryId: territory.id,
+                buildingId
+            });
+            if (!result.ok) return this.showToast(result.error);
+            const definition = C.getBuildingType(buildingId);
+            this.clearSelection();
+            this.showToast(result.pending
+                ? `Ordre de construction de ${definition?.name || "bâtiment"} transmis à l’hôte.`
+                : `Construction de ${definition?.name || "bâtiment"} lancée à ${territory.name}.`);
         }
 
         setTerritoryMode(mode) {
@@ -1294,6 +1496,12 @@
                 entries.unshift({ label: `Site rare : ${territory.rareSite.name}`, rare: true });
                 territory.rareSite.bonuses.forEach((label) => entries.push({ label, rare: true }));
             }
+            (territory.buildings || []).forEach((buildingId) => {
+                const definition = C.getBuildingType(buildingId);
+                if (!definition) return;
+                entries.unshift({ label: `Bâtiment : ${definition.name}`, rare: false });
+                entries.push({ label: definition.description, rare: false });
+            });
             if (faction) entries.push({ label: `${faction.name} — ${faction.bonusLabel}`, rare: false });
             entries.forEach((entry) => {
                 const item = document.createElement("li");

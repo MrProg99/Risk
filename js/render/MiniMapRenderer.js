@@ -97,7 +97,7 @@
                     const distance = visibilityMap.get(territory.id);
                     return distance === undefined
                         ? `${territory.id}:?`
-                        : `${territory.id}:${territory.ownerId ?? "n"}:${distance}`;
+                        : `${territory.id}:${territory.ownerId ?? "n"}:${distance}:${territory.railroad ? "r" : territory.railroadConstructionActive ? "b" : "-"}:${(territory.buildings || []).join(".")}:${territory.buildingConstruction ? "c" : "-"}`;
                 }).join(",");
         }
 
@@ -157,6 +157,8 @@
                 ctx.stroke();
             });
 
+            this.drawRailroads(ctx, state, visibilityMap);
+            this.drawBuildingMarkers(ctx, state, visibilityMap);
             this.drawMountains(ctx, state);
             this.tracePolygon(ctx, state.islandPolygon);
             ctx.strokeStyle = "rgba(168, 217, 214, .55)";
@@ -186,6 +188,50 @@
                     ctx.stroke();
                     ctx.setLineDash([]);
                 });
+            });
+            ctx.restore();
+        }
+
+        drawRailroads(ctx, state, visibilityMap) {
+            ctx.save();
+            state.territories.forEach((territory) => {
+                if (!territory.railroad || !visibilityMap.has(territory.id)) return;
+                territory.neighbors.forEach((neighborId) => {
+                    if (territory.id >= neighborId || territory.isPathBlocked(neighborId)) return;
+                    const neighbor = state.getTerritory(neighborId);
+                    if (!neighbor?.railroad || !visibilityMap.has(neighbor.id)) return;
+                    ctx.beginPath();
+                    ctx.moveTo(territory.center.x, territory.center.y);
+                    ctx.lineTo(neighbor.center.x, neighbor.center.y);
+                    ctx.strokeStyle = "rgba(5, 9, 10, .92)";
+                    ctx.lineWidth = 3.2 * this.pixelRatio / this.scale;
+                    ctx.stroke();
+                    ctx.strokeStyle = "rgba(238, 194, 101, .90)";
+                    ctx.lineWidth = 1.15 * this.pixelRatio / this.scale;
+                    ctx.stroke();
+                });
+            });
+            ctx.restore();
+        }
+
+        drawBuildingMarkers(ctx, state, visibilityMap) {
+            ctx.save();
+            state.territories.forEach((territory) => {
+                if (!visibilityMap.has(territory.id)) return;
+                const hasBuilding = (territory.buildings || []).length > 0;
+                if (!hasBuilding && !territory.buildingConstruction) return;
+                ctx.beginPath();
+                ctx.rect(
+                    territory.center.x - 3.2 * this.pixelRatio / this.scale,
+                    territory.center.y - 3.2 * this.pixelRatio / this.scale,
+                    6.4 * this.pixelRatio / this.scale,
+                    6.4 * this.pixelRatio / this.scale
+                );
+                ctx.fillStyle = territory.buildingConstruction ? "#d7e47a" : "#9ed77a";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(5, 12, 8, .92)";
+                ctx.lineWidth = 1.2 * this.pixelRatio / this.scale;
+                ctx.stroke();
             });
             ctx.restore();
         }

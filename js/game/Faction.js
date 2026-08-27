@@ -34,7 +34,9 @@
                 attacksLaunched: 0,
                 battlesWon: 0,
                 researchCompleted: 0,
-                abilitiesUsed: 0
+                abilitiesUsed: 0,
+                railroadsBuilt: 0,
+                buildingsConstructed: 0
             };
         }
 

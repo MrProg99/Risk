@@ -34,6 +34,8 @@
             this.airstrikeRangeHops = C.Geometry.clamp(Math.round(Number(options.airstrikeRangeHops ?? 4)), 1, 10);
             this.airstrikeCooldownMs = C.Geometry.clamp(Number(options.airstrikeCooldownMs ?? 38000), 5000, 120000);
             this.airstrikeDamageRatio = C.Geometry.clamp(Number(options.airstrikeDamageRatio ?? 0.10), 0.01, 0.9);
+            this.railroadConstructionDurationMs = C.Geometry.clamp(Number(options.railroadConstructionDurationMs ?? 45000), 10000, 300000);
+            this.railroadTravelSpeedMultiplier = C.Geometry.clamp(Number(options.railroadTravelSpeedMultiplier ?? 1.35), 1, 3);
             this.capitalFoodCapacity = Math.max(0, Number(options.capitalFoodCapacity ?? 200));
             this.territoryBaseFoodCapacity = Math.max(0, Number(options.territoryBaseFoodCapacity ?? 10));
             this.foodAttritionThreshold = C.Geometry.clamp(Number(options.foodAttritionThreshold ?? (1 / 1.40)), 0.1, 1);
@@ -123,6 +125,12 @@
                 territory.isCapital = false;
                 territory.productionMode = "units";
                 territory.productionModeChangedAtMs = 0;
+                territory.railroad = false;
+                territory.railroadConstructionActive = false;
+                territory.railroadConstructionProgressMs = 0;
+                territory.railroadPreviousProductionMode = null;
+                territory.buildings = [];
+                territory.buildingConstruction = null;
             });
             starts.forEach((territory, index) => {
                 const faction = this.state.factions[index];
@@ -253,6 +261,8 @@
             let changed = false;
 
             this.maintainReinforcementRoutes();
+            changed = this.updateRailroadConstruction(safeDelta) || changed;
+            changed = this.updateBuildingConstruction(safeDelta) || changed;
             changed = this.eventSystem.update(safeDelta) || changed;
             changed = this.updateFoodSystem(safeDelta) || changed;
 
@@ -539,6 +549,8 @@
             if (command.type === "BATCH_SET_TERRITORY_MODE") return this.setTerritoryProductionModeBatch(command);
             if (command.type === "BATCH_SEND_REINFORCEMENTS") return this.sendBatchReinforcements(command);
             if (command.type === "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES") return this.createContinuousReinforcementRoutesBatch(command);
+            if (command.type === "BUILD_RAILROAD") return this.buildRailroad(command);
+            if (command.type === "BUILD_TERRITORY_BUILDING") return this.buildTerritoryBuilding(command);
             return { ok: false, error: `Commande inconnue : ${command.type}` };
         }
 
@@ -634,6 +646,7 @@
             const mode = ["units", "food", "research"].includes(command.mode) ? command.mode : null;
             if (!territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
             if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
+            if (this.isTerritoryUnderConstruction(territory)) return { ok: false, error: "L’affectation est verrouillée pendant les travaux." };
             if (!mode) return { ok: false, error: "Mode de production inconnu." };
             if (territory.productionMode === mode) return { ok: true, territory, unchanged: true };
 
@@ -663,6 +676,9 @@
             if (territories.some((territory) => !territory || territory.isImpassable || territory.ownerId !== playerId)) {
                 return { ok: false, error: "La sélection contient un territoire qui ne vous appartient pas." };
             }
+            if (territories.some((territory) => this.isTerritoryUnderConstruction(territory))) {
+                return { ok: false, error: "Un territoire sélectionné est verrouillé par des travaux." };
+            }
             const changed = territories.filter((territory) => territory.productionMode !== mode);
             changed.forEach((territory) => this.setTerritoryProductionMode({
                 type: "SET_TERRITORY_MODE",
@@ -678,6 +694,174 @@
                 this.notify({ type: "TERRITORY_MODE_BATCH_CHANGED", territoryIds: changed.map((territory) => territory.id), playerId, mode });
             }
             return { ok: true, territories, changedCount: changed.length };
+        }
+
+        buildRailroad(command) {
+            if (this.paused) return { ok: false, error: "La simulation est en pause." };
+            const playerId = Number(command.playerId);
+            const faction = this.state.getFaction(playerId);
+            const territory = this.state.getTerritory(command.territoryId);
+            if (!faction || !territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
+            if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
+            if (!faction.research.completedTechnologyIds.includes("construction-railroad")) {
+                return { ok: false, error: "Recherchez d’abord : Réseau ferroviaire." };
+            }
+            if (territory.railroad) return { ok: false, error: "Ce territoire possède déjà un chemin de fer." };
+            if (territory.railroadConstructionActive) return { ok: false, error: "Les travaux ferroviaires sont déjà en cours." };
+            if (territory.buildingConstruction) return { ok: false, error: "Un bâtiment est déjà en construction sur ce territoire." };
+
+            territory.railroadPreviousProductionMode = ["units", "food", "research"].includes(territory.productionMode)
+                ? territory.productionMode
+                : "units";
+            territory.railroadConstructionActive = true;
+            territory.railroadConstructionProgressMs = 0;
+            territory.productionMode = "construction";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
+            this.state.touch();
+            this.addEvent(`${faction.name} lance les travaux ferroviaires à ${territory.name}.`, "info");
+            this.notify({
+                type: "RAILROAD_CONSTRUCTION_STARTED",
+                factionId: faction.id,
+                territoryId: territory.id,
+                durationMs: this.railroadConstructionDurationMs
+            });
+            return { ok: true, territory };
+        }
+
+        updateRailroadConstruction(deltaMs) {
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                if (!territory.railroadConstructionActive) return;
+                if (territory.ownerId === null || territory.isImpassable) {
+                    this.cancelRailroadConstruction(territory);
+                    changed = true;
+                    return;
+                }
+                territory.railroadConstructionProgressMs += deltaMs;
+                changed = true;
+                if (territory.railroadConstructionProgressMs < this.railroadConstructionDurationMs) return;
+                const faction = this.state.getFaction(territory.ownerId);
+                territory.railroad = true;
+                territory.railroadConstructionActive = false;
+                territory.railroadConstructionProgressMs = this.railroadConstructionDurationMs;
+                territory.productionMode = ["units", "food", "research"].includes(territory.railroadPreviousProductionMode)
+                    ? territory.railroadPreviousProductionMode
+                    : "units";
+                territory.railroadPreviousProductionMode = null;
+                territory.productionModeChangedAtMs = this.state.elapsedMs;
+                territory.productionProgress = 0;
+                if (faction) {
+                    faction.statistics.railroadsBuilt += 1;
+                    this.addEvent(`${faction.name} inaugure le chemin de fer de ${territory.name}.`, "info");
+                }
+                this.notify({
+                    type: "RAILROAD_CONSTRUCTION_COMPLETED",
+                    factionId: territory.ownerId,
+                    territoryId: territory.id
+                });
+            });
+            return changed;
+        }
+
+        cancelRailroadConstruction(territory) {
+            if (!territory) return;
+            territory.railroadConstructionActive = false;
+            territory.railroadConstructionProgressMs = 0;
+            territory.railroadPreviousProductionMode = null;
+            if (territory.productionMode === "construction") territory.productionMode = "units";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
+        }
+
+        isTerritoryUnderConstruction(territory) {
+            return Boolean(territory && (territory.railroadConstructionActive || territory.buildingConstruction));
+        }
+
+        buildTerritoryBuilding(command) {
+            if (this.paused) return { ok: false, error: "La simulation est en pause." };
+            const playerId = Number(command.playerId);
+            const faction = this.state.getFaction(playerId);
+            const territory = this.state.getTerritory(command.territoryId);
+            const definition = C.getBuildingType(command.buildingId);
+            if (!faction || !territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
+            if (!definition) return { ok: false, error: "Bâtiment inconnu." };
+            if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
+            if (!definition.allowedTerrains.includes(territory.terrain)) {
+                return { ok: false, error: `${definition.name} ne peut pas être construit sur ce type de terrain.` };
+            }
+            if (definition.prerequisiteTechnologyId && !faction.research.completedTechnologyIds.includes(definition.prerequisiteTechnologyId)) {
+                const technology = C.TECHNOLOGIES[definition.prerequisiteTechnologyId];
+                return { ok: false, error: `Recherchez d’abord : ${technology?.name || definition.prerequisiteTechnologyId}.` };
+            }
+            if (territory.buildings.includes(definition.id)) return { ok: false, error: `${definition.name} existe déjà sur ce territoire.` };
+            if (this.isTerritoryUnderConstruction(territory)) return { ok: false, error: "Un autre chantier est déjà en cours sur ce territoire." };
+
+            territory.buildingConstruction = {
+                buildingId: definition.id,
+                progressMs: 0,
+                previousProductionMode: ["units", "food", "research"].includes(territory.productionMode)
+                    ? territory.productionMode
+                    : "units"
+            };
+            territory.productionMode = "construction";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
+            this.state.touch();
+            this.addEvent(`${faction.name} lance la construction de ${definition.name} à ${territory.name}.`, "info");
+            this.notify({
+                type: "BUILDING_CONSTRUCTION_STARTED",
+                factionId: faction.id,
+                territoryId: territory.id,
+                buildingId: definition.id,
+                durationMs: definition.constructionDurationMs
+            });
+            return { ok: true, territory, definition };
+        }
+
+        updateBuildingConstruction(deltaMs) {
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                const construction = territory.buildingConstruction;
+                if (!construction) return;
+                const definition = C.getBuildingType(construction.buildingId);
+                if (!definition || territory.ownerId === null || territory.isImpassable) {
+                    this.cancelBuildingConstruction(territory);
+                    changed = true;
+                    return;
+                }
+                construction.progressMs += deltaMs;
+                changed = true;
+                if (construction.progressMs < definition.constructionDurationMs) return;
+
+                const faction = this.state.getFaction(territory.ownerId);
+                if (!territory.buildings.includes(definition.id)) territory.buildings.push(definition.id);
+                territory.buildingConstruction = null;
+                territory.productionMode = ["units", "food", "research"].includes(construction.previousProductionMode)
+                    ? construction.previousProductionMode
+                    : "units";
+                territory.productionModeChangedAtMs = this.state.elapsedMs;
+                territory.productionProgress = 0;
+                if (faction) {
+                    faction.statistics.buildingsConstructed += 1;
+                    this.addEvent(`${faction.name} termine ${definition.name} à ${territory.name}.`, "info");
+                }
+                this.notify({
+                    type: "BUILDING_CONSTRUCTION_COMPLETED",
+                    factionId: territory.ownerId,
+                    territoryId: territory.id,
+                    buildingId: definition.id
+                });
+            });
+            return changed;
+        }
+
+        cancelBuildingConstruction(territory) {
+            if (!territory?.buildingConstruction) return;
+            territory.buildingConstruction = null;
+            if (territory.productionMode === "construction") territory.productionMode = "units";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
         }
 
         executeAuthoritativeCommand(command) {
@@ -1141,8 +1325,13 @@
         getTravelDuration(from, to, faction) {
             const distance = C.Geometry.distance(from.center, to.center);
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "travelSpeedMultiplier");
-            const speed = 92 * (faction ? faction.bonuses.travelSpeedMultiplier : 1) * technologyMultiplier;
-            return C.Geometry.clamp((distance / speed) * 1000, 1500, 6500);
+            const railroadMultiplier = this.hasRailroadConnection(from, to) ? this.railroadTravelSpeedMultiplier : 1;
+            const speed = 92 * (faction ? faction.bonuses.travelSpeedMultiplier : 1) * technologyMultiplier * railroadMultiplier;
+            return C.Geometry.clamp((distance / speed) * 1000, railroadMultiplier > 1 ? 900 : 1500, 6500);
+        }
+
+        hasRailroadConnection(from, to) {
+            return Boolean(from && to && from.railroad && to.railroad && from.isNeighbor(to.id) && !from.isPathBlocked(to.id));
         }
 
         resolveArmyArrival(army) {
@@ -1239,6 +1428,8 @@
                 const wasCapital = target.isCapital;
                 if (army.isBarbarian) {
                     if (previousOwner) previousOwner.statistics.territoriesLost += 1;
+                    this.cancelRailroadConstruction(target);
+                    this.cancelBuildingConstruction(target);
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
@@ -1266,6 +1457,8 @@
                 attacker.statistics.battlesWon += 1;
                 attacker.statistics.territoriesCaptured += 1;
                 if (previousOwner) previousOwner.statistics.territoriesLost += 1;
+                this.cancelRailroadConstruction(target);
+                this.cancelBuildingConstruction(target);
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
@@ -1337,11 +1530,16 @@
             let capacity = Number(type?.foodCapacity) || 0;
             if (territory.rareSite?.id === "metropolis") capacity += 50;
             if (territory.rareSite?.id === "great-dam") capacity += 20;
+            (territory.buildings || []).forEach((buildingId) => {
+                const definition = C.getBuildingType(buildingId);
+                capacity += Number(definition?.effects?.foodCapacityWhenAssigned) || 0;
+            });
             return capacity;
         }
 
         getTerritoryPassiveFoodCapacity(territory) {
             if (!territory || territory.ownerId === null || territory.isImpassable || territory.isCapital) return 0;
+            if (this.isTerritoryUnderConstruction(territory)) return 0;
             if (this.eventSystem.isTerritoryAffected(territory.id, "famine")) return 0;
             return this.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
         }
@@ -1353,6 +1551,7 @@
 
         getTerritoryFoodCapacity(territory) {
             if (!territory || territory.ownerId === null || territory.productionMode !== "food") return 0;
+            if (this.isTerritoryUnderConstruction(territory)) return 0;
             if (this.eventSystem.isTerritoryAffected(territory.id, "famine")) return 0;
             return this.getPotentialTerritoryFoodCapacity(territory);
         }
@@ -1600,7 +1799,13 @@
                     isCapital: territory.isCapital,
                     airstrikeCooldownMs: territory.airstrikeCooldownMs,
                     productionMode: territory.productionMode,
-                    productionModeChangedAtMs: territory.productionModeChangedAtMs
+                    productionModeChangedAtMs: territory.productionModeChangedAtMs,
+                    railroad: territory.railroad,
+                    railroadConstructionActive: territory.railroadConstructionActive,
+                    railroadConstructionProgressMs: territory.railroadConstructionProgressMs,
+                    railroadPreviousProductionMode: territory.railroadPreviousProductionMode,
+                    buildings: (territory.buildings || []).slice(),
+                    buildingConstruction: territory.buildingConstruction ? { ...territory.buildingConstruction } : null
                 })),
                 factions: this.state.factions.map((faction) => ({
                     id: faction.id,
@@ -1640,7 +1845,24 @@
                 territory.installationProgressMs = Number(dynamic.installationProgressMs) || 0;
                 territory.isCapital = Boolean(dynamic.isCapital);
                 territory.airstrikeCooldownMs = Number(dynamic.airstrikeCooldownMs) || 0;
-                territory.productionMode = ["food", "research"].includes(dynamic.productionMode) ? dynamic.productionMode : "units";
+                territory.railroad = Boolean(dynamic.railroad);
+                territory.railroadConstructionActive = Boolean(dynamic.railroadConstructionActive);
+                territory.railroadConstructionProgressMs = Number(dynamic.railroadConstructionProgressMs) || 0;
+                territory.railroadPreviousProductionMode = ["units", "food", "research"].includes(dynamic.railroadPreviousProductionMode)
+                    ? dynamic.railroadPreviousProductionMode
+                    : null;
+                territory.buildings = [...new Set((dynamic.buildings || []).filter((buildingId) => Boolean(C.getBuildingType(buildingId))))];
+                const buildingDefinition = C.getBuildingType(dynamic.buildingConstruction?.buildingId);
+                territory.buildingConstruction = buildingDefinition ? {
+                    buildingId: buildingDefinition.id,
+                    progressMs: Math.max(0, Number(dynamic.buildingConstruction.progressMs) || 0),
+                    previousProductionMode: ["units", "food", "research"].includes(dynamic.buildingConstruction.previousProductionMode)
+                        ? dynamic.buildingConstruction.previousProductionMode
+                        : "units"
+                } : null;
+                territory.productionMode = territory.railroadConstructionActive || territory.buildingConstruction
+                    ? "construction"
+                    : ["food", "research"].includes(dynamic.productionMode) ? dynamic.productionMode : "units";
                 territory.productionModeChangedAtMs = Number(dynamic.productionModeChangedAtMs) || 0;
                 if (previousOwnerId !== territory.ownerId) {
                     this.notify({

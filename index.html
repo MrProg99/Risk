@@ -95,7 +95,10 @@
 
                 <footer class="lobby-footer">
                     <p id="lobby-summary" aria-live="polite"></p>
-                    <button class="button button-primary lobby-start" id="start-game" type="submit">Lancer la partie</button>
+                    <div class="lobby-footer-actions">
+                        <a class="button button-secondary help-link" href="aide.html" target="_blank" rel="noopener">? Aide</a>
+                        <button class="button button-primary lobby-start" id="start-game" type="submit">Lancer la partie</button>
+                    </div>
                 </footer>
 
                 <section class="room-waiting" id="room-waiting" hidden aria-live="polite">
@@ -221,6 +224,9 @@
                     <span class="button-icon">⌬</span>
                     <span>Recherche<small id="research-top-status">Disponible</small></span>
                 </button>
+                <a class="button button-secondary help-link top-help-link" href="aide.html" target="_blank" rel="noopener" title="Ouvrir le manuel dans un nouvel onglet" aria-label="Ouvrir l’aide dans un nouvel onglet">
+                    <span class="button-icon">?</span>
+                </a>
                 <button class="button button-secondary" id="toggle-pause" type="button" aria-pressed="false">
                     <span class="button-icon" id="pause-icon">Ⅱ</span>
                     <span id="pause-label">Pause</span>
@@ -368,6 +374,26 @@
                         <p id="production-mode-detail"></p>
                     </section>
 
+                    <section class="railroad-panel" id="railroad-panel" hidden>
+                        <div class="section-title-row">
+                            <h3>Infrastructure ferroviaire</h3>
+                            <span class="railroad-status" id="railroad-status">À RECHERCHER</span>
+                        </div>
+                        <div class="railroad-progress" id="railroad-progress" hidden><span id="railroad-progress-bar"></span></div>
+                        <p id="railroad-detail">Recherchez Réseau ferroviaire dans l’axe Construction.</p>
+                        <button class="railroad-build-button" id="railroad-build" type="button">Construire · 45 s</button>
+                    </section>
+
+                    <section class="building-panel" id="building-panel" hidden>
+                        <div class="section-title-row">
+                            <h3 id="building-name">Bâtiment territorial</h3>
+                            <span class="building-status" id="building-status">À RECHERCHER</span>
+                        </div>
+                        <div class="building-progress" id="building-progress" hidden><span id="building-progress-bar"></span></div>
+                        <p id="building-detail">Les bâtiments disponibles dépendent du terrain.</p>
+                        <button class="building-build-button" id="building-build" type="button">Construire</button>
+                    </section>
+
                     <section class="bonus-section">
                         <div class="section-title-row">
                             <h3>Avantages locaux</h3>
@@ -417,6 +443,7 @@
     <script defer src="js/data/factions.js"></script>
     <script defer src="js/data/installations.js"></script>
     <script defer src="js/data/technologies.js"></script>
+    <script defer src="js/data/buildings.js"></script>
     <script defer src="js/data/worldEvents.js"></script>
     <script defer src="js/network/firebaseConfig.js"></script>
     <script defer src="js/utils/geometry.js"></script>

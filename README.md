@@ -9,6 +9,8 @@ Prototype de conquête en temps réel dans le navigateur, sans framework ni dép
 
 Le jeu utilise des scripts classiques chargés avec `defer`, donc l’ouverture via `file://` fonctionne également.
 
+Le bouton **Aide** du lobby et le bouton `?` de la barre de commandement ouvrent [aide.html](aide.html) dans un nouvel onglet. Ce manuel autonome présente le démarrage rapide, toutes les commandes, les terrains, l’alimentation, la logistique, les bâtiments, les recherches, les capacités, les factions, les événements et le fonctionnement des équipes multijoueurs. Il peut rester ouvert pendant la simulation.
+
 Le mode **Multijoueur Firebase** doit être lancé avec Live Server (ou un autre serveur HTTP). Le lobby permet de créer un code à six caractères ou de rejoindre un salon existant en **1v1, 2v2 ou 3v3**. L’hôte peut choisir une équipe adverse composée de joueurs humains ou entièrement contrôlée par l’IA. Dans un salon 2v2 contre l’IA, seuls les deux membres de l’équipe humaine doivent se connecter; l’hôte simule les deux adversaires dès le lancement. Plusieurs joueurs peuvent choisir la même race : chaque commandant garde néanmoins sa couleur, sa recherche, ses territoires et ses unités. Consultez [`firebase/README.md`](firebase/README.md) avant le premier essai en ligne.
 
 La simulation multijoueur est autoritaire chez l’hôte. Les autres navigateurs envoient des commandes sérialisées et reçoivent uniquement l’état dynamique; la carte est reconstruite localement depuis une graine commune. Les équipiers partagent leur vision, peuvent se donner des renforts et autorisent le passage des convois alliés. Les renforts donnés s’ajoutent à la garnison de l’allié sans transférer le territoire. Après 30 secondes de déconnexion, l’IA prend temporairement le relais de la faction et rend le contrôle dès la reconnexion.
@@ -96,6 +98,22 @@ Le **Canal tactique** n’occupe plus une rangée sous la carte afin de maximise
 
 Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
 
+### Chemins de fer
+
+La recherche **Réseau ferroviaire**, dans l’axe Construction après les Chaînes d’assemblage, permet d’aménager individuellement les territoires contrôlés. Un chantier dure **45 secondes** de simulation. Pendant ce temps, le territoire ne recrute aucune unité, ne produit aucune nourriture — passive ou liée à son affectation — et ne contribue pas à la recherche. Sa garnison reste disponible et les armées comme les convois peuvent toujours y entrer ou le traverser. La capacité nationale permanente de **200 nourritures** demeure active si le chantier se trouve dans la capitale.
+
+À la fin des travaux, l’affectation précédente — recrutement, nourriture ou recherche — est restaurée automatiquement. Deux territoires voisins possédant tous les deux une voie ferrée forment une liaison qui accélère les déplacements de **35 %**. Les montagnes et les lacs restent infranchissables : une voie ne crée jamais de passage à travers un obstacle. Une infrastructure terminée demeure lors d’une conquête, tandis qu’un chantier inachevé est annulé.
+
+L’IA recherche et construit aussi son réseau. Elle privilégie les capitales, les sources logistiques, les sites stratégiques et les raccordements à une voie existante, mais n’ouvre pas de chantier au contact immédiat de l’ennemi ni lorsque sa réserve alimentaire deviendrait dangereuse. Les travaux, leur progression et les statistiques de construction sont inclus dans les instantanés multijoueurs Firebase; aucune modification des règles Firebase n’est nécessaire.
+
+### Fermes aménagées et bâtiments
+
+La recherche **Agriculture intensive** autorise désormais la construction d’une **Ferme aménagée** sur les territoires de type Plaine. Le chantier dure **40 secondes** et suspend temporairement toute production locale, comme les travaux ferroviaires. Une fois terminée, la ferme ajoute **50 nourritures** lorsque le territoire est affecté à la nourriture; elle ne fournit aucun bonus supplémentaire pendant le recrutement ou la recherche. Une ferme peut cohabiter avec une voie ferrée, mais les deux chantiers ne peuvent pas être menés simultanément sur le même territoire.
+
+L’IA prépare ces fermes avant une pénurie, lorsque sa couverture approche 120 à 135 %, et uniquement sur des plaines arrière sécurisées. Elle évite les capitales, fronts, hubs, voies ferrées et sites stratégiques, limite le nombre de fermes selon la taille de son empire et ne construit rien lorsque ses réserves sont déjà abondantes. Les fermes terminées restent après une conquête; les chantiers inachevés sont annulés.
+
+Le catalogue [buildings.js](js/data/buildings.js) centralise le terrain autorisé, la recherche requise, la durée, l’icône et les effets de chaque bâtiment. `Territory` conserve une liste de bâtiments et un chantier sérialisable, tandis que la commande générique `BUILD_TERRITORY_BUILDING` permet d’ajouter plus tard d’autres constructions propres aux mines, industries, forteresses ou centres scientifiques sans coupler leur logique au Canvas.
+
 Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et plusieurs itinéraires. **Sablier** place les équipes dans deux grandes moitiés opposées et bloque les autres traversées par une chaîne montagneuse, en conservant un passage central marqué par le symbole `⌛`. Ce point d’étranglement devient naturellement un objectif pour les renforts, les canons et les capacités stratégiques. Le choix est stocké dans le salon Firebase afin que tous les clients reconstruisent la même carte.
 
 Sur une carte Sablier, l’IA consolide en priorité sa propre moitié. Une attaque clairement gagnante contre un territoire neutre adjacent utilise un créneau d’expansion réservé et passe avant les capacités, les plans offensifs et les flux logistiques. Elle peut donc poursuivre cette conquête même lorsque ses autres armées sont déjà mobilisées au passage central.
@@ -124,7 +142,7 @@ Chaque carte possède au minimum **quatre aéroports**, reconnaissables à leur 
 
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de dix-sept technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. Les Parachutistes exigent la Mobilisation d’urgence, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
+Le bouton **Recherche** ouvre un arbre de vingt-deux technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. Les Parachutistes exigent la Mobilisation d’urgence, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
 
@@ -160,9 +178,12 @@ Lorsqu’une cible est trop forte pour être attaquée depuis un seul territoire
 
 ```text
 index.html
-css/style.css
+aide.html      Manuel du joueur ouvert dans un onglet séparé
+css/
+  style.css    Interface du jeu
+  help.css     Mise en page responsive du manuel
 js/
-  data/       Définitions des factions, terrains et sites rares
+  data/       Définitions des factions, terrains, bâtiments et sites rares
   utils/      Géométrie, clipping Voronoï et utilitaires déterministes
   game/       État, modèles, génération, simulation et combats
   render/     Lecture de l’état et rendu Canvas uniquement

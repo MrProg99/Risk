@@ -8,7 +8,7 @@
             icon: "◆",
             color: "#e9bd63",
             description: "Développer la production et les réseaux logistiques.",
-            technologyIds: ["construction-1", "construction-2", "construction-agriculture", "construction-3", "construction-4"]
+            technologyIds: ["construction-1", "construction-2", "construction-railroad", "construction-agriculture", "construction-3", "construction-4"]
         },
         {
             id: "attack",
@@ -75,16 +75,27 @@
             effects: { travelSpeedMultiplier: 0.10 },
             effectLabel: "+10 % de vitesse de déplacement"
         },
+        "construction-railroad": {
+            id: "construction-railroad",
+            branchId: "construction",
+            tier: 3,
+            name: "Réseau ferroviaire",
+            description: "Autorise chaque territoire à sacrifier temporairement sa production pour construire une voie ferrée.",
+            durationMs: 165000,
+            prerequisiteId: "construction-2",
+            effects: { unlockRailroad: true },
+            effectLabel: "Débloque les chemins de fer · déplacement +35 % sur un réseau relié"
+        },
         "construction-agriculture": {
             id: "construction-agriculture",
             branchId: "construction",
             tier: 3,
             name: "Agriculture intensive",
-            description: "Des cultures organisées augmentent la nourriture produite autour de chaque ville.",
+            description: "Des cultures organisées augmentent la nourriture de chaque ville et permettent d’aménager des fermes sur les plaines.",
             durationMs: 150000,
             prerequisiteId: "construction-2",
-            effects: { territoryBaseFoodCapacityBonus: 10 },
-            effectLabel: "Nourriture passive : 10 → 20 par territoire"
+            effects: { territoryBaseFoodCapacityBonus: 10, unlockFarm: true },
+            effectLabel: "Nourriture passive : 10 → 20 · débloque les Fermes aménagées"
         },
         "construction-4": {
             id: "construction-4",
