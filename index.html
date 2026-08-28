@@ -106,7 +106,10 @@
                 </footer>
 
                 <section class="room-waiting" id="room-waiting" hidden aria-live="polite">
-                    <div><span>CODE DU SALON</span><strong id="room-code-display">------</strong></div>
+                    <div class="room-waiting-heading">
+                        <div><span>CODE DU SALON</span><strong id="room-code-display">------</strong></div>
+                        <button class="button button-secondary room-leave" id="leave-room" type="button">Quitter ce salon</button>
+                    </div>
                     <p id="room-status">Connexion au salon…</p>
                     <div class="room-player-list" id="room-player-list"></div>
                 </section>

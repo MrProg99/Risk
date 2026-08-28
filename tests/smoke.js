@@ -246,10 +246,11 @@
                     <input type="radio" name="playerCount" value="2" checked>
                     <input type="text" name="roomCode" value="abc123">
                     <div id="room-code-field"></div>
-                    <div id="multiplayer-join-action" hidden><button id="join-room" type="submit">Rejoindre le salon</button></div>
+                    <div id="multiplayer-join-action" hidden><span id="join-code-help"></span><button id="join-room" type="submit">Rejoindre le salon</button></div>
                     <div id="lobby-factions"></div>
                     <p id="lobby-summary"></p>
                     <button id="start-game" type="submit">Lancer</button>
+                    <section id="room-waiting" hidden><strong id="room-code-display"></strong><p id="room-status"></p><div id="room-player-list"></div><button id="leave-room" type="button">Quitter</button></section>
                 </form>
             </section>
             <div id="game-app"></div>`;
@@ -257,6 +258,12 @@
         const joinLobbyController = new C.LobbyController();
         check(!joinLobbyController.joinAction.hidden && joinLobbyController.startButton.hidden && joinLobbyController.roomCodeInput.required, "le mode Rejoindre affiche un bouton dédié directement sous le code du salon");
         check(joinLobbyController.getConfiguration().roomCode === "ABC123", "le code saisi pour rejoindre un salon est normalisé en six caractères majuscules");
+        joinLobbyController.network = { uid: "host", roomCode: "PN6EUD" };
+        joinLobbyController.room = { meta: { hostUid: "host" }, players: {} };
+        joinLobbyController.activeRoomMode = "host";
+        joinLobbyController.refresh();
+        check(!joinLobbyController.joinAction.hidden && joinLobbyController.roomWaiting.hidden && /quitter le salon PN6EUD/i.test(joinLobbyController.summary.textContent), "un ancien salon restauré ne masque plus l’action pour rejoindre un autre code");
+        check(typeof C.FirebaseMultiplayer.prototype.leaveRoom === "function" && Boolean(joinLobbyController.leaveRoomButton), "le lobby permet de quitter proprement un salon mémorisé");
         joinLobbyController.close();
         joinLobbyFixture.remove();
         const duelGame = new C.Game({ playerId: 4, activeFactionIds: [4, 1], enableAI: true, timeScale: 1 });

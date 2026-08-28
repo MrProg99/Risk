@@ -12,6 +12,7 @@
             this.uid = null;
             this.roomCode = null;
             this.room = null;
+            this.presenceDisconnect = null;
             this.unsubscribers = [];
         }
 
@@ -221,12 +222,56 @@
 
         async setupPresence(code) {
             const playerRef = this.api.ref(this.database, `${ROOT}/${code}/players/${this.uid}`);
-            await this.api.onDisconnect(playerRef).update({
+            if (this.presenceDisconnect) {
+                await this.presenceDisconnect.cancel().catch(() => {});
+            }
+            this.presenceDisconnect = this.api.onDisconnect(playerRef);
+            await this.presenceDisconnect.update({
                 connected: false,
                 disconnectedAt: this.api.serverTimestamp(),
                 lastSeenAt: this.api.serverTimestamp()
             });
             await this.api.update(playerRef, { connected: true, disconnectedAt: null, lastSeenAt: this.api.serverTimestamp() });
+        }
+
+        async leaveRoom() {
+            const code = this.roomCode;
+            this.close();
+            localStorage.removeItem("frontieres.multiplayerRoom");
+            if (!this.ready || !code) {
+                this.roomCode = null;
+                this.room = null;
+                return;
+            }
+
+            if (this.presenceDisconnect) {
+                await this.presenceDisconnect.cancel().catch(() => {});
+                this.presenceDisconnect = null;
+            }
+
+            try {
+                const room = this.room || (await this.api.get(this.api.ref(this.database, `${ROOT}/${code}`))).val();
+                const player = room?.players?.[this.uid];
+                if (player) {
+                    const removals = [
+                        this.api.remove(this.api.ref(this.database, `${ROOT}/${code}/players/${this.uid}`))
+                    ];
+                    if (player.slot) {
+                        removals.push(this.api.remove(this.api.ref(this.database, `${ROOT}/${code}/slots/${player.slot}`)));
+                    }
+                    await Promise.all(removals);
+                }
+                if (room?.meta?.hostUid === this.uid && room.meta.status === "lobby") {
+                    await this.api.update(this.api.ref(this.database, `${ROOT}/${code}/meta`), {
+                        status: "ended",
+                        endedAt: this.api.serverTimestamp(),
+                        updatedAt: this.api.serverTimestamp()
+                    });
+                }
+            } finally {
+                this.roomCode = null;
+                this.room = null;
+            }
         }
 
         watchRoom(listener) {

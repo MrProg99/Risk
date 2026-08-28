@@ -18,6 +18,8 @@
             this.factionDefinitions = factionDefinitions.slice();
             this.network = network;
             this.room = null;
+            this.activeRoomMode = null;
+            this.modeTouched = false;
             this.roomStarted = false;
             this.startListeners = new Set();
             this.lobby = document.getElementById("game-lobby");
@@ -41,6 +43,8 @@
             this.roomCodeDisplay = document.getElementById("room-code-display");
             this.roomStatus = document.getElementById("room-status");
             this.roomPlayerList = document.getElementById("room-player-list");
+            this.leaveRoomButton = document.getElementById("leave-room");
+            this.joinCodeHelp = document.getElementById("join-code-help");
             this.renderFactionChoices();
             this.bindEvents();
             this.open();
@@ -94,7 +98,21 @@
         }
 
         bindEvents() {
-            this.form.addEventListener("change", () => this.refresh());
+            this.form.addEventListener("change", (event) => {
+                if (event.target?.name === "gameMode") this.modeTouched = true;
+                this.refresh();
+            });
+            this.roomCodeInput?.addEventListener("input", () => this.refresh());
+            this.leaveRoomButton?.addEventListener("click", async () => {
+                this.leaveRoomButton.disabled = true;
+                this.summary.textContent = `Fermeture du salon ${this.network?.roomCode || ""}…`;
+                try {
+                    await this.leaveCurrentRoom();
+                } catch (error) {
+                    this.summary.textContent = C.FirebaseMultiplayer?.formatError(error) || error.message || "Impossible de quitter le salon.";
+                    this.leaveRoomButton.disabled = false;
+                }
+            });
             this.form.addEventListener("submit", async (event) => {
                 event.preventDefault();
                 const configuration = this.getConfiguration();
@@ -102,11 +120,13 @@
                 if (actionButton.disabled) return;
                 this.startButton.disabled = true;
                 if (this.joinButton) this.joinButton.disabled = true;
-                if (configuration.mode === "solo") {
-                    this.startListeners.forEach((listener) => listener(configuration));
-                    return;
-                }
                 try {
+                    if (configuration.mode === "solo") {
+                        if (this.room) await this.leaveCurrentRoom(false);
+                        this.startListeners.forEach((listener) => listener(configuration));
+                        return;
+                    }
+                    if (this.room && !this.isUsingCurrentRoom(configuration)) await this.leaveCurrentRoom(false);
                     if (!this.room) await this.connectToRoom(configuration);
                     else if (this.room.meta.hostUid === this.network.uid) await this.network.startRoom();
                 } catch (error) {
@@ -145,6 +165,13 @@
             };
         }
 
+        isUsingCurrentRoom(configuration = this.getConfiguration()) {
+            if (!this.room || !this.activeRoomMode || configuration.mode !== this.activeRoomMode) return false;
+            if (configuration.mode !== "join" || !configuration.roomCode) return true;
+            const requestedCode = C.FirebaseMultiplayer?.normalizeCode(configuration.roomCode) || configuration.roomCode;
+            return requestedCode === this.network?.roomCode;
+        }
+
         refresh() {
             const configuration = this.getConfiguration();
             const selectedFaction = this.factionDefinitions.find((faction) => faction.id === configuration.playerId);
@@ -164,13 +191,22 @@
             if (this.teamSizeField) this.teamSizeField.hidden = configuration.mode !== "host";
             if (this.opponentModeField) this.opponentModeField.hidden = configuration.mode !== "host";
             if (this.preferredTeamField) this.preferredTeamField.hidden = configuration.mode !== "join";
-            const dedicatedJoinAction = configuration.mode === "join" && Boolean(this.joinButton);
+            const usingCurrentRoom = this.isUsingCurrentRoom(configuration);
+            const dedicatedJoinAction = configuration.mode === "join" && Boolean(this.joinButton) && !usingCurrentRoom;
             if (this.joinAction) this.joinAction.hidden = !dedicatedJoinAction;
             this.startButton.hidden = dedicatedJoinAction;
-            if (this.room) return this.renderRoom(this.room);
+            if (this.roomWaiting && !usingCurrentRoom) this.roomWaiting.hidden = true;
+            if (usingCurrentRoom) return this.renderRoom(this.room);
+            const previousRoom = this.room && this.network?.roomCode;
+            if (this.joinCodeHelp) {
+                this.joinCodeHelp.textContent = previousRoom
+                    ? `Vous êtes encore dans le salon ${previousRoom}. Il sera quitté avant de rejoindre le nouveau code.`
+                    : "Le code contient six caractères et provient du joueur qui a créé le salon.";
+            }
             if (!online) {
                 const opponents = configuration.playerCount - 1;
                 this.summary.textContent = `${selectedFaction.name} contre ${opponents} adversaire${opponents > 1 ? "s" : ""} contrôlé${opponents > 1 ? "s" : ""} par l’ordinateur · IA ${LobbyController.getAIDifficultyLabel(configuration.aiDifficulty)}.`;
+                if (previousRoom) this.summary.textContent += ` Le salon ${previousRoom} sera quitté.`;
                 this.startButton.textContent = `Lancer la partie · ${configuration.playerCount} joueurs`;
             } else if (configuration.mode === "host") {
                 const opponents = configuration.opponentMode === "ai" ? "une équipe IA" : "des joueurs humains";
@@ -178,9 +214,12 @@
                     ? ` · IA ${LobbyController.getAIDifficultyLabel(configuration.aiDifficulty)}`
                     : "";
                 this.summary.textContent = `Créer un salon ${configuration.teamSize}v${configuration.teamSize} contre ${opponents}, avec la race ${selectedFaction.name}${difficulty}.`;
+                if (previousRoom) this.summary.textContent += ` Le salon ${previousRoom} sera quitté.`;
                 this.startButton.textContent = "Créer le salon";
             } else {
-                this.summary.textContent = `Rejoindre une équipe avec la race ${selectedFaction.name}.`;
+                this.summary.textContent = previousRoom
+                    ? `Quitter le salon ${previousRoom} et rejoindre le code saisi avec la race ${selectedFaction.name}.`
+                    : `Rejoindre une équipe avec la race ${selectedFaction.name}.`;
                 this.startButton.textContent = "Rejoindre le salon";
             }
             this.startButton.disabled = false;
@@ -194,7 +233,21 @@
             } else {
                 await this.network.joinRoom(configuration.roomCode, configuration);
             }
+            this.activeRoomMode = configuration.mode;
             this.beginWatchingRoom();
+        }
+
+        async leaveCurrentRoom(refresh = true) {
+            try {
+                if (this.network && this.room) await this.network.leaveRoom();
+            } finally {
+                this.room = null;
+                this.activeRoomMode = null;
+                this.roomUnsubscribe = null;
+                if (this.roomWaiting) this.roomWaiting.hidden = true;
+                if (this.leaveRoomButton) this.leaveRoomButton.disabled = false;
+                if (refresh) this.refresh();
+            }
         }
 
         async tryRestoreRoom() {
@@ -204,6 +257,12 @@
                 const room = await this.network.restoreRoom();
                 if (!room) return this.refresh();
                 this.room = room;
+                this.activeRoomMode = room.meta?.hostUid === this.network.uid ? "host" : "join";
+                if (!this.modeTouched) {
+                    const restoredMode = this.form.elements.gameMode;
+                    const input = Array.from(restoredMode || []).find((candidate) => candidate.value === this.activeRoomMode);
+                    if (input) input.checked = true;
+                }
                 this.beginWatchingRoom();
             } catch (_error) {
                 this.refresh();
@@ -215,7 +274,7 @@
             this.roomUnsubscribe = this.network.watchRoom((room) => {
                 if (!room) return;
                 this.room = room;
-                this.renderRoom(room);
+                this.refresh();
                 if (room.meta.status === "playing" && !this.roomStarted) {
                     this.roomStarted = true;
                     const factionSetups = C.FirebaseMultiplayer.buildFactionSetups(room);
@@ -266,6 +325,7 @@
             this.startButton.hidden = !isHost;
             if (this.joinAction) this.joinAction.hidden = true;
             if (this.joinButton) this.joinButton.disabled = true;
+            if (this.leaveRoomButton) this.leaveRoomButton.disabled = false;
             this.startButton.disabled = !isHost || missing > 0;
             this.startButton.textContent = "Lancer la partie en ligne";
         }
