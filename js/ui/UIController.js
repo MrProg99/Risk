@@ -64,7 +64,6 @@
                 abilityParatrooperStatus: byId("ability-paratrooper-status"),
                 abilityNuclear: byId("ability-nuclear"),
                 abilityNuclearStatus: byId("ability-nuclear-status"),
-                newMap: byId("new-map"),
                 togglePause: byId("toggle-pause"),
                 pauseIcon: byId("pause-icon"),
                 pauseLabel: byId("pause-label"),
@@ -143,11 +142,6 @@
             this.input.onTerritoryRightClick((territory) => this.handleTerritoryRightClick(territory));
             this.input.onQuickTransfer((source, target) => this.handleQuickTransfer(source, target));
             this.input.onContinuousTransfer((source, target) => this.handleContinuousTransfer(source, target));
-
-            this.elements.newMap.addEventListener("click", () => {
-                this.clearSelection();
-                this.game.newGame();
-            });
 
             this.elements.togglePause.addEventListener("click", () => {
                 this.game.setPaused(!this.game.paused);
@@ -229,6 +223,7 @@
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_LAUNCHED") {
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#b58cff");
+                if (change.abilityId === "nuclear") this.audio?.playNuclearLaunch();
                 if (change.factionId === this.game.playerId) {
                     this.showToast(change.abilityId === "nuclear"
                         ? "Bombe nucléaire lancée — impact dans 8 secondes. Zone périphérique dangereuse."

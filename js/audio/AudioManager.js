@@ -28,6 +28,10 @@
             this.musicRestoreTimer = null;
             this.interactionTarget = options.interactionTarget || document;
             this.mediaFactory = options.mediaFactory || ((source) => new Audio(source));
+            this.effectMediaFactory = options.effectMediaFactory || this.mediaFactory;
+            this.nuclearSoundSource = options.nuclearSoundSource || "Son/Nuclear.mp3";
+            this.nuclearSoundVolume = C.Geometry.clamp(Number(options.nuclearSoundVolume ?? 0.72), 0, 1);
+            this.nuclearSound = null;
             this.contextFactory = options.contextFactory || (() => {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 return AudioContextClass ? new AudioContextClass() : null;
@@ -184,6 +188,29 @@
                 context.resume().then(play).catch(() => {});
             } else {
                 play();
+            }
+            return true;
+        }
+
+        playNuclearLaunch() {
+            if (!this.nuclearSound) {
+                try {
+                    this.nuclearSound = this.effectMediaFactory(this.nuclearSoundSource);
+                    this.nuclearSound.preload = "auto";
+                } catch (_error) {
+                    this.nuclearSound = null;
+                }
+            }
+            if (!this.nuclearSound) return false;
+
+            this.duckBackgroundMusic(4800);
+            this.nuclearSound.volume = this.nuclearSoundVolume;
+            try {
+                this.nuclearSound.currentTime = 0;
+                const playback = this.nuclearSound.play();
+                if (playback && typeof playback.catch === "function") playback.catch(() => {});
+            } catch (_error) {
+                return false;
             }
             return true;
         }

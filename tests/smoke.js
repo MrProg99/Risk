@@ -945,6 +945,16 @@
         check(upgradedNuclear.ok && upgradedNuclear.action.centerDamageRatio === 0.40 && upgradedNuclear.action.adjacentDamageRatio === 0.20, "Arme nucléaire II mémorise un souffle de 40 % au centre et 20 % autour");
         const upgradedAbilitySnapshot = upgradedAbilityGame.createNetworkSnapshot();
         check(upgradedAbilitySnapshot.factions[0].research.completedTechnologyIds.includes("ability-nuclear-2") && upgradedAbilitySnapshot.abilityActions.some((action) => action.abilityLevel === 2), "les améliorations et les frappes de niveau II sont incluses dans l’instantané Firebase");
+        const remoteAbilityGame = new C.Game({ playerId: 2, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteAbilityGame.newGame(818182);
+        let remoteNuclearLaunches = 0;
+        remoteAbilityGame.subscribe((change) => {
+            if (change.type === "ABILITY_LAUNCHED" && change.abilityId === "nuclear") remoteNuclearLaunches += 1;
+        });
+        remoteAbilityGame.applyNetworkSnapshot(upgradedAbilitySnapshot);
+        const firstRemoteSnapshotAnnouncedNuclear = remoteNuclearLaunches === 1;
+        remoteAbilityGame.applyNetworkSnapshot(upgradedAbilitySnapshot);
+        check(firstRemoteSnapshotAnnouncedNuclear && remoteNuclearLaunches === 1, "un client Firebase reçoit le lancement nucléaire une seule fois, même si l’instantané est répété");
         const upgradedAiFaction = upgradedAbilityGame.state.getFaction(2);
         upgradedAiFaction.research.completedTechnologyIds = Object.keys(C.TECHNOLOGIES).filter((technologyId) =>
             !(technologyId.startsWith("ability-") && technologyId.endsWith("-2")));
@@ -975,6 +985,22 @@
         check(audioManager.playResearchComplete() && startedNotes.length === 4 && playedFrequencies.length === 4, "la fin d’une recherche déclenche un carillon synthétique de quatre notes");
         const noteCountBeforeTerritoryLoss = startedNotes.length;
         check(audioManager.playTerritoryLost() && startedNotes.length === noteCountBeforeTerritoryLoss + 3, "la perte d’un territoire déclenche une alerte descendante de trois notes");
+        let nuclearSoundSource = "";
+        let nuclearSoundPlayCount = 0;
+        const fakeNuclearSound = {
+            currentTime: 12,
+            preload: "none",
+            volume: 1,
+            play: () => { nuclearSoundPlayCount += 1; }
+        };
+        const nuclearAudioManager = new C.AudioManager({
+            effectMediaFactory: (source) => {
+                nuclearSoundSource = source;
+                return fakeNuclearSound;
+            },
+            contextFactory: () => fakeAudioContext
+        });
+        check(nuclearAudioManager.playNuclearLaunch() && nuclearSoundSource === "Son/Nuclear.mp3" && nuclearSoundPlayCount === 1 && fakeNuclearSound.currentTime === 0 && fakeNuclearSound.preload === "auto", "le lancement nucléaire joue Nuclear.mp3 depuis le début");
         let loadedMusicSource = "";
         let musicPlayCount = 0;
         let musicLoadCount = 0;
@@ -1009,6 +1035,28 @@
         musicAudioManager.duckBackgroundMusic();
         check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
         clearTimeout(musicAudioManager.musicRestoreTimer);
+        let nuclearLaunchSounds = 0;
+        let nuclearLaunchPulses = 0;
+        const nuclearLaunchUiStub = {
+            game: { playerId: 1 },
+            renderer: { pulseTerritory: () => { nuclearLaunchPulses += 1; } },
+            audio: { playNuclearLaunch: () => { nuclearLaunchSounds += 1; } },
+            refreshDynamic: () => {},
+            showToast: () => {}
+        };
+        C.UIController.prototype.handleGameChange.call(nuclearLaunchUiStub, {
+            type: "ABILITY_LAUNCHED",
+            abilityId: "nuclear",
+            factionId: 2,
+            targetTerritoryId: 14
+        });
+        C.UIController.prototype.handleGameChange.call(nuclearLaunchUiStub, {
+            type: "ABILITY_LAUNCHED",
+            abilityId: "missile",
+            factionId: 2,
+            targetTerritoryId: 15
+        });
+        check(nuclearLaunchSounds === 1 && nuclearLaunchPulses === 2, "la bombe nucléaire joue son alerte pour tous les joueurs, même lorsqu’un adversaire la lance");
         let playerResearchSounds = 0;
         let researchToast = "";
         const researchUiStub = {

@@ -34,8 +34,6 @@
         lobby.close();
 
         if (multiplayer) {
-            document.getElementById("new-map").disabled = true;
-            document.getElementById("new-map").title = "La carte est contrôlée par le salon multijoueur";
             document.getElementById("toggle-pause").disabled = true;
             document.getElementById("toggle-pause").title = "Une partie en ligne ne peut pas être mise en pause";
             if (configuration.isHost) {

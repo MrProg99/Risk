@@ -1837,6 +1837,7 @@
         applyNetworkSnapshot(snapshot) {
             if (!snapshot || Number(snapshot.revision) < this.state.revision) return false;
             const previousWinnerTeamId = this.state.winnerTeamId;
+            const previousAbilityActionIds = new Set(this.state.abilityActions.map((action) => action.id));
             (snapshot.territories || []).forEach((dynamic) => {
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
@@ -1910,6 +1911,9 @@
             });
             this.state.worldEvents = snapshot.worldEvents || [];
             this.state.abilityActions = snapshot.abilityActions || [];
+            this.state.abilityActions.forEach((action) => {
+                if (!previousAbilityActionIds.has(action.id)) this.notify({ type: "ABILITY_LAUNCHED", ...action });
+            });
             this.state.events = snapshot.events || [];
             this.state.elapsedMs = Number(snapshot.elapsedMs) || 0;
             this.state.nextArmyId = Number(snapshot.nextArmyId) || 1;
