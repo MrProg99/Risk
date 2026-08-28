@@ -54,7 +54,8 @@
             const code = String(error?.code || "").toLowerCase();
             const message = String(error?.message || "");
             if (/permission[-_]?denied/.test(code) || /permission[_ -]?denied|access denied/i.test(message)) {
-                return "Accès Firebase refusé. Publiez les règles Frontières mises à jour dans Realtime Database.";
+                const operation = error?.frontieresOperation ? ` pendant ${error.frontieresOperation}` : "";
+                return `Accès Firebase refusé${operation}. Publiez les règles Frontières (bloc frontieres) dans Realtime Database.`;
             }
             if (code.includes("operation-not-allowed") || code.includes("admin-restricted-operation")) {
                 return "L’authentification anonyme Firebase doit être activée dans Authentication > Sign-in method.";
@@ -63,6 +64,13 @@
                 return "Connexion à Firebase impossible. Vérifiez Internet, puis réessayez.";
             }
             return message || "Connexion au salon impossible.";
+        }
+
+        static operationError(error, operation) {
+            const wrapped = new Error(error?.message || "Opération Firebase refusée.");
+            wrapped.code = error?.code;
+            wrapped.frontieresOperation = operation;
+            return wrapped;
         }
 
         static buildFactionSetups(room) {
@@ -159,7 +167,12 @@
             const code = FirebaseMultiplayer.normalizeCode(rawCode);
             if (code.length !== 6) throw new Error("Le code du salon doit contenir 6 caractères.");
             const roomRef = this.api.ref(this.database, `${ROOT}/${code}`);
-            const roomSnapshot = await this.api.get(roomRef);
+            let roomSnapshot;
+            try {
+                roomSnapshot = await this.api.get(roomRef);
+            } catch (error) {
+                throw FirebaseMultiplayer.operationError(error, "la lecture du salon");
+            }
             if (!roomSnapshot.exists()) throw new Error("Salon introuvable.");
             const room = roomSnapshot.val();
             if (room.meta?.status !== "lobby") throw new Error("Cette partie a déjà commencé.");
@@ -185,7 +198,12 @@
                 for (let offset = 0; offset < teamSize; offset += 1) {
                     const slot = teamId === 1 ? offset + 1 : teamSize + offset + 1;
                     const slotRef = this.api.ref(this.database, `${ROOT}/${code}/slots/${slot}`);
-                    const result = await this.api.runTransaction(slotRef, (current) => current || this.uid, { applyLocally: false });
+                    let result;
+                    try {
+                        result = await this.api.runTransaction(slotRef, (current) => current || this.uid, { applyLocally: false });
+                    } catch (error) {
+                        throw FirebaseMultiplayer.operationError(error, "la réservation de votre place");
+                    }
                     if (result.committed && result.snapshot.val() === this.uid) {
                         claimed = { teamId, slot };
                         break;
@@ -195,10 +213,18 @@
             }
             if (!claimed) throw new Error("Le salon est complet.");
             const player = this.playerProfile({ ...options, ...claimed });
-            await this.api.set(this.api.ref(this.database, `${ROOT}/${code}/players/${this.uid}`), player);
+            try {
+                await this.api.set(this.api.ref(this.database, `${ROOT}/${code}/players/${this.uid}`), player);
+            } catch (error) {
+                throw FirebaseMultiplayer.operationError(error, "l’ajout de votre profil au salon");
+            }
             this.roomCode = code;
             localStorage.setItem("frontieres.multiplayerRoom", code);
-            await this.setupPresence(code);
+            try {
+                await this.setupPresence(code);
+            } catch (error) {
+                throw FirebaseMultiplayer.operationError(error, "l’activation de votre présence");
+            }
             return player;
         }
 

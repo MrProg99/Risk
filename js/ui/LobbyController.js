@@ -122,11 +122,23 @@
                 if (this.joinButton) this.joinButton.disabled = true;
                 try {
                     if (configuration.mode === "solo") {
-                        if (this.room) await this.leaveCurrentRoom(false);
+                        if (this.room) {
+                            try {
+                                await this.leaveCurrentRoom(false);
+                            } catch (cleanupError) {
+                                console.warn("Ancien salon Firebase non nettoyé avant le mode solo.", cleanupError);
+                            }
+                        }
                         this.startListeners.forEach((listener) => listener(configuration));
                         return;
                     }
-                    if (this.room && !this.isUsingCurrentRoom(configuration)) await this.leaveCurrentRoom(false);
+                    if (this.room && !this.isUsingCurrentRoom(configuration)) {
+                        try {
+                            await this.leaveCurrentRoom(false);
+                        } catch (cleanupError) {
+                            console.warn("Ancien salon Firebase non nettoyé avant la nouvelle connexion.", cleanupError);
+                        }
+                    }
                     if (!this.room) await this.connectToRoom(configuration);
                     else if (this.room.meta.hostUid === this.network.uid) await this.network.startRoom();
                 } catch (error) {
