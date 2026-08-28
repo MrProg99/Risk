@@ -50,6 +50,10 @@
             return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
         }
 
+        static claimEmptySlot(currentUid, requestingUid) {
+            return currentUid == null ? requestingUid : undefined;
+        }
+
         static formatError(error) {
             const code = String(error?.code || "").toLowerCase();
             const message = String(error?.message || "");
@@ -197,10 +201,20 @@
             for (const teamId of teamOrder) {
                 for (let offset = 0; offset < teamSize; offset += 1) {
                     const slot = teamId === 1 ? offset + 1 : teamSize + offset + 1;
+                    const occupantUid = room.slots?.[slot];
+                    if (occupantUid) {
+                        if (occupantUid === this.uid) claimed = { teamId, slot };
+                        if (claimed) break;
+                        continue;
+                    }
                     const slotRef = this.api.ref(this.database, `${ROOT}/${code}/slots/${slot}`);
                     let result;
                     try {
-                        result = await this.api.runTransaction(slotRef, (current) => current || this.uid, { applyLocally: false });
+                        result = await this.api.runTransaction(
+                            slotRef,
+                            (current) => FirebaseMultiplayer.claimEmptySlot(current, this.uid),
+                            { applyLocally: false }
+                        );
                     } catch (error) {
                         throw FirebaseMultiplayer.operationError(error, "la réservation de votre place");
                     }

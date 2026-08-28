@@ -9,6 +9,8 @@ Le jeu utilise Firebase Authentication anonyme et Realtime Database. Dans la con
 
 Le fichier de règles initial fourni avec les autres prototypes ne contient que les espaces `rooms` et `battlezone`. Sans ajouter explicitement `frontieres` au même niveau, la règle globale `.write: false` refuse la lecture ou l’inscription au salon. Le message du lobby précise maintenant si le refus survient pendant la lecture, la réservation du créneau, l’ajout du profil ou l’activation de la présence.
 
+La réservation parcourt uniquement les créneaux libres connus. Sa transaction retourne `undefined` si un autre joueur vient d’occuper la place, ce qui annule la tentative sans demander à Firebase d’écrire sur le créneau d’un autre utilisateur. Les règles n’ont pas besoin d’autoriser la modification d’une place déjà occupée.
+
 La règle de lecture de `frontieres/rooms/$roomCode` doit conserver le test `!data.exists()`. Le créateur vérifie qu’un code aléatoire est libre avant d’écrire le salon; refuser la lecture d’un chemin encore vide provoque `PERMISSION_DENIED` dès la création. Si une ancienne version du fragment contenait `(!data.exists() && false)`, remplacez-la puis republiez les règles.
 
 Exemple de fusion (ne remplacez pas vos namespaces existants) :
