@@ -19,7 +19,7 @@ La simulation multijoueur est autoritaire chez l’hôte. Les autres navigateurs
 
 Pendant cette prise de relais, l’IA coopère défensivement avec son équipe. Elle peut envoyer un convoi ponctuel vers une capitale, une installation, un site rare ou un territoire alimentaire allié lorsque les forces ennemies voisines deviennent dangereuses. Elle conserve ses propres garnisons, ne mobilise jamais plus de 25 % de son surplus, limite son aide à deux convois simultanés et attend 20 secondes avant de soutenir de nouveau la même position. Elle évite aussi de provoquer une pénurie chez le destinataire, sauf pour sauver une capitale en situation critique.
 
-Au lancement, un lobby permet de choisir entre **2 et 4 joueurs**, la faction commandée et le niveau de l’ordinateur. **Détendu** réduit son recrutement territorial de 25 %, **Normal** conserve l’équilibrage actuel, **Difficile** l’augmente de 20 % et **Implacable** de 40 %. La stratégie et les capacités restent identiques à tous les niveaux. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
+Au lancement, un lobby permet de choisir entre **2 et 4 joueurs**, la faction commandée, la taille de la carte et le niveau de l’ordinateur. **Détendu** réduit son recrutement territorial de 25 %, **Normal** conserve l’équilibrage actuel, **Difficile** l’augmente de 20 % et **Implacable** de 40 %. La stratégie et les capacités restent identiques à tous les niveaux. Le premier joueur est humain et les autres factions participantes sont contrôlées par l’ordinateur. La carte et la simulation en temps réel ne démarrent qu’après avoir cliqué sur **Lancer la partie**.
 
 Le bonus de difficulté appartient uniquement aux factions IA permanentes. Il ne modifie ni la nourriture, ni les renforts et capacités gratuits, et ne s’applique jamais à une faction humaine reprise temporairement après une déconnexion.
 
@@ -98,7 +98,7 @@ La fiche **Flux logistique actif** permet de suivre les expéditions et les livr
 
 Le **Canal tactique** n’occupe plus une rangée sous la carte afin de maximiser la surface de jeu. Les événements importants restent conservés dans l’état sérialisable pour la simulation et Firebase; les alertes qui exigent une réaction immédiate sont présentées directement sur la carte par les notifications, animations et sons. Les arrivées ordinaires et la logistique automatisée demeurent silencieuses.
 
-Le bouton **Nouvelle carte** recrée une carte de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, les ressources, les six sites rares, quatre à six lacs, de grandes chaînes montagneuses et les positions de départ. Le bouton **Pause** suspend toute la simulation.
+Le lobby propose une **Carte actuelle** de **2800 × 1800** unités comprenant **110 à 120 cellules de Voronoï**, ou une **Grande carte** de **3600 × 2300** comprenant **165 à 180 cellules**. Les deux variantes génèrent les ressources, les six sites rares, les obstacles et les positions de départ; la grande version augmente aussi le nombre de lacs et d’aéroports. Le bouton **Nouvelle carte** conserve la taille choisie tandis que **Pause** suspend toute la simulation.
 
 ### Chemins de fer
 
@@ -116,7 +116,7 @@ L’IA prépare ces fermes avant une pénurie, lorsque sa couverture approche 12
 
 Le catalogue [buildings.js](js/data/buildings.js) centralise le terrain autorisé, la recherche requise, la durée, l’icône et les effets de chaque bâtiment. `Territory` conserve une liste de bâtiments et un chantier sérialisable, tandis que la commande générique `BUILD_TERRITORY_BUILDING` permet d’ajouter plus tard d’autres constructions propres aux mines, industries, forteresses ou centres scientifiques sans coupler leur logique au Canvas.
 
-Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et plusieurs itinéraires. **Sablier** place les équipes dans deux grandes moitiés opposées et bloque les autres traversées par une chaîne montagneuse, en conservant un passage central marqué par le symbole `⌛`. Ce point d’étranglement devient naturellement un objectif pour les renforts, les canons et les capacités stratégiques. Le choix est stocké dans le salon Firebase afin que tous les clients reconstruisent la même carte.
+Le lobby propose deux géographies. **Continent** conserve des fronts ouverts et plusieurs itinéraires. **Sablier** place les équipes dans deux grandes moitiés opposées et bloque les autres traversées par une chaîne montagneuse, en conservant un passage central marqué par le symbole `⌛`. Ce point d’étranglement devient naturellement un objectif pour les renforts, les canons et les capacités stratégiques. La géographie et la taille sont stockées dans le salon Firebase afin que tous les clients reconstruisent la même carte.
 
 Sur une carte Sablier, l’IA consolide en priorité sa propre moitié. Une attaque clairement gagnante contre un territoire neutre adjacent utilise un créneau d’expansion réservé et passe avant les capacités, les plans offensifs et les flux logistiques. Elle peut donc poursuivre cette conquête même lorsque ses autres armées sont déjà mobilisées au passage central.
 
@@ -132,7 +132,7 @@ Les triangles clairs placés sur certaines frontières représentent des montagn
 
 ### Lacs intérieurs
 
-Chaque nouvelle carte contient entre **trois et cinq lacs** polygonaux, répartis dans l’intérieur du continent. Ces zones d’eau restent neutres, ne possèdent aucune unité et ne peuvent jamais être capturées ou traversées par une armée, un convoi ou une ligne de renfort. La génération ne conserve un lac que si toutes les terres jouables restent reliées par un chemin permettant de le contourner.
+La carte actuelle contient entre **quatre et six lacs** polygonaux; la grande carte en contient entre **six et neuf**. Ces zones d’eau restent neutres, ne possèdent aucune unité et ne peuvent jamais être capturées ou traversées par une armée, un convoi ou une ligne de renfort. La génération ne conserve un lac que si toutes les terres jouables restent reliées par un chemin permettant de le contourner.
 
 ### Canons de campagne
 
@@ -140,7 +140,7 @@ Chaque carte contient exactement **deux canons de campagne**, placés sur des te
 
 ### Aéroports
 
-Chaque carte possède au minimum **quatre aéroports**, reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé permet une frappe aérienne dans un rayon de quatre territoires : elle survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis impose environ 38 secondes de recharge. L’ordinateur sait également employer les aéroports qu’il contrôle.
+La carte actuelle possède au minimum **quatre aéroports**, et la grande carte au minimum **six**. Ils sont reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé permet une frappe aérienne dans un rayon de quatre territoires : elle survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis impose environ 38 secondes de recharge. L’ordinateur sait également employer les aéroports qu’il contrôle.
 
 ### Recherche
 

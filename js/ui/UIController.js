@@ -600,6 +600,12 @@
                 this.lastRouteKey = null;
             }
 
+            if (!leavingMultiSelection &&
+                (territory.id === this.selectedTerritoryId || territory.id === this.targetTerritoryId)) {
+                this.clearSelection();
+                return;
+            }
+
             if (territory.isImpassable) {
                 this.selectedTerritoryId = territory.id;
                 this.targetTerritoryId = null;
@@ -1010,7 +1016,8 @@
             this.elements.centerMap.title = `Recentrer sur ${player.name}`;
             this.elements.centerMap.setAttribute("aria-label", `Recentrer sur ${player.name}`);
             const mapLabel = this.game.state.mapType === "hourglass" ? "SABLIER" : "CONTINENT";
-            this.elements.mapSeed.textContent = `${mapLabel} · CARTE #${String(this.game.state.seed).padStart(6, "0")}`;
+            const sizeLabel = this.game.state.mapSize === "large" ? "GRANDE" : "ACTUELLE";
+            this.elements.mapSeed.textContent = `${mapLabel} · ${sizeLabel} · CARTE #${String(this.game.state.seed).padStart(6, "0")}`;
             this.renderLegend();
             this.renderPauseState();
             this.refreshDynamic();
@@ -1086,7 +1093,7 @@
             const ownerColor = faction ? faction.color : "#66777d";
             this.elements.emptySelection.hidden = true;
             this.elements.territoryDetails.hidden = false;
-            this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Ctrl + glisser droit transfère des unités ; Alt + glisser droit crée un flux continu.";
+            this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Recliquer sur l’origine ou la cible désélectionne. Ctrl + glisser droit transfère ; Alt crée un flux.";
             this.elements.territoryName.textContent = territory.name;
             this.elements.territoryId.textContent = `T-${String(territory.id).padStart(2, "0")}`;
             this.elements.ownerName.textContent = territory.isImpassable ? "Zone infranchissable" : faction ? faction.name : "Forces neutres";
@@ -1586,8 +1593,13 @@
         }
 
         handleGlobalKeydown(event) {
-            if (event.key === "Escape" && !this.elements.researchScreen.hidden) {
-                this.closeResearchScreen();
+            if (event.key === "Escape") {
+                if (!this.elements.researchScreen.hidden) this.closeResearchScreen();
+                else if (this.selectedTerritoryId !== null || this.targetTerritoryId !== null ||
+                    this.multiSelectedTerritoryIds.size || this.targetingAbilityId || this.airstrikeSourceId !== null) {
+                    event.preventDefault();
+                    this.clearSelection();
+                }
                 return;
             }
             if (event.code !== "Space" && event.key !== " ") return;

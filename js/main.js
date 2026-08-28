@@ -10,6 +10,7 @@
             activeFactionIds: configuration.activeFactionIds,
             factionSetups: configuration.factionSetups,
             mapType: configuration.mapType,
+            mapSize: configuration.mapSize,
             enableAI: !multiplayer || (configuration.isHost && permanentAiFactionIds.length > 0),
             aiFactionIds: multiplayer ? permanentAiFactionIds : undefined,
             aiProductionMultiplier: configuration.aiProductionMultiplier

@@ -89,6 +89,11 @@
                         <label><input type="radio" name="mapType" value="standard" checked><span><strong>Continent</strong><small>Fronts ouverts et itinéraires variés</small></span></label>
                         <label><input type="radio" name="mapType" value="hourglass"><span><strong>Sablier</strong><small>Deux zones reliées par un passage central</small></span></label>
                     </div>
+                    <p class="lobby-subheading">Taille du théâtre d’opérations</p>
+                    <div class="map-size-choices">
+                        <label><input type="radio" name="mapSize" value="standard" checked><span><strong>Carte actuelle</strong><small>2800 × 1800 · 110 à 120 territoires</small></span></label>
+                        <label><input type="radio" name="mapSize" value="large"><span><strong>Grande carte</strong><small>3600 × 2300 · 165 à 180 territoires</small></span></label>
+                    </div>
                 </fieldset>
 
                 <fieldset class="lobby-section faction-section">
@@ -438,7 +443,7 @@
 
                     <div class="selection-tip" id="selection-tip">
                         <span>⌖</span>
-                        <p>Clic gauche sur un voisin pour agir. Ctrl + glisser droit transfère des unités ; Alt + glisser droit crée un flux continu.</p>
+                        <p>Clic gauche sur un voisin pour agir. Recliquer sur l’origine ou la cible désélectionne. Ctrl + glisser droit transfère ; Alt crée un flux.</p>
                     </div>
                 </div>
             </aside>
@@ -452,6 +457,7 @@
     <script defer src="js/data/technologies.js"></script>
     <script defer src="js/data/buildings.js"></script>
     <script defer src="js/data/worldEvents.js"></script>
+    <script defer src="js/data/mapSizes.js"></script>
     <script defer src="js/network/firebaseConfig.js"></script>
     <script defer src="js/utils/geometry.js"></script>
     <script defer src="js/game/Territory.js"></script>

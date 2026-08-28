@@ -167,6 +167,7 @@
                 aiDifficulty,
                 aiProductionMultiplier: LobbyController.getAIProductionMultiplier(aiDifficulty),
                 mapType: this.form.elements.mapType?.value === "hourglass" ? "hourglass" : "standard",
+                mapSize: C.normalizeMapSize(this.form.elements.mapSize?.value),
                 teamId: Number(this.form.elements.preferredTeam?.value) || 1,
                 raceId: playerId,
                 activeFactionIds: LobbyController.buildActiveFactionIds(
@@ -302,6 +303,7 @@
                         aiFactionIds,
                         seed: Number(room.meta.seed),
                         mapType: room.meta.mapType === "hourglass" ? "hourglass" : "standard",
+                        mapSize: C.normalizeMapSize(room.meta.mapSize),
                         aiDifficulty: LobbyController.normalizeAIDifficulty(room.meta.aiDifficulty),
                         aiProductionMultiplier: LobbyController.getAIProductionMultiplier(room.meta.aiDifficulty),
                         isHost: room.meta.hostUid === this.network.uid,
@@ -333,7 +335,8 @@
                 ? `En attente de ${missing} joueur${missing > 1 ? "s" : ""}…`
                 : isHost ? "Les équipes sont prêtes. Lancez la partie." : "En attente du lancement par l’hôte…";
             const aiCount = players.filter((player) => player.isAI).length;
-            this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""}`;
+            const mapSizeLabel = C.getMapSizeDefinition(room.meta.mapSize).name;
+            this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""} · ${mapSizeLabel}`;
             this.startButton.hidden = !isHost;
             if (this.joinAction) this.joinAction.hidden = true;
             if (this.joinButton) this.joinButton.disabled = true;

@@ -153,6 +153,7 @@
                         ? options.aiDifficulty
                         : "normal",
                     mapType: options.mapType === "hourglass" ? "hourglass" : "standard",
+                    mapSize: C.normalizeMapSize(options.mapSize),
                     seed: null,
                     createdAt: now,
                     updatedAt: now

@@ -33,6 +33,8 @@ Lors de la création d’un salon, l’hôte peut réserver toute l’équipe ad
 
 Le type de carte choisi par l’hôte est conservé dans `meta.mapType` (`standard` ou `hourglass`). Comme la graine, cette valeur est lue avant la construction locale de la carte par chaque client. Les règles actuelles acceptent aussi ce champ sans modification.
 
+La taille choisie est conservée dans `meta.mapSize` (`standard` ou `large`). Elle détermine les dimensions et le nombre de territoires reconstruits à partir de la graine commune. Ce champ supplémentaire est accepté par les règles actuelles et ne demande aucune nouvelle publication.
+
 Le niveau choisi pour l’équipe adverse IA est conservé dans `meta.aiDifficulty` (`relaxed`, `normal`, `hard` ou `relentless`). Tous les clients reçoivent ainsi le même réglage, tandis que seul l’hôte applique le bonus de recrutement dans sa simulation autoritaire. Ce champ est accepté par les règles actuelles : il n’est pas nécessaire de republier les règles Firebase.
 
 ## Modèle de données

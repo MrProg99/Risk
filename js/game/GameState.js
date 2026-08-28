@@ -2,12 +2,14 @@
     "use strict";
 
     class GameState {
-        constructor() {
+        constructor(options = {}) {
+            const mapSize = C.getMapSizeDefinition(options.mapSize);
             this.seed = 0;
             this.mapType = "standard";
+            this.mapSize = mapSize.id;
             this.chokeEdges = [];
-            this.mapWidth = 2800;
-            this.mapHeight = 1800;
+            this.mapWidth = mapSize.width;
+            this.mapHeight = mapSize.height;
             this.islandPolygon = [];
             this.territories = [];
             this.factions = [];
@@ -54,6 +56,7 @@
             return {
                 seed: this.seed,
                 mapType: this.mapType,
+                mapSize: this.mapSize,
                 chokeEdges: this.chokeEdges.map((edge) => edge.slice()),
                 mapWidth: this.mapWidth,
                 mapHeight: this.mapHeight,

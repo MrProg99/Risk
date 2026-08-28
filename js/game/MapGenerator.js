@@ -16,15 +16,20 @@
     ];
 
     class MapGenerator {
-        constructor(width = 1200, height = 760) {
+        constructor(width = 1200, height = 760, options = {}) {
             this.width = width;
             this.height = height;
+            this.minimumTerritories = Math.max(2, Number(options.minimumTerritories) || 110);
+            this.maximumTerritories = Math.max(this.minimumTerritories, Number(options.maximumTerritories) || 120);
+            this.minimumLakes = Math.max(0, Number(options.minimumLakes) || 4);
+            this.maximumLakes = Math.max(this.minimumLakes, Number(options.maximumLakes) || 6);
+            this.minimumAirports = Math.max(0, Number(options.minimumAirports) || 4);
         }
 
         generate(seed, requestedCount, mapType = "standard") {
             const random = C.Geometry.seededRandom(seed);
             const normalizedMapType = mapType === "hourglass" ? "hourglass" : "standard";
-            const territoryCount = requestedCount || C.Geometry.randomInt(random, 110, 120);
+            const territoryCount = requestedCount || C.Geometry.randomInt(random, this.minimumTerritories, this.maximumTerritories);
             const islandPolygon = this.createIsland(random);
             const sites = this.createSites(territoryCount, islandPolygon, random);
             const polygons = sites.map((site, siteIndex) => this.createVoronoiCell(site, siteIndex, sites, islandPolygon));
@@ -45,7 +50,7 @@
             this.detectNeighbors(territories);
             const chokeEdges = normalizedMapType === "hourglass" ? this.createHourglassChoke(territories) : [];
             this.createLakes(territories, random);
-            this.ensureMinimumTerrain(territories, "airport", 4, random);
+            this.ensureMinimumTerrain(territories, "airport", this.minimumAirports, random);
             this.createMountainBarriers(territories, random);
             return { islandPolygon, territories, mapType: normalizedMapType, chokeEdges };
         }
@@ -180,7 +185,7 @@
         }
 
         createLakes(territories, random) {
-            const targetCount = C.Geometry.randomInt(random, 4, 6);
+            const targetCount = C.Geometry.randomInt(random, this.minimumLakes, this.maximumLakes);
             const mapCenter = { x: this.width / 2, y: this.height / 2 };
             const names = C.Geometry.shuffle(LAKE_NAMES, random);
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
@@ -246,7 +251,11 @@
                 return { ...edge, score: rangeDistance + random() * 110 - edge.length * 0.12 };
             }).sort((a, b) => a.score - b.score);
 
-            const targetCount = C.Geometry.clamp(Math.round(edges.length * 0.14), 26, 44);
+            const targetCount = C.Geometry.clamp(
+                Math.round(edges.length * 0.14),
+                Math.round(territories.length * 0.22),
+                Math.round(territories.length * 0.38)
+            );
             const minimumOpenBorders = 2;
             let placed = 0;
             for (const edge of candidates) {

@@ -71,7 +71,7 @@
         game.newGame(424242);
         const state = game.state;
 
-        check(state.mapWidth === 2800 && state.mapHeight === 1800, "la carte étendue mesure 2800 par 1800 unités");
+        check(state.mapSize === "standard" && state.mapWidth === 2800 && state.mapHeight === 1800, "la carte actuelle mesure 2800 par 1800 unités");
         check(state.territories.length >= 110 && state.territories.length <= 120, "la carte étendue contient entre 110 et 120 territoires");
         check(state.territories.every((territory) => territory.polygon.length >= 3), "chaque territoire possède un polygone valide");
         check(state.territories.every((territory) => territory.neighbors.length >= 2), "chaque territoire possède plusieurs voisins");
@@ -94,6 +94,16 @@
         check(state.territories.every((territory) => territory.blockedNeighbors.every((id) => state.getTerritory(id).isPathBlocked(territory.id))), "les blocages montagneux sont réciproques");
         check(graphIsConnected(state.territories, true), "la carte reste entièrement accessible en contournant les montagnes");
         check(graphIsConnected(state.territories, true), "les terres jouables restent connectées autour des lacs");
+        const largeMapGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3], mapSize: "large", enableAI: false, enableWorldEvents: false });
+        largeMapGame.newGame(424244);
+        check(largeMapGame.state.mapSize === "large" && largeMapGame.state.mapWidth === 3600 && largeMapGame.state.mapHeight === 2300, "la grande carte mesure 3600 par 2300 unités");
+        check(largeMapGame.state.territories.length >= 165 && largeMapGame.state.territories.length <= 180, "la grande carte contient entre 165 et 180 territoires");
+        check(largeMapGame.state.territories.filter((territory) => territory.isImpassable).length >= 6 && largeMapGame.state.territories.filter((territory) => territory.isImpassable).length <= 9, "la grande carte contient entre six et neuf lacs");
+        check(largeMapGame.state.territories.filter((territory) => territory.terrain === "airport").length >= 6, "la grande carte contient au moins six aéroports");
+        check(graphIsConnected(largeMapGame.state.territories, true), "la grande carte reste entièrement accessible autour de ses obstacles");
+        check(largeMapGame.state.toJSON().mapSize === "large", "la taille de carte est incluse dans l’état sérialisable");
+        const largeHourglassMap = largeMapGame.mapGenerator.generate(424245, undefined, "hourglass");
+        check(largeHourglassMap.mapType === "hourglass" && graphIsConnected(largeHourglassMap.territories, true), "la grande carte Sablier conserve son passage central franchissable");
         const hourglassMap = game.mapGenerator.generate(424243, 115, "hourglass");
         const hourglassCenterX = game.state.mapWidth / 2;
         const openHourglassCrossings = hourglassMap.territories.reduce((edges, territory) => {
@@ -214,6 +224,8 @@
                     <input type="radio" name="playerCount" value="4">
                     <input type="radio" name="mapType" value="standard">
                     <input type="radio" name="mapType" value="hourglass" checked>
+                    <input type="radio" name="mapSize" value="standard">
+                    <input type="radio" name="mapSize" value="large" checked>
                     <input type="radio" name="aiDifficulty" value="normal">
                     <input type="radio" name="aiDifficulty" value="hard" checked>
                     <div id="ai-difficulty-options"></div>
@@ -233,6 +245,7 @@
         lobbyController.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
         check(Boolean(submittedLobbyConfiguration && submittedLobbyConfiguration.playerId === 2 && submittedLobbyConfiguration.playerCount === 3), "le formulaire du lobby transmet la race et le nombre de joueurs sélectionnés");
         check(submittedLobbyConfiguration.mapType === "hourglass", "le lobby transmet le type de carte Sablier au moteur");
+        check(submittedLobbyConfiguration.mapSize === "large", "le lobby transmet le choix Grande carte au moteur");
         check(submittedLobbyConfiguration.aiDifficulty === "hard" && submittedLobbyConfiguration.aiProductionMultiplier === 1.20, "le lobby transmet le niveau Difficile et son bonus de production");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
         lobbyController.close();
@@ -373,6 +386,31 @@
         };
         C.UIController.prototype.handleTerritoryClick.call(shiftSelectionStub, groupSources[1], { shiftKey: true });
         check(shiftSelectionStub.multiSelectedTerritoryIds.has(groupSources[0].id) && shiftSelectionStub.multiSelectedTerritoryIds.has(groupSources[1].id), "Shift + clic ajoute le territoire courant et le nouveau territoire à la sélection multiple");
+        let selectionToggleClears = 0;
+        const selectionToggleStub = {
+            game: groupGame,
+            selectedTerritoryId: groupSources[0].id,
+            multiSelectedTerritoryIds: new Set(),
+            targetTerritoryId: groupDestination.id,
+            plannedRoute: [],
+            lastRouteKey: null,
+            targetingAbilityId: null,
+            airstrikeSourceId: null,
+            clearSelection() {
+                this.selectedTerritoryId = null;
+                this.targetTerritoryId = null;
+                this.multiSelectedTerritoryIds.clear();
+                selectionToggleClears += 1;
+            },
+            syncSelection: () => {},
+            showToast: () => {}
+        };
+        C.UIController.prototype.handleTerritoryClick.call(selectionToggleStub, groupDestination, {});
+        const targetToggleClears = selectionToggleClears === 1 && selectionToggleStub.selectedTerritoryId === null && selectionToggleStub.targetTerritoryId === null;
+        selectionToggleStub.selectedTerritoryId = groupSources[0].id;
+        selectionToggleStub.targetTerritoryId = groupDestination.id;
+        C.UIController.prototype.handleTerritoryClick.call(selectionToggleStub, groupSources[0], {});
+        check(targetToggleClears && selectionToggleClears === 2 && selectionToggleStub.selectedTerritoryId === null && selectionToggleStub.targetTerritoryId === null, "recliquer sur l'origine ou la cible désélectionne sans quitter la carte");
         const teamSource = teamGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((id) => {
             const neighbor = teamGame.state.getTerritory(id);
             return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(id);
@@ -1057,6 +1095,28 @@
             preventDefault: () => { lossPrevented = true; }
         });
         check(lossPrevented && lossFocusId === 12 && lossFocusZoom >= 0.78 && lossPulse?.territoryId === 12 && lossPulse.force === true && lossZoomRendered === 1, "Espace centre la camera et signale la derniere perte, meme sous le brouillard");
+        let escapeClears = 0;
+        let escapePrevented = false;
+        const escapeSelectionUiStub = {
+            elements: { researchScreen: { hidden: true } },
+            selectedTerritoryId: 12,
+            targetTerritoryId: 13,
+            multiSelectedTerritoryIds: new Set(),
+            targetingAbilityId: null,
+            airstrikeSourceId: null,
+            clearSelection() {
+                this.selectedTerritoryId = null;
+                this.targetTerritoryId = null;
+                escapeClears += 1;
+            }
+        };
+        C.UIController.prototype.handleGlobalKeydown.call(escapeSelectionUiStub, {
+            code: "Escape",
+            key: "Escape",
+            target: { tagName: "BODY", isContentEditable: false },
+            preventDefault: () => { escapePrevented = true; }
+        });
+        check(escapeClears === 1 && escapePrevented && escapeSelectionUiStub.selectedTerritoryId === null && escapeSelectionUiStub.targetTerritoryId === null, "Échap désélectionne également l'origine et la cible");
         lossFocusId = null;
         lossPrevented = false;
         C.UIController.prototype.handleGlobalKeydown.call(spaceLossUiStub, {

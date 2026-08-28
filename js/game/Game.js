@@ -18,9 +18,11 @@
             this.activeFactionIds = [...new Set(this.factionSetups ? runtimeFactionIds : requestedFactionIds)]
                 .filter((factionId) => runtimeFactionIds.includes(factionId));
             if (!this.activeFactionIds.includes(this.playerId)) this.activeFactionIds.unshift(this.playerId);
-            this.state = new C.GameState();
+            this.mapSize = C.normalizeMapSize(options.mapSize);
+            const mapSize = C.getMapSizeDefinition(this.mapSize);
+            this.state = new C.GameState({ mapSize: this.mapSize });
             this.mapType = options.mapType === "hourglass" ? "hourglass" : "standard";
-            this.mapGenerator = new C.MapGenerator(this.state.mapWidth, this.state.mapHeight);
+            this.mapGenerator = new C.MapGenerator(mapSize.width, mapSize.height, mapSize);
             this.listeners = new Set();
             this.random = Math.random;
             this.paused = false;
@@ -58,7 +60,7 @@
         newGame(seed = this.createSeed()) {
             const normalizedSeed = Math.abs(Number(seed) || this.createSeed()) % 1000000;
             const generated = this.mapGenerator.generate(normalizedSeed, undefined, this.mapType);
-            const state = new C.GameState();
+            const state = new C.GameState({ mapSize: this.mapSize });
             state.seed = normalizedSeed;
             state.mapType = generated.mapType;
             state.chokeEdges = generated.chokeEdges || [];
