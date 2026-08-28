@@ -37,12 +37,16 @@
                     <legend><span>01</span> Salon multijoueur</legend>
                     <div class="multiplayer-grid">
                         <label>Votre nom<input type="text" name="playerName" maxlength="24" value="Commandant" autocomplete="nickname"></label>
-                        <label id="room-code-field" hidden>Code du salon<input type="text" name="roomCode" maxlength="6" placeholder="ABC123" autocomplete="off"></label>
+                        <label id="room-code-field" hidden>Code du salon<input type="text" name="roomCode" minlength="6" maxlength="6" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="one-time-code" aria-describedby="join-code-help"></label>
                         <label id="team-size-field">Format<select name="teamSize"><option value="1">1 contre 1</option><option value="2">2 contre 2</option><option value="3">3 contre 3</option></select></label>
                         <label id="opponent-mode-field">Équipe adverse<select name="opponentMode"><option value="ai">Intelligence artificielle</option><option value="human">Joueurs humains</option></select></label>
                         <label id="preferred-team-field" hidden>Équipe souhaitée<select name="preferredTeam"><option value="1">Équipe 1</option><option value="2">Équipe 2</option></select></label>
                     </div>
                     <p class="network-note">La partie en ligne nécessite Live Server. Une déconnexion conserve votre place pendant 30 secondes.</p>
+                    <div class="multiplayer-join-action" id="multiplayer-join-action" hidden>
+                        <span id="join-code-help">Le code contient six caractères et provient du joueur qui a créé le salon.</span>
+                        <button class="button button-primary" id="join-room" type="submit">Rejoindre le salon</button>
+                    </div>
                 </fieldset>
 
                 <fieldset class="lobby-section" id="solo-player-options">

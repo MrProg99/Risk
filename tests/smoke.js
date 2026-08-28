@@ -237,6 +237,28 @@
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
         lobbyController.close();
         lobbyFixture.remove();
+        const joinLobbyFixture = document.createElement("div");
+        joinLobbyFixture.innerHTML = `
+            <section id="game-lobby">
+                <form id="lobby-form">
+                    <input type="radio" name="gameMode" value="solo">
+                    <input type="radio" name="gameMode" value="join" checked>
+                    <input type="radio" name="playerCount" value="2" checked>
+                    <input type="text" name="roomCode" value="abc123">
+                    <div id="room-code-field"></div>
+                    <div id="multiplayer-join-action" hidden><button id="join-room" type="submit">Rejoindre le salon</button></div>
+                    <div id="lobby-factions"></div>
+                    <p id="lobby-summary"></p>
+                    <button id="start-game" type="submit">Lancer</button>
+                </form>
+            </section>
+            <div id="game-app"></div>`;
+        document.body.append(joinLobbyFixture);
+        const joinLobbyController = new C.LobbyController();
+        check(!joinLobbyController.joinAction.hidden && joinLobbyController.startButton.hidden && joinLobbyController.roomCodeInput.required, "le mode Rejoindre affiche un bouton dédié directement sous le code du salon");
+        check(joinLobbyController.getConfiguration().roomCode === "ABC123", "le code saisi pour rejoindre un salon est normalisé en six caractères majuscules");
+        joinLobbyController.close();
+        joinLobbyFixture.remove();
         const duelGame = new C.Game({ playerId: 4, activeFactionIds: [4, 1], enableAI: true, timeScale: 1 });
         duelGame.newGame(565656);
         check(duelGame.state.factions.map((faction) => faction.id).join(",") === "4,1", "une partie peut démarrer avec seulement deux factions choisies dans le lobby");

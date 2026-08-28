@@ -107,7 +107,12 @@ body.lobby-open { overflow: hidden; }
 .multiplayer-grid label { color: #94a9ae; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .multiplayer-grid input, .multiplayer-grid select { width: 100%; margin-top: 7px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; outline: 0; color: #e8f1f1; background: #091820; font: 650 .82rem var(--mono); }
 .multiplayer-grid input:focus, .multiplayer-grid select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(63, 209, 199, .1); }
+.multiplayer-grid input[name="roomCode"] { text-transform: uppercase; letter-spacing: .14em; }
 .network-note { margin-top: 12px !important; color: #6f8990 !important; }
+.multiplayer-join-action { margin-top: 15px; padding: 13px; display: grid; grid-template-columns: minmax(0, 1fr) 240px; align-items: center; gap: 14px; border: 1px solid rgba(216,255,104,.28); border-radius: 10px; background: linear-gradient(120deg, rgba(216,255,104,.07), rgba(78,215,208,.035)); box-shadow: 0 12px 28px rgba(0,0,0,.15); }
+.multiplayer-join-action span { color: #91a8ab; font-size: .68rem; line-height: 1.45; }
+.multiplayer-join-action .button { width: 100%; }
+.multiplayer-join-action .button:disabled { opacity: .55; cursor: wait; }
 .room-waiting { margin-top: 22px; padding: 16px; border: 1px solid rgba(63, 209, 199, .2); border-radius: 12px; background: rgba(6, 24, 31, .65); }
 .room-waiting > div:first-child { display: flex; align-items: center; justify-content: space-between; }
 .room-waiting > div:first-child span { color: var(--muted); font: 650 .62rem var(--mono); letter-spacing: .12em; }
@@ -620,6 +625,7 @@ button { color: inherit; }
     .player-count-choice strong { position: static; display: block; transform: none; font-size: 1.2rem; }
     .player-count-choice span { margin-top: 5px; font-size: .57rem; }
     .faction-choice { min-height: 115px; padding: 11px; }
+    .multiplayer-join-action { grid-template-columns: 1fr; }
     .app-shell { padding: 6px; }
     .topbar { padding: 10px; }
     .brand-block { min-width: 0; }

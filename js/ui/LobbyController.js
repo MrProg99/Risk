@@ -25,12 +25,15 @@
             this.factionChoices = document.getElementById("lobby-factions");
             this.summary = document.getElementById("lobby-summary");
             this.startButton = document.getElementById("start-game");
+            this.joinButton = document.getElementById("join-room");
+            this.joinAction = document.getElementById("multiplayer-join-action");
             this.gameApp = document.getElementById("game-app");
             this.multiplayerOptions = document.getElementById("multiplayer-options");
             this.soloPlayerOptions = document.getElementById("solo-player-options");
             this.aiDifficultyOptions = document.getElementById("ai-difficulty-options");
             this.mapOptions = document.getElementById("map-options");
             this.roomCodeField = document.getElementById("room-code-field");
+            this.roomCodeInput = this.form.elements.roomCode || null;
             this.teamSizeField = document.getElementById("team-size-field");
             this.opponentModeField = document.getElementById("opponent-mode-field");
             this.preferredTeamField = document.getElementById("preferred-team-field");
@@ -94,9 +97,11 @@
             this.form.addEventListener("change", () => this.refresh());
             this.form.addEventListener("submit", async (event) => {
                 event.preventDefault();
-                if (this.startButton.disabled) return;
-                this.startButton.disabled = true;
                 const configuration = this.getConfiguration();
+                const actionButton = configuration.mode === "join" && this.joinButton ? this.joinButton : this.startButton;
+                if (actionButton.disabled) return;
+                this.startButton.disabled = true;
+                if (this.joinButton) this.joinButton.disabled = true;
                 if (configuration.mode === "solo") {
                     this.startListeners.forEach((listener) => listener(configuration));
                     return;
@@ -107,6 +112,7 @@
                 } catch (error) {
                     this.summary.textContent = C.FirebaseMultiplayer?.formatError(error) || error.message || "Connexion au salon impossible.";
                     this.startButton.disabled = false;
+                    if (this.joinButton) this.joinButton.disabled = false;
                 }
             });
         }
@@ -123,7 +129,7 @@
                 playerId,
                 playerCount,
                 playerName: this.form.elements.playerName?.value || "Commandant",
-                roomCode: this.form.elements.roomCode?.value || "",
+                roomCode: (this.form.elements.roomCode?.value || "").trim().toUpperCase(),
                 teamSize: Number(this.form.elements.teamSize?.value) || 1,
                 opponentMode: this.form.elements.opponentMode?.value === "human" ? "human" : "ai",
                 aiDifficulty,
@@ -154,9 +160,13 @@
             }
             if (this.mapOptions) this.mapOptions.hidden = configuration.mode === "join";
             if (this.roomCodeField) this.roomCodeField.hidden = configuration.mode !== "join";
+            if (this.roomCodeInput) this.roomCodeInput.required = configuration.mode === "join";
             if (this.teamSizeField) this.teamSizeField.hidden = configuration.mode !== "host";
             if (this.opponentModeField) this.opponentModeField.hidden = configuration.mode !== "host";
             if (this.preferredTeamField) this.preferredTeamField.hidden = configuration.mode !== "join";
+            const dedicatedJoinAction = configuration.mode === "join" && Boolean(this.joinButton);
+            if (this.joinAction) this.joinAction.hidden = !dedicatedJoinAction;
+            this.startButton.hidden = dedicatedJoinAction;
             if (this.room) return this.renderRoom(this.room);
             if (!online) {
                 const opponents = configuration.playerCount - 1;
@@ -174,6 +184,7 @@
                 this.startButton.textContent = "Rejoindre le salon";
             }
             this.startButton.disabled = false;
+            if (this.joinButton) this.joinButton.disabled = false;
         }
 
         async connectToRoom(configuration) {
@@ -253,6 +264,8 @@
             const aiCount = players.filter((player) => player.isAI).length;
             this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""}`;
             this.startButton.hidden = !isHost;
+            if (this.joinAction) this.joinAction.hidden = true;
+            if (this.joinButton) this.joinButton.disabled = true;
             this.startButton.disabled = !isHost || missing > 0;
             this.startButton.textContent = "Lancer la partie en ligne";
         }
