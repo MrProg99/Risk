@@ -30,6 +30,12 @@
             this.railroadPreviousProductionMode = null;
             this.buildings = [];
             this.buildingConstruction = null;
+            this.wonderId = null;
+            this.wonderBuilderFactionId = null;
+            this.wonderConstruction = null;
+            this.wonderActivationRemainingMs = 0;
+            this.wonderActionProgressMs = 0;
+            this.wonderLastAction = null;
         }
 
         isNeighbor(territoryId) {
@@ -68,7 +74,13 @@
                 railroadConstructionProgressMs: this.railroadConstructionProgressMs,
                 railroadPreviousProductionMode: this.railroadPreviousProductionMode,
                 buildings: this.buildings.slice(),
-                buildingConstruction: this.buildingConstruction ? { ...this.buildingConstruction } : null
+                buildingConstruction: this.buildingConstruction ? { ...this.buildingConstruction } : null,
+                wonderId: this.wonderId,
+                wonderBuilderFactionId: this.wonderBuilderFactionId,
+                wonderConstruction: this.wonderConstruction ? { ...this.wonderConstruction } : null,
+                wonderActivationRemainingMs: this.wonderActivationRemainingMs,
+                wonderActionProgressMs: this.wonderActionProgressMs,
+                wonderLastAction: this.wonderLastAction ? { ...this.wonderLastAction } : null
             };
         }
     }

@@ -37,6 +37,8 @@ La taille choisie est conservée dans `meta.mapSize` (`standard` ou `large`). El
 
 Le niveau choisi pour l’équipe adverse IA est conservé dans `meta.aiDifficulty` (`relaxed`, `normal`, `hard` ou `relentless`). Tous les clients reçoivent ainsi le même réglage, tandis que seul l’hôte applique le bonus de recrutement dans sa simulation autoritaire. Ce champ est accepté par les règles actuelles : il n’est pas nécessaire de republier les règles Firebase.
 
+Les merveilles utilisent la commande ordinaire `BUILD_WONDER` et les champs dynamiques déjà permis dans `snapshot` (chantier, progression, constructeur, propriétaire, actions automatiques et délai de réactivation). Les tirs de la Grosse Bertha y sont inclus afin que chaque client joue une seule fois leur animation. Leur ajout ne change donc ni la structure du salon ni les autorisations : aucune nouvelle publication des règles Firebase n’est requise.
+
 ## Modèle de données
 
 Chaque partie est stockée sous `frontieres/rooms/{CODE}`. L’hôte est le seul navigateur qui fait avancer la simulation et écrit `snapshot`. Chaque joueur ne peut modifier que son profil, réserver son créneau et écrire ses commandes. Une commande reçue est revalidée par le moteur de l’hôte avant d’être exécutée.

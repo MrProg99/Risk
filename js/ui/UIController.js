@@ -104,6 +104,14 @@
                 buildingProgressBar: byId("building-progress-bar"),
                 buildingDetail: byId("building-detail"),
                 buildingBuild: byId("building-build"),
+                wonderPanel: byId("wonder-panel"),
+                wonderName: byId("wonder-name"),
+                wonderStatus: byId("wonder-status"),
+                wonderProgress: byId("wonder-progress"),
+                wonderProgressBar: byId("wonder-progress-bar"),
+                wonderChoice: byId("wonder-choice"),
+                wonderDetail: byId("wonder-detail"),
+                wonderBuild: byId("wonder-build"),
                 territoryProduction: byId("territory-production"),
                 bonusList: byId("bonus-list"),
                 airportPanel: byId("airport-panel"),
@@ -168,6 +176,8 @@
             this.elements.modeResearch.addEventListener("click", () => this.setTerritoryMode("research"));
             this.elements.railroadBuild.addEventListener("click", () => this.buildRailroad());
             this.elements.buildingBuild.addEventListener("click", () => this.buildTerritoryBuilding());
+            this.elements.wonderBuild.addEventListener("click", () => this.buildWonder());
+            this.elements.wonderChoice.addEventListener("change", () => this.renderTerritoryPanel());
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
             this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
             this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
@@ -218,6 +228,17 @@
                 this.renderer.fireCannon(change.fromTerritoryId, change.targetTerritoryId, change.hit);
                 if (change.hit) this.renderer.pulseTerritory(change.targetTerritoryId, "#ffd36f");
                 this.refreshDynamic();
+            } else if (change.type === "BIG_BERTHA_FIRED") {
+                this.renderer.fireBigBertha?.(change.fromTerritoryId, change.targetTerritoryId, change.hit);
+                if (change.hit) this.renderer.pulseTerritory(change.targetTerritoryId, "#ff8d46");
+                const visible = this.game.isTerritoryVisible(change.fromTerritoryId, this.game.playerId) ||
+                    this.game.isTerritoryVisible(change.targetTerritoryId, this.game.playerId);
+                if (visible) this.audio?.playBigBertha?.();
+                const target = this.game.state.getTerritory(change.targetTerritoryId);
+                if (change.hit && target?.ownerId === this.game.playerId) {
+                    this.showToast(`BOUM ! La Grosse Bertha frappe ${target.name} : ${change.damage} pertes.`);
+                }
+                this.refreshDynamic();
             } else if (change.type === "AIRSTRIKE_RESOLVED") {
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#75baff");
                 this.refreshDynamic();
@@ -262,6 +283,27 @@
                         ? `${definition?.name || "Bâtiment"} terminé à ${territory?.name || "la position indiquée"}.`
                         : `Construction de ${definition?.name || "bâtiment"} lancée à ${territory?.name || "la position indiquée"}.`);
                 }
+                this.refreshDynamic();
+            } else if (change.type.startsWith("WONDER_")) {
+                const territory = this.game.state.getTerritory(change.territoryId);
+                const definition = C.getWonderType(change.wonderId || territory?.wonderId || territory?.wonderConstruction?.wonderId);
+                const faction = this.game.state.getFaction(change.ownerId ?? change.factionId);
+                this.renderer.pulseTerritory(change.territoryId, "#ffe08a", true);
+                if (change.type === "WONDER_CONSTRUCTION_STARTED") {
+                    this.showToast(`PROJET MONUMENTAL : ${faction?.name || "Une nation"} commence ${definition?.name || "une merveille"} à ${territory?.name || "une position inconnue"}.`);
+                } else if (change.type === "WONDER_CONSTRUCTION_COMPLETED") {
+                    this.showToast(`MERVEILLE ACHEVÉE : ${faction?.name || "Une nation"} inaugure ${definition?.name || "sa merveille"}.`);
+                } else if (change.type === "WONDER_CAPTURED") {
+                    const owner = this.game.state.getFaction(change.ownerId);
+                    this.showToast(owner
+                        ? `${owner.name} capture ${definition?.name || "une merveille"} à ${territory?.name || "la position indiquée"}. Réactivation en cours.`
+                        : `${definition?.name || "Une merveille"} est neutralisée par les Barbares.`);
+                } else if (change.type === "WONDER_ACTIVATED" && change.factionId === this.game.playerId) {
+                    this.showToast(`${definition?.name || "Votre merveille"} est maintenant opérationnelle.`);
+                } else if (change.type === "WONDER_CONSTRUCTION_CANCELLED" && change.factionId === this.game.playerId) {
+                    this.showToast(`Le chantier de ${definition?.name || "votre merveille"} a été perdu.`);
+                }
+                this.researchTreeKey = null;
                 this.refreshDynamic();
             } else if (change.type === "WORLD_EVENT_WARNING") {
                 const definition = C.WORLD_EVENT_DEFINITIONS[change.eventType];
@@ -379,6 +421,7 @@
                     ["Combats gagnés", entry.statistics.battlesWon],
                     ["Rails construits", entry.statistics.railroadsBuilt],
                     ["Bâtiments construits", entry.statistics.buildingsConstructed],
+                    ["Merveilles bâties / capturées", `${entry.statistics.wondersConstructed || 0} / ${entry.statistics.wondersCaptured || 0}`],
                     ["Recherches / capacités", `${entry.statistics.researchCompleted} / ${entry.statistics.abilitiesUsed}`]
                 ];
                 const statGrid = document.createElement("div");
@@ -442,7 +485,7 @@
             const { faction, activeTechnology, progressMs, rate } = status;
             const completed = faction.research.completedTechnologyIds.length;
             const total = Object.keys(C.TECHNOLOGIES).length;
-            const treeKey = `${completed}|${faction.research.activeTechnologyId || "none"}`;
+            const treeKey = `${completed}|${faction.research.activeTechnologyId || "none"}|${faction.constructedWonderId || "no-wonder"}`;
             if (treeKey !== this.researchTreeKey) {
                 this.researchTreeKey = treeKey;
                 this.renderResearchTree(faction);
@@ -502,16 +545,17 @@
                     const isCompleted = completed.includes(technology.id);
                     const isActive = technology.id === activeId;
                     const isUnlocked = !technology.prerequisiteId || completed.includes(technology.prerequisiteId);
-                    const isAvailable = !activeId && !isCompleted && isUnlocked;
+                    const wonderChoiceBlocked = Boolean(technology.effects?.unlockWonder && faction.constructedWonderId && !isCompleted);
+                    const isAvailable = !activeId && !isCompleted && isUnlocked && !wonderChoiceBlocked;
                     const node = document.createElement("article");
                     node.className = "technology-node";
                     if (isCompleted) node.classList.add("completed");
                     else if (isActive) node.classList.add("active");
                     else if (isAvailable) node.classList.add("available");
-                    else if (isUnlocked) node.classList.add("waiting");
+                    else if (isUnlocked && !wonderChoiceBlocked) node.classList.add("waiting");
                     else node.classList.add("locked");
 
-                    const statusLabel = isCompleted ? "DÉBLOQUÉE" : isActive ? "EN COURS" : isAvailable ? "DISPONIBLE" : isUnlocked ? "EN ATTENTE" : "VERROUILLÉE";
+                    const statusLabel = isCompleted ? "DÉBLOQUÉE" : isActive ? "EN COURS" : isAvailable ? "DISPONIBLE" : wonderChoiceBlocked ? "CHOIX SCELLÉ" : isUnlocked ? "EN ATTENTE" : "VERROUILLÉE";
                     node.innerHTML = `
                         <div class="technology-node-heading">
                             <span>PALIER ${technology.tier}</span>
@@ -528,7 +572,7 @@
                     const button = document.createElement("button");
                     button.type = "button";
                     button.className = "technology-start";
-                    button.textContent = isCompleted ? "Débloquée" : isActive ? "Recherche en cours" : isAvailable ? "Lancer la recherche" : isUnlocked ? "Laboratoire occupé" : "Verrouillée";
+                    button.textContent = isCompleted ? "Débloquée" : isActive ? "Recherche en cours" : isAvailable ? "Lancer la recherche" : wonderChoiceBlocked ? "Autre merveille choisie" : isUnlocked ? "Laboratoire occupé" : "Verrouillée";
                     button.disabled = !isAvailable;
                     if (isAvailable) button.addEventListener("click", () => this.startResearch(technology.id));
                     node.append(button);
@@ -1055,6 +1099,10 @@
             farm.className = "legend-item";
             farm.innerHTML = '<span class="legend-farm">▦</span> Ferme';
             this.elements.factionLegend.append(farm);
+            const wonder = document.createElement("span");
+            wonder.className = "legend-item";
+            wonder.innerHTML = '<span class="legend-wonder">✦</span> Merveille';
+            this.elements.factionLegend.append(wonder);
             const fog = document.createElement("span");
             fog.className = "legend-item";
             fog.innerHTML = `<span class="legend-fog">?</span> Brouillard · au-delà de ${this.game.visibilityRange}`;
@@ -1114,6 +1162,7 @@
             this.renderProductionMode(territory);
             this.renderRailroadPanel(territory);
             this.renderBuildingPanel(territory);
+            this.renderWonderPanel(territory);
             this.renderAirportPanel(territory);
             this.renderActiveRoute(territory);
             this.renderAttackPanel(territory);
@@ -1174,6 +1223,7 @@
             this.elements.airportPanel.hidden = true;
             this.elements.railroadPanel.hidden = true;
             this.elements.buildingPanel.hidden = true;
+            this.elements.wonderPanel.hidden = true;
             this.elements.activeRoutePanel.hidden = true;
             this.elements.attackPanel.hidden = true;
             this.elements.selectionTip.hidden = false;
@@ -1234,9 +1284,10 @@
             this.elements.railroadProgress.hidden = !territory.railroadConstructionActive;
             this.elements.railroadProgressBar.style.width = `${Math.round(progress * 100)}%`;
             this.elements.railroadBuild.hidden = !canCommand || territory.railroad || territory.railroadConstructionActive;
-            this.elements.railroadBuild.disabled = !unlocked || Boolean(territory.buildingConstruction);
+            const otherConstruction = !territory.railroadConstructionActive && this.game.isTerritoryUnderConstruction(territory);
+            this.elements.railroadBuild.disabled = !unlocked || otherConstruction;
             this.elements.railroadBuild.textContent = unlocked
-                ? territory.buildingConstruction
+                ? otherConstruction
                     ? "Autre chantier en cours"
                     : `Construire · ${Math.round(this.game.railroadConstructionDurationMs / 1000)} s`
                 : "Recherche requise";
@@ -1297,7 +1348,7 @@
             const progress = constructionDefinition
                 ? C.Geometry.clamp(territory.buildingConstruction.progressMs / definition.constructionDurationMs, 0, 1)
                 : installed ? 1 : 0;
-            const otherConstruction = territory.railroadConstructionActive || (territory.buildingConstruction && !constructionDefinition);
+            const otherConstruction = territory.railroadConstructionActive || territory.wonderConstruction || (territory.buildingConstruction && !constructionDefinition);
             this.elements.buildingName.textContent = `${definition.icon} ${definition.name}`;
             this.elements.buildingPanel.classList.toggle("active", installed);
             this.elements.buildingPanel.classList.toggle("building", Boolean(constructionDefinition));
@@ -1353,6 +1404,108 @@
             this.showToast(result.pending
                 ? `Ordre de construction de ${definition?.name || "bâtiment"} transmis à l’hôte.`
                 : `Construction de ${definition?.name || "bâtiment"} lancée à ${territory.name}.`);
+        }
+
+        renderWonderPanel(territory) {
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const playerFaction = this.game.state.getFaction(this.game.playerId);
+            const canCommand = territory.ownerId === this.game.playerId && !territory.isImpassable;
+            const constructionDefinition = C.getWonderType(territory.wonderConstruction?.wonderId);
+            const installedDefinition = C.getWonderType(territory.wonderId);
+            const unlocked = canCommand ? C.getUnlockedWonderTypes(playerFaction) : [];
+            const previousChoice = this.elements.wonderChoice.value;
+            this.elements.wonderChoice.replaceChildren(...unlocked.map((definition) => {
+                const option = document.createElement("option");
+                option.value = definition.id;
+                option.textContent = `${definition.icon} ${definition.name}`;
+                return option;
+            }));
+            const selectedDefinition = unlocked.find((definition) => definition.id === previousChoice) || unlocked[0] || null;
+            if (selectedDefinition) this.elements.wonderChoice.value = selectedDefinition.id;
+            const definition = constructionDefinition || installedDefinition || selectedDefinition;
+            const show = !territory.isImpassable && (canCommand || Boolean(constructionDefinition) || Boolean(installedDefinition));
+            this.elements.wonderPanel.hidden = !show;
+            if (!show) return;
+
+            const nationalConstruction = this.game.state.territories.find((candidate) =>
+                candidate.wonderConstruction?.builderFactionId === this.game.playerId);
+            const territoryConstruction = this.game.isTerritoryUnderConstruction(territory);
+            const progress = constructionDefinition
+                ? C.Geometry.clamp(territory.wonderConstruction.progressMs / constructionDefinition.constructionDurationMs, 0, 1)
+                : installedDefinition ? 1 : 0;
+            this.elements.wonderPanel.classList.toggle("active", Boolean(installedDefinition) && this.game.isWonderActive(territory));
+            this.elements.wonderPanel.classList.toggle("building", Boolean(constructionDefinition));
+            this.elements.wonderProgress.hidden = !constructionDefinition;
+            this.elements.wonderProgressBar.style.width = `${Math.round(progress * 100)}%`;
+            this.elements.wonderChoice.hidden = !canCommand || Boolean(constructionDefinition) || Boolean(installedDefinition) || unlocked.length <= 1 || Boolean(playerFaction?.constructedWonderId) || Boolean(nationalConstruction);
+            this.elements.wonderBuild.hidden = !canCommand || Boolean(constructionDefinition) || Boolean(installedDefinition) || Boolean(playerFaction?.constructedWonderId) || Boolean(nationalConstruction);
+            this.elements.wonderBuild.dataset.wonderId = definition?.id || "";
+            this.elements.wonderBuild.disabled = !definition || territoryConstruction;
+            this.elements.wonderName.textContent = definition ? `${definition.icon} ${definition.name}` : "Merveille nationale";
+
+            if (constructionDefinition) {
+                const remaining = Math.max(0, Math.ceil((constructionDefinition.constructionDurationMs - territory.wonderConstruction.progressMs) / 1000));
+                this.elements.wonderStatus.textContent = `CHANTIER ${Math.round(progress * 100)} %`;
+                this.elements.wonderDetail.textContent = `${remaining} s restantes. Le territoire ne produit rien, mais peut recevoir et faire transiter des convois.`;
+                return;
+            }
+            if (installedDefinition) {
+                const active = this.game.isWonderActive(territory);
+                const ownerName = faction?.name || "Aucun propriétaire";
+                const remaining = Math.ceil(Math.max(0, territory.wonderActivationRemainingMs) / 1000);
+                this.elements.wonderStatus.textContent = territory.ownerId === null
+                    ? "NEUTRALISÉE"
+                    : active ? "OPÉRATIONNELLE" : `RÉACTIVATION ${remaining} S`;
+                const weaponStatus = installedDefinition.id === "big-bertha" && active
+                    ? territory.wonderActionProgressMs >= installedDefinition.siteEffects.fireIntervalMs
+                        ? " Obus prêt : en attente d’une cible ennemie visible."
+                        : ` Prochain tir dans ${Math.ceil((installedDefinition.siteEffects.fireIntervalMs - territory.wonderActionProgressMs) / 1000)} s.`
+                    : "";
+                this.elements.wonderDetail.textContent = `${installedDefinition.description} Contrôle actuel : ${ownerName}.${weaponStatus}`;
+                return;
+            }
+            if (playerFaction?.constructedWonderId) {
+                const built = C.getWonderType(playerFaction.constructedWonderId);
+                this.elements.wonderStatus.textContent = "CHOIX DÉJÀ FAIT";
+                this.elements.wonderDetail.textContent = `${built?.name || "Votre merveille"} a déjà été achevée par votre nation. Les merveilles ennemies peuvent toujours être capturées.`;
+                return;
+            }
+            if (nationalConstruction) {
+                const building = C.getWonderType(nationalConstruction.wonderConstruction.wonderId);
+                this.elements.wonderStatus.textContent = "CHANTIER NATIONAL";
+                this.elements.wonderDetail.textContent = `${building?.name || "Une merveille"} est déjà en construction à ${nationalConstruction.name}.`;
+                return;
+            }
+            if (!definition) {
+                this.elements.wonderStatus.textContent = "À RECHERCHER";
+                this.elements.wonderDetail.textContent = "Terminez une recherche ultime dans Construction, Attaque, Défense ou Capacités pour débloquer une merveille.";
+                this.elements.wonderBuild.textContent = "Recherche ultime requise";
+                return;
+            }
+
+            this.elements.wonderStatus.textContent = territoryConstruction ? "AUTRE CHANTIER" : "DISPONIBLE";
+            this.elements.wonderBuild.textContent = territoryConstruction
+                ? "Autre chantier en cours"
+                : `Construire · ${Math.round(definition.constructionDurationMs / 60000)} min`;
+            this.elements.wonderDetail.textContent = `${definition.description} Une nation ne peut achever qu’une seule merveille.`;
+        }
+
+        buildWonder() {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            const wonderId = this.elements.wonderChoice.value || this.elements.wonderBuild.dataset.wonderId;
+            if (!territory || !wonderId) return;
+            const result = this.game.executeCommand({
+                type: "BUILD_WONDER",
+                playerId: this.game.playerId,
+                territoryId: territory.id,
+                wonderId
+            });
+            if (!result.ok) return this.showToast(result.error);
+            const definition = C.getWonderType(wonderId);
+            this.clearSelection();
+            this.showToast(result.pending
+                ? `Projet ${definition?.name || "de merveille"} transmis à l’hôte.`
+                : `${definition?.name || "Merveille"} mise en chantier à ${territory.name}.`);
         }
 
         setTerritoryMode(mode) {
@@ -1504,6 +1657,18 @@
                 entries.unshift({ label: `Bâtiment : ${definition.name}`, rare: false });
                 entries.push({ label: definition.description, rare: false });
             });
+            const wonderDefinition = C.getWonderType(territory.wonderId || territory.wonderConstruction?.wonderId);
+            if (wonderDefinition) {
+                const status = territory.wonderConstruction
+                    ? `chantier ${Math.round(C.Geometry.clamp(territory.wonderConstruction.progressMs / wonderDefinition.constructionDurationMs, 0, 1) * 100)} %`
+                    : this.game.isWonderActive(territory)
+                        ? "opérationnelle"
+                        : territory.ownerId === null
+                            ? "neutralisée"
+                            : `réactivation ${Math.ceil(territory.wonderActivationRemainingMs / 1000)} s`;
+                entries.unshift({ label: `Merveille : ${wonderDefinition.name} · ${status}`, rare: true });
+                entries.push({ label: wonderDefinition.description, rare: true });
+            }
             if (faction) entries.push({ label: `${faction.name} — ${faction.bonusLabel}`, rare: false });
             entries.forEach((entry) => {
                 const item = document.createElement("li");

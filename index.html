@@ -402,6 +402,17 @@
                         <button class="building-build-button" id="building-build" type="button">Construire</button>
                     </section>
 
+                    <section class="wonder-panel" id="wonder-panel" hidden>
+                        <div class="section-title-row">
+                            <h3 id="wonder-name">Merveille nationale</h3>
+                            <span class="wonder-status" id="wonder-status">À RECHERCHER</span>
+                        </div>
+                        <div class="wonder-progress" id="wonder-progress" hidden><span id="wonder-progress-bar"></span></div>
+                        <select id="wonder-choice" aria-label="Merveille à construire" hidden></select>
+                        <p id="wonder-detail">Terminez une recherche ultime pour débloquer une merveille.</p>
+                        <button class="wonder-build-button" id="wonder-build" type="button">Construire la merveille</button>
+                    </section>
+
                     <section class="bonus-section">
                         <div class="section-title-row">
                             <h3>Avantages locaux</h3>
@@ -451,6 +462,7 @@
     <script defer src="js/data/factions.js"></script>
     <script defer src="js/data/installations.js"></script>
     <script defer src="js/data/technologies.js"></script>
+    <script defer src="js/data/wonders.js"></script>
     <script defer src="js/data/buildings.js"></script>
     <script defer src="js/data/worldEvents.js"></script>
     <script defer src="js/data/mapSizes.js"></script>

@@ -2,7 +2,7 @@
     "use strict";
 
     class CombatSystem {
-        static resolve({ army, territory, attackerFaction, defenderFaction, random = Math.random, capitalDefenseBonus = 0 }) {
+        static resolve({ army, territory, attackerFaction, defenderFaction, random = Math.random, capitalDefenseBonus = 0, attackMultiplierOverride = null, defenseMultiplierOverride = null }) {
             const territoryType = C.TERRITORY_TYPES[territory.terrain];
             const rareDefense = territory.rareSite ? territory.rareSite.defenseMultiplier : 1;
             const attackerCombat = attackerFaction ? attackerFaction.bonuses.combatMultiplier : 1;
@@ -10,8 +10,10 @@
             const attackTechnology = 1 + C.getFactionTechnologyBonus(attackerFaction, "attackMultiplier");
             const defenseTechnology = 1 + C.getFactionTechnologyBonus(defenderFaction, "defenseMultiplier");
             const capitalMultiplier = territory.isCapital ? 1 + capitalDefenseBonus : 1;
-            const attackMultiplier = (attackerFaction ? attackerFaction.bonuses.attackMultiplier : 1) * attackerCombat * attackTechnology;
-            const defenseMultiplier = territoryType.defenseMultiplier * rareDefense * defenderCombat * defenseTechnology * capitalMultiplier;
+            const defaultAttackMultiplier = (attackerFaction ? attackerFaction.bonuses.attackMultiplier : 1) * attackerCombat * attackTechnology;
+            const defaultDefenseMultiplier = territoryType.defenseMultiplier * rareDefense * defenderCombat * defenseTechnology * capitalMultiplier;
+            const attackMultiplier = Number.isFinite(attackMultiplierOverride) ? attackMultiplierOverride : defaultAttackMultiplier;
+            const defenseMultiplier = Number.isFinite(defenseMultiplierOverride) ? defenseMultiplierOverride : defaultDefenseMultiplier;
             const attackRoll = 0.88 + random() * 0.24;
             const defenseRoll = 0.88 + random() * 0.24;
             const attackPower = army.units * attackMultiplier * attackRoll;

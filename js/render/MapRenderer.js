@@ -131,6 +131,7 @@
             this.drawTerritoryMarkers(ctx, state);
             this.drawRailroadMarkers(ctx, state);
             this.drawBuildingMarkers(ctx, state);
+            this.drawWonderMarkers(ctx, state, now);
             this.drawWorldEvents(ctx, state, now);
             this.drawCannonInstallations(ctx, state, now);
             this.drawArmies(ctx, state, now);
@@ -560,6 +561,56 @@
             });
         }
 
+        drawWonderMarkers(ctx, state, now) {
+            state.territories.forEach((territory) => {
+                if (!this.isTerritoryVisible(territory.id)) return;
+                const construction = territory.wonderConstruction;
+                const definition = C.getWonderType(construction?.wonderId || territory.wonderId);
+                if (!definition) return;
+                const x = territory.center.x;
+                const y = territory.center.y - 50;
+                const completed = Boolean(territory.wonderId && !construction);
+                const active = completed && this.game.isWonderActive(territory);
+                const progress = construction
+                    ? C.Geometry.clamp(construction.progressMs / definition.constructionDurationMs, 0, 1)
+                    : 1;
+                const pulse = (Math.sin(now / 240) + 1) / 2;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, 15 + (active ? pulse * 1.5 : 0), 0, Math.PI * 2);
+                ctx.fillStyle = active ? "rgba(42, 29, 10, .96)" : "rgba(38, 35, 31, .92)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(4, 10, 12, .96)";
+                ctx.lineWidth = 5;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x, y, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                ctx.strokeStyle = construction ? "#f0a74f" : active ? "#ffe08a" : "#938b79";
+                ctx.lineWidth = 3;
+                ctx.shadowColor = active ? "rgba(255, 208, 91, .85)" : "transparent";
+                ctx.shadowBlur = active ? 10 + pulse * 6 : 0;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = construction ? "#f4bc75" : active ? "#fff0b7" : "#a49d8e";
+                ctx.font = `900 ${definition.icon.length > 1 ? 12 : 18}px Georgia, serif`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(construction ? "⌁" : definition.icon, x, y + 0.5);
+                if (active && definition.id === "big-bertha") {
+                    const interval = definition.siteEffects.fireIntervalMs;
+                    const reload = C.Geometry.clamp((Number(territory.wonderActionProgressMs) || 0) / interval, 0, 1);
+                    ctx.beginPath();
+                    ctx.arc(x, y, 20, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * reload);
+                    ctx.strokeStyle = "rgba(255, 126, 62, .92)";
+                    ctx.lineWidth = 2.2;
+                    ctx.shadowColor = "rgba(255, 103, 39, .75)";
+                    ctx.shadowBlur = 7;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            });
+        }
+
         drawTerritoryMarkers(ctx, state) {
             state.territories.forEach((territory) => {
                 const faction = state.getFaction(territory.ownerId);
@@ -636,6 +687,11 @@
                     const progress = constructionMode
                         ? territory.railroadConstructionActive
                             ? C.Geometry.clamp(territory.railroadConstructionProgressMs / this.game.railroadConstructionDurationMs, 0, 1)
+                            : territory.wonderConstruction
+                                ? (() => {
+                                    const definition = C.getWonderType(territory.wonderConstruction.wonderId);
+                                    return definition ? C.Geometry.clamp(territory.wonderConstruction.progressMs / definition.constructionDurationMs, 0, 1) : 0;
+                                })()
                             : (() => {
                                 const definition = C.getBuildingType(territory.buildingConstruction?.buildingId);
                                 return definition ? C.Geometry.clamp(territory.buildingConstruction.progressMs / definition.constructionDurationMs, 0, 1) : 0;
@@ -827,14 +883,15 @@
         }
 
         drawCannonShots(ctx, now) {
-            const durationMs = 900;
-            this.cannonShots = this.cannonShots.filter((shot) => now - shot.startedAt < durationMs);
+            this.cannonShots = this.cannonShots.filter((shot) =>
+                now - shot.startedAt < (shot.heavy ? 1600 : 900));
             this.cannonShots.forEach((shot) => {
+                const durationMs = shot.heavy ? 1600 : 900;
                 const progress = C.Geometry.clamp((now - shot.startedAt) / durationMs, 0, 1);
-                const previousProgress = Math.max(0, progress - 0.09);
+                const previousProgress = Math.max(0, progress - (shot.heavy ? 0.055 : 0.09));
                 const positionAt = (value) => ({
                     x: C.Geometry.lerp(shot.start.x, shot.end.x, value),
-                    y: C.Geometry.lerp(shot.start.y, shot.end.y, value) - Math.sin(value * Math.PI) * 58
+                    y: C.Geometry.lerp(shot.start.y, shot.end.y, value) - Math.sin(value * Math.PI) * (shot.heavy ? 145 : 58)
                 });
                 const position = positionAt(progress);
                 const previous = positionAt(previousProgress);
@@ -844,26 +901,42 @@
                 ctx.moveTo(previous.x, previous.y);
                 ctx.lineTo(position.x, position.y);
                 ctx.strokeStyle = C.Geometry.rgba(shot.color, .55);
-                ctx.lineWidth = 3;
+                ctx.lineWidth = shot.heavy ? 6 : 3;
                 ctx.lineCap = "round";
                 ctx.stroke();
                 ctx.beginPath();
-                ctx.arc(position.x, position.y, 3.8, 0, Math.PI * 2);
-                ctx.fillStyle = "#fff5c2";
+                ctx.arc(position.x, position.y, shot.heavy ? 7 : 3.8, 0, Math.PI * 2);
+                ctx.fillStyle = shot.heavy ? "#fff0a3" : "#fff5c2";
                 ctx.shadowColor = shot.color;
-                ctx.shadowBlur = 13;
+                ctx.shadowBlur = shot.heavy ? 24 : 13;
                 ctx.fill();
                 ctx.shadowBlur = 0;
 
-                if (progress > 0.72) {
-                    const impactProgress = (progress - 0.72) / 0.28;
+                if (shot.heavy && progress < 0.16) {
+                    const flashProgress = progress / 0.16;
                     ctx.beginPath();
-                    ctx.arc(shot.end.x, shot.end.y, 5 + impactProgress * 25, 0, Math.PI * 2);
+                    ctx.arc(shot.start.x, shot.start.y, 5 + flashProgress * 28, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(255, 190, 83, ${1 - flashProgress})`;
+                    ctx.lineWidth = 5;
+                    ctx.stroke();
+                }
+
+                const impactStart = shot.heavy ? 0.66 : 0.72;
+                if (progress > impactStart) {
+                    const impactProgress = (progress - impactStart) / (1 - impactStart);
+                    ctx.beginPath();
+                    ctx.arc(shot.end.x, shot.end.y, 5 + impactProgress * (shot.heavy ? 48 : 25), 0, Math.PI * 2);
                     ctx.strokeStyle = shot.hit
                         ? `rgba(255, 211, 112, ${1 - impactProgress})`
                         : `rgba(173, 190, 188, ${(1 - impactProgress) * .5})`;
-                    ctx.lineWidth = shot.hit ? 4 : 2;
+                    ctx.lineWidth = shot.hit ? (shot.heavy ? 7 : 4) : (shot.heavy ? 3 : 2);
                     ctx.stroke();
+                    if (shot.heavy && shot.hit) {
+                        ctx.beginPath();
+                        ctx.arc(shot.end.x, shot.end.y, 3 + impactProgress * 26, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255, 100, 35, ${(1 - impactProgress) * .42})`;
+                        ctx.fill();
+                    }
                 }
                 ctx.restore();
             });
@@ -1282,6 +1355,24 @@
                 end: { ...target.center },
                 color: faction ? faction.accent : "#d5c38c",
                 hit: Boolean(hit),
+                startedAt: performance.now()
+            });
+        }
+
+        fireBigBertha(fromTerritoryId, targetTerritoryId, hit) {
+            const source = this.game.state.getTerritory(fromTerritoryId);
+            const target = this.game.state.getTerritory(targetTerritoryId);
+            if (!source || !target) return;
+            const visibility = this.game.getTerritoryVisibilityMap(this.game.playerId);
+            if (!this.game.isTerritoryVisible(source.id, this.game.playerId, visibility) &&
+                !this.game.isTerritoryVisible(target.id, this.game.playerId, visibility)) return;
+            const faction = this.game.state.getFaction(source.ownerId);
+            this.cannonShots.push({
+                start: { x: source.center.x, y: source.center.y - 50 },
+                end: { ...target.center },
+                color: faction ? faction.accent : "#ff9d51",
+                hit: Boolean(hit),
+                heavy: true,
                 startedAt: performance.now()
             });
         }

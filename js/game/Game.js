@@ -38,6 +38,7 @@
             this.airstrikeDamageRatio = C.Geometry.clamp(Number(options.airstrikeDamageRatio ?? 0.10), 0.01, 0.9);
             this.railroadConstructionDurationMs = C.Geometry.clamp(Number(options.railroadConstructionDurationMs ?? 45000), 10000, 300000);
             this.railroadTravelSpeedMultiplier = C.Geometry.clamp(Number(options.railroadTravelSpeedMultiplier ?? 1.35), 1, 3);
+            this.wonderCaptureActivationDelayMs = C.Geometry.clamp(Number(options.wonderCaptureActivationDelayMs ?? 20000), 0, 120000);
             this.capitalFoodCapacity = Math.max(0, Number(options.capitalFoodCapacity ?? 200));
             this.territoryBaseFoodCapacity = Math.max(0, Number(options.territoryBaseFoodCapacity ?? 10));
             this.foodAttritionThreshold = C.Geometry.clamp(Number(options.foodAttritionThreshold ?? (1 / 1.40)), 0.1, 1);
@@ -133,6 +134,12 @@
                 territory.railroadPreviousProductionMode = null;
                 territory.buildings = [];
                 territory.buildingConstruction = null;
+                territory.wonderId = null;
+                territory.wonderBuilderFactionId = null;
+                territory.wonderConstruction = null;
+                territory.wonderActivationRemainingMs = 0;
+                territory.wonderActionProgressMs = 0;
+                territory.wonderLastAction = null;
             });
             starts.forEach((territory, index) => {
                 const faction = this.state.factions[index];
@@ -265,6 +272,8 @@
             this.maintainReinforcementRoutes();
             changed = this.updateRailroadConstruction(safeDelta) || changed;
             changed = this.updateBuildingConstruction(safeDelta) || changed;
+            changed = this.updateWonderConstruction(safeDelta) || changed;
+            changed = this.updateWonderActivation(safeDelta) || changed;
             changed = this.eventSystem.update(safeDelta) || changed;
             changed = this.updateFoodSystem(safeDelta) || changed;
 
@@ -283,6 +292,7 @@
             });
 
             changed = this.updateResearch(safeDelta) || changed;
+            changed = this.updateWonderWeapons(safeDelta) || changed;
             changed = this.updateInstallations(safeDelta) || changed;
             this.updateAirstrikeCooldowns(safeDelta);
             changed = this.updateAbilities(safeDelta) || changed;
@@ -389,7 +399,9 @@
                 }
 
                 const faction = this.state.getFaction(territory.ownerId);
-                const reloadMultiplier = 1 + C.getFactionTechnologyBonus(faction, "cannonReloadMultiplier");
+                const reloadMultiplier = 1 +
+                    C.getFactionTechnologyBonus(faction, "cannonReloadMultiplier") +
+                    this.getWonderGlobalEffect(faction.id, "cannonReloadMultiplier");
                 territory.installationProgressMs = Math.min(
                     cannon.fireIntervalMs,
                     territory.installationProgressMs + deltaMs * reloadMultiplier
@@ -460,10 +472,91 @@
                 })[0] || null;
         }
 
+        updateWonderWeapons(deltaMs) {
+            const definition = C.WONDER_TYPES["big-bertha"];
+            if (!definition) return false;
+            const effects = definition.siteEffects;
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                if (territory.wonderId !== definition.id) return;
+                if (!this.isWonderActive(territory)) {
+                    if (territory.wonderActionProgressMs !== 0) territory.wonderActionProgressMs = 0;
+                    return;
+                }
+
+                territory.wonderActionProgressMs = Math.min(
+                    effects.fireIntervalMs,
+                    Math.max(0, Number(territory.wonderActionProgressMs) || 0) + deltaMs
+                );
+                if (territory.wonderActionProgressMs < effects.fireIntervalMs) return;
+                const target = this.findBigBerthaTarget(territory);
+                if (!target) return;
+
+                territory.wonderActionProgressMs = 0;
+                const hit = this.random() < effects.hitChance;
+                const damage = hit ? this.getBigBerthaDamage(target) : 0;
+                if (damage > 0) {
+                    target.units -= damage;
+                    this.recordUnitLoss(target.ownerId, damage, territory.ownerId);
+                }
+                territory.wonderLastAction = {
+                    type: "big-bertha",
+                    targetTerritoryId: target.id,
+                    hit,
+                    damage,
+                    firedAtMs: this.state.elapsedMs
+                };
+                const owner = this.state.getFaction(territory.ownerId);
+                this.addEvent(hit
+                    ? `${definition.name} de ${territory.name} pilonne ${target.name} : ${damage} pertes.`
+                    : `${definition.name} de ${territory.name} manque ${target.name}.`, "combat");
+                this.notify({
+                    type: "BIG_BERTHA_FIRED",
+                    factionId: owner?.id ?? territory.ownerId,
+                    fromTerritoryId: territory.id,
+                    targetTerritoryId: target.id,
+                    hit,
+                    damage,
+                    firedAtMs: this.state.elapsedMs
+                });
+                changed = true;
+            });
+            return changed;
+        }
+
+        getBigBerthaDamage(target) {
+            const effects = C.WONDER_TYPES["big-bertha"]?.siteEffects;
+            if (!effects || !target || target.units <= 1) return 0;
+            const requested = Math.max(1, Math.round(effects.flatDamage + target.units * effects.damageRatio));
+            return Math.min(target.units - 1, effects.maximumDamage, requested);
+        }
+
+        findBigBerthaTarget(territory) {
+            const effects = C.WONDER_TYPES["big-bertha"]?.siteEffects;
+            if (!effects || !territory || territory.ownerId === null) return null;
+            const visibility = this.getTerritoryVisibilityMap(territory.ownerId);
+            const strategicScore = (target) =>
+                this.getBigBerthaDamage(target) * 6 +
+                target.units * 0.12 +
+                (target.isCapital ? 35 : 0) +
+                (target.wonderId || target.wonderConstruction ? 65 : 0) +
+                (target.installation ? 15 : 0) +
+                (target.rareSite ? 18 : 0) +
+                (target.productionMode === "food" ? 10 : target.productionMode === "research" ? 8 : 0);
+            return this.getTerritoriesWithinHops(territory, effects.rangeHops)
+                .filter((target) =>
+                    !target.isImpassable &&
+                    target.ownerId !== null &&
+                    !this.areAllied(target.ownerId, territory.ownerId) &&
+                    target.units > 1 &&
+                    visibility.has(target.id))
+                .sort((first, second) => strategicScore(second) - strategicScore(first))[0] || null;
+        }
+
         // Renvoie tous les territoires atteignables en au plus maxHops sauts sur le
         // graphe brut des voisins — sans tenir compte des montagnes ni des lacs,
-        // puisqu'un appareil volant les survole. Utilisé pour la portée des frappes
-        // aériennes, côté validation de commande comme côté ciblage de l'IA.
+        // puisqu'un appareil volant ou un obus lourd les survole. Utilisé pour la
+        // portée des frappes aériennes et de la Grosse Bertha.
         getTerritoriesWithinHops(source, maxHops) {
             const result = [];
             const visited = new Set([source.id]);
@@ -553,6 +646,7 @@
             if (command.type === "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES") return this.createContinuousReinforcementRoutesBatch(command);
             if (command.type === "BUILD_RAILROAD") return this.buildRailroad(command);
             if (command.type === "BUILD_TERRITORY_BUILDING") return this.buildTerritoryBuilding(command);
+            if (command.type === "BUILD_WONDER") return this.buildWonder(command);
             return { ok: false, error: `Commande inconnue : ${command.type}` };
         }
 
@@ -590,7 +684,7 @@
                     action.adjacentDamageRatio = abilityStats.adjacentDamageRatio;
                 }
                 this.state.abilityActions.push(action);
-                faction.abilityCooldowns[definition.id] = abilityStats.cooldownMs;
+                faction.abilityCooldowns[definition.id] = this.getAbilityCooldownDuration(faction.id, abilityStats.cooldownMs);
                 faction.statistics.abilitiesUsed += 1;
                 this.addEvent(definition.id === "nuclear"
                     ? `ALERTE NUCLÉAIRE : ${faction.name} vise ${target.name}. Impact et souffle périphérique dans 8 secondes.`
@@ -604,7 +698,7 @@
                 target.units += abilityStats.units;
                 faction.statistics.abilitiesUsed += 1;
                 faction.statistics.unitsProduced += abilityStats.units;
-                faction.abilityCooldowns.reinforcement = abilityStats.cooldownMs;
+                faction.abilityCooldowns.reinforcement = this.getAbilityCooldownDuration(faction.id, abilityStats.cooldownMs);
                 this.addLogisticsEvent(`${faction.name} mobilise ${abilityStats.units} renforts d’urgence à ${target.name}.`, faction.id);
                 this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, units: abilityStats.units });
                 this.state.touch();
@@ -630,7 +724,7 @@
                     logisticsPurpose: "paratrooper"
                 });
                 this.state.armies.push(army);
-                faction.abilityCooldowns.paratrooper = abilityStats.cooldownMs;
+                faction.abilityCooldowns.paratrooper = this.getAbilityCooldownDuration(faction.id, abilityStats.cooldownMs);
                 faction.statistics.abilitiesUsed += 1;
                 faction.statistics.unitsProduced += abilityStats.units;
                 faction.statistics.attacksLaunched += 1;
@@ -710,7 +804,7 @@
             }
             if (territory.railroad) return { ok: false, error: "Ce territoire possède déjà un chemin de fer." };
             if (territory.railroadConstructionActive) return { ok: false, error: "Les travaux ferroviaires sont déjà en cours." };
-            if (territory.buildingConstruction) return { ok: false, error: "Un bâtiment est déjà en construction sur ce territoire." };
+            if (this.isTerritoryUnderConstruction(territory)) return { ok: false, error: "Un autre chantier est déjà en cours sur ce territoire." };
 
             territory.railroadPreviousProductionMode = ["units", "food", "research"].includes(territory.productionMode)
                 ? territory.productionMode
@@ -777,7 +871,7 @@
         }
 
         isTerritoryUnderConstruction(territory) {
-            return Boolean(territory && (territory.railroadConstructionActive || territory.buildingConstruction));
+            return Boolean(territory && (territory.railroadConstructionActive || territory.buildingConstruction || territory.wonderConstruction));
         }
 
         buildTerritoryBuilding(command) {
@@ -866,6 +960,147 @@
             territory.productionProgress = 0;
         }
 
+        buildWonder(command) {
+            if (this.paused) return { ok: false, error: "La simulation est en pause." };
+            const playerId = Number(command.playerId);
+            const faction = this.state.getFaction(playerId);
+            const territory = this.state.getTerritory(command.territoryId);
+            const definition = C.getWonderType(command.wonderId);
+            if (!faction || !territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
+            if (!definition) return { ok: false, error: "Merveille inconnue." };
+            if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
+            if (!faction.research.completedTechnologyIds.includes(definition.prerequisiteTechnologyId)) {
+                const technology = C.TECHNOLOGIES[definition.prerequisiteTechnologyId];
+                return { ok: false, error: `Recherchez d’abord : ${technology?.name || definition.prerequisiteTechnologyId}.` };
+            }
+            if (faction.constructedWonderId) return { ok: false, error: "Votre nation a déjà achevé sa merveille." };
+            if (this.state.territories.some((candidate) => candidate.wonderConstruction?.builderFactionId === faction.id)) {
+                return { ok: false, error: "Votre nation construit déjà une merveille." };
+            }
+            if (territory.wonderId) return { ok: false, error: "Ce territoire abrite déjà une merveille." };
+            if (this.isTerritoryUnderConstruction(territory)) return { ok: false, error: "Un autre chantier est déjà en cours sur ce territoire." };
+
+            territory.wonderConstruction = {
+                wonderId: definition.id,
+                builderFactionId: faction.id,
+                progressMs: 0,
+                previousProductionMode: ["units", "food", "research"].includes(territory.productionMode)
+                    ? territory.productionMode
+                    : "units"
+            };
+            territory.productionMode = "construction";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
+            this.state.touch();
+            this.addEvent(`PROJET MONUMENTAL : ${faction.name} commence ${definition.name} à ${territory.name}.`, "research");
+            this.notify({
+                type: "WONDER_CONSTRUCTION_STARTED",
+                factionId: faction.id,
+                territoryId: territory.id,
+                wonderId: definition.id,
+                durationMs: definition.constructionDurationMs
+            });
+            return { ok: true, territory, definition };
+        }
+
+        updateWonderConstruction(deltaMs) {
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                const construction = territory.wonderConstruction;
+                if (!construction) return;
+                const definition = C.getWonderType(construction.wonderId);
+                if (!definition || territory.ownerId !== construction.builderFactionId || territory.isImpassable) {
+                    this.cancelWonderConstruction(territory);
+                    changed = true;
+                    return;
+                }
+                construction.progressMs += deltaMs;
+                changed = true;
+                if (construction.progressMs < definition.constructionDurationMs) return;
+
+                const faction = this.state.getFaction(construction.builderFactionId);
+                if (!faction || faction.constructedWonderId) {
+                    this.cancelWonderConstruction(territory);
+                    return;
+                }
+                territory.wonderId = definition.id;
+                territory.wonderBuilderFactionId = faction.id;
+                territory.wonderConstruction = null;
+                territory.wonderActivationRemainingMs = 0;
+                territory.wonderActionProgressMs = 0;
+                territory.wonderLastAction = null;
+                territory.productionMode = ["units", "food", "research"].includes(construction.previousProductionMode)
+                    ? construction.previousProductionMode
+                    : "units";
+                territory.productionModeChangedAtMs = this.state.elapsedMs;
+                territory.productionProgress = 0;
+                faction.constructedWonderId = definition.id;
+                faction.statistics.wondersConstructed += 1;
+                this.addEvent(`MERVEILLE ACHEVÉE : ${faction.name} inaugure ${definition.name} à ${territory.name}.`, "capture");
+                this.notify({
+                    type: "WONDER_CONSTRUCTION_COMPLETED",
+                    factionId: faction.id,
+                    territoryId: territory.id,
+                    wonderId: definition.id
+                });
+            });
+            return changed;
+        }
+
+        updateWonderActivation(deltaMs) {
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                if (!territory.wonderId || territory.wonderActivationRemainingMs <= 0) return;
+                const previous = territory.wonderActivationRemainingMs;
+                territory.wonderActivationRemainingMs = Math.max(0, previous - deltaMs);
+                changed = true;
+                if (previous > 0 && territory.wonderActivationRemainingMs === 0 && territory.ownerId !== null) {
+                    const faction = this.state.getFaction(territory.ownerId);
+                    const definition = C.getWonderType(territory.wonderId);
+                    this.addEvent(`${definition?.name || "La merveille"} de ${territory.name} est maintenant opérationnelle pour ${faction?.name || "son nouveau propriétaire"}.`, "info");
+                    this.notify({ type: "WONDER_ACTIVATED", factionId: territory.ownerId, territoryId: territory.id, wonderId: territory.wonderId });
+                }
+            });
+            return changed;
+        }
+
+        cancelWonderConstruction(territory) {
+            if (!territory?.wonderConstruction) return;
+            const construction = territory.wonderConstruction;
+            territory.wonderConstruction = null;
+            if (territory.productionMode === "construction") territory.productionMode = "units";
+            territory.productionModeChangedAtMs = this.state.elapsedMs;
+            territory.productionProgress = 0;
+            this.notify({
+                type: "WONDER_CONSTRUCTION_CANCELLED",
+                factionId: construction.builderFactionId,
+                territoryId: territory.id,
+                wonderId: construction.wonderId
+            });
+        }
+
+        handleWonderOwnershipChange(territory, previousOwnerId, ownerId) {
+            if (!territory?.wonderId || previousOwnerId === ownerId) return false;
+            const definition = C.getWonderType(territory.wonderId);
+            const owner = this.state.getFaction(ownerId);
+            territory.wonderActivationRemainingMs = ownerId === null ? 0 : this.wonderCaptureActivationDelayMs;
+            territory.wonderActionProgressMs = 0;
+            territory.wonderLastAction = null;
+            if (owner) owner.statistics.wondersCaptured += 1;
+            this.addEvent(owner
+                ? `MERVEILLE CAPTURÉE : ${owner.name} prend ${definition?.name || "la merveille"} de ${territory.name}. Réactivation dans ${Math.ceil(this.wonderCaptureActivationDelayMs / 1000)} secondes.`
+                : `${definition?.name || "La merveille"} de ${territory.name} est neutralisée par les Barbares.`, "capture");
+            this.notify({
+                type: "WONDER_CAPTURED",
+                territoryId: territory.id,
+                wonderId: territory.wonderId,
+                previousOwnerId,
+                ownerId,
+                activationDelayMs: territory.wonderActivationRemainingMs
+            });
+            return true;
+        }
+
         executeAuthoritativeCommand(command) {
             this.isApplyingRemoteCommand = true;
             try {
@@ -899,6 +1134,9 @@
             if (research.activeTechnologyId) return { ok: false, error: "Une recherche est déjà en cours." };
             if (research.completedTechnologyIds.includes(technology.id)) {
                 return { ok: false, error: "Cette technologie est déjà débloquée." };
+            }
+            if (technology.effects?.unlockWonder && faction.constructedWonderId) {
+                return { ok: false, error: "Votre nation a déjà choisi et achevé sa merveille." };
             }
             if (technology.prerequisiteId && !research.completedTechnologyIds.includes(technology.prerequisiteId)) {
                 return { ok: false, error: "La technologie précédente doit d’abord être débloquée." };
@@ -1419,7 +1657,9 @@
                 attackerFaction: attacker,
                 defenderFaction: previousOwner,
                 random: this.random,
-                capitalDefenseBonus: this.capitalDefenseBonus
+                capitalDefenseBonus: this.capitalDefenseBonus,
+                attackMultiplierOverride: army.isBarbarian ? null : this.getFactionAttackMultiplier(attacker.id),
+                defenseMultiplierOverride: this.getDefenseMultiplier(target)
             });
             const attackerSurvivors = result.attackerWon ? result.attackerSurvivors : 0;
             const defenderSurvivors = result.attackerWon ? 0 : result.defenderSurvivors;
@@ -1432,6 +1672,7 @@
                     if (previousOwner) previousOwner.statistics.territoriesLost += 1;
                     this.cancelRailroadConstruction(target);
                     this.cancelBuildingConstruction(target);
+                    this.cancelWonderConstruction(target);
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
@@ -1440,6 +1681,7 @@
                     target.installationProgressMs = 0;
                     target.isCapital = false;
                     target.airstrikeCooldownMs = 0;
+                    this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, null);
                     const defeated = previousOwner ? previousOwner.name : "les forces locales";
                     this.addEvent(`Les Barbares mettent ${target.name} à sac face à ${defeated} — le territoire redevient neutre.`, "world");
                     if (wasCapital && previousOwner) {
@@ -1461,6 +1703,7 @@
                 if (previousOwner) previousOwner.statistics.territoriesLost += 1;
                 this.cancelRailroadConstruction(target);
                 this.cancelBuildingConstruction(target);
+                this.cancelWonderConstruction(target);
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
@@ -1469,6 +1712,7 @@
                 target.installationProgressMs = 0;
                 target.isCapital = false;
                 target.airstrikeCooldownMs = 0;
+                this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, attacker.id);
                 attacker.statistics.peakTerritories = Math.max(
                     attacker.statistics.peakTerritories,
                     this.state.getTerritoriesOwnedBy(attacker.id).length
@@ -1526,6 +1770,54 @@
             this.notify({ type: "CAPITAL_RELOCATED", factionId: faction.id, territoryId: newCapital.id });
         }
 
+        isWonderActive(territory) {
+            return Boolean(territory?.wonderId && territory.ownerId !== null && territory.wonderActivationRemainingMs <= 0);
+        }
+
+        getActiveWonderTerritories(factionId, wonderId = null) {
+            const normalizedFactionId = Number(factionId);
+            return this.state.territories.filter((territory) =>
+                territory.ownerId === normalizedFactionId &&
+                this.isWonderActive(territory) &&
+                (!wonderId || territory.wonderId === wonderId));
+        }
+
+        hasActiveWonder(factionId, wonderId) {
+            return this.getActiveWonderTerritories(factionId, wonderId).length > 0;
+        }
+
+        getWonderGlobalEffect(factionId, effectName) {
+            const activeTypes = new Set(this.getActiveWonderTerritories(factionId).map((territory) => territory.wonderId));
+            return [...activeTypes].reduce((sum, wonderId) =>
+                sum + (Number(C.getWonderType(wonderId)?.globalEffects?.[effectName]) || 0), 0);
+        }
+
+        getWonderLocalDefenseBonus(territory) {
+            if (!territory || territory.ownerId === null) return 0;
+            return this.getActiveWonderTerritories(territory.ownerId, "monumental-citadel").some((citadel) =>
+                citadel.id === territory.id || citadel.neighbors.includes(territory.id))
+                ? Number(C.WONDER_TYPES["monumental-citadel"].siteEffects.adjacentDefenseMultiplier) || 0
+                : 0;
+        }
+
+        getFactionAttackMultiplier(factionId) {
+            const faction = this.state.getFaction(factionId);
+            if (!faction) return 1;
+            const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "attackMultiplier");
+            const wonderMultiplier = 1 + this.getWonderGlobalEffect(faction.id, "attackMultiplier");
+            return faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier * technologyMultiplier * wonderMultiplier;
+        }
+
+        getAbilityCooldownDuration(factionId, baseDurationMs) {
+            const reduction = C.Geometry.clamp(this.getWonderGlobalEffect(factionId, "abilityCooldownReduction"), 0, 0.75);
+            return Math.max(0, Number(baseDurationMs) || 0) * (1 - reduction);
+        }
+
+        getTerritoryWonderFoodCapacity(territory) {
+            if (!this.isWonderActive(territory)) return 0;
+            return Number(C.getWonderType(territory.wonderId)?.siteEffects?.foodCapacity) || 0;
+        }
+
         getPotentialTerritoryFoodCapacity(territory) {
             if (!territory || territory.isImpassable) return 0;
             const type = C.TERRITORY_TYPES[territory.terrain];
@@ -1560,18 +1852,19 @@
 
         getFactionFoodState(factionId) {
             const faction = this.state.getFaction(factionId);
-            if (!faction) return { capacity: 0, demand: 0, ratio: 1, productionMultiplier: 1, attritionRate: 0, shortage: 0, foodTerritoryCount: 0 };
+            if (!faction) return { capacity: 0, demand: 0, ratio: 1, productionMultiplier: 1, attritionRate: 0, shortage: 0, foodTerritoryCount: 0, wonderCapacity: 0 };
             const territories = this.state.getTerritoriesOwnedBy(faction.id);
             const capital = this.state.getTerritory(faction.capitalTerritoryId);
             const capitalCapacity = capital && capital.ownerId === faction.id ? this.capitalFoodCapacity : 0;
             const foodTerritories = territories.filter((territory) => territory.productionMode === "food");
             const passiveTerritoryCapacity = territories.reduce((sum, territory) => sum + this.getTerritoryPassiveFoodCapacity(territory), 0);
             const territoryCapacity = foodTerritories.reduce((sum, territory) => sum + this.getTerritoryFoodCapacity(territory), 0);
+            const wonderCapacity = territories.reduce((sum, territory) => sum + this.getTerritoryWonderFoodCapacity(territory), 0);
             const movingUnits = this.state.armies
                 .filter((army) => !army.isBarbarian && army.ownerId === faction.id)
                 .reduce((sum, army) => sum + army.units, 0);
             const demand = territories.reduce((sum, territory) => sum + territory.units, 0) + movingUnits;
-            const capacity = capitalCapacity + passiveTerritoryCapacity + territoryCapacity;
+            const capacity = capitalCapacity + passiveTerritoryCapacity + territoryCapacity + wonderCapacity;
             const ratio = demand > 0 ? capacity / demand : 1;
             let productionMultiplier = 1;
             if (ratio < 1 / 1.60) productionMultiplier = 0;
@@ -1584,6 +1877,7 @@
                 capitalCapacity,
                 passiveTerritoryCapacity,
                 territoryCapacity,
+                wonderCapacity,
                 demand,
                 ratio,
                 productionMultiplier,
@@ -1650,12 +1944,16 @@
             const factionMultiplier = faction ? faction.bonuses.recruitmentMultiplier : 1;
             const rareMultiplier = territory.rareSite ? territory.rareSite.productionMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "productionMultiplier");
+            const wonderMultiplier = faction ? 1 + this.getWonderGlobalEffect(faction.id, "productionMultiplier") : 1;
+            const wonderSiteMultiplier = this.isWonderActive(territory)
+                ? 1 + (Number(C.getWonderType(territory.wonderId)?.siteEffects?.productionMultiplier) || 0)
+                : 1;
             const capitalMultiplier = territory.isCapital ? 1 + this.capitalProductionBonus : 1;
             const foodMultiplier = faction ? this.getFactionFoodState(faction.id).productionMultiplier : 1;
             const aiDifficultyMultiplier = faction && this.permanentAiFactionIds.includes(faction.id)
                 ? this.aiProductionMultiplier
                 : 1;
-            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * capitalMultiplier * this.unitProductionMultiplier * foodMultiplier * aiDifficultyMultiplier;
+            return territory.production * typeMultiplier * factionMultiplier * rareMultiplier * technologyMultiplier * wonderMultiplier * wonderSiteMultiplier * capitalMultiplier * this.unitProductionMultiplier * foodMultiplier * aiDifficultyMultiplier;
         }
 
         getTerritoryVisibilityMap(factionId = this.playerId, range = this.visibilityRange) {
@@ -1683,6 +1981,29 @@
                 });
             }
 
+            this.state.territories
+                .filter((territory) => territory.wonderId === "orbital-station" && this.isWonderActive(territory) && this.areAllied(territory.ownerId, normalizedFactionId))
+                .forEach((station) => {
+                    const bonus = Number(C.WONDER_TYPES["orbital-station"].siteEffects.visibilityRangeBonus) || 0;
+                    const stationRange = maximumDistance + bonus;
+                    const localDistances = new Map([[station.id, 0]]);
+                    const localPending = [station.id];
+                    for (let cursor = 0; cursor < localPending.length; cursor += 1) {
+                        const territoryId = localPending[cursor];
+                        const distance = localDistances.get(territoryId);
+                        const knownDistance = distances.get(territoryId);
+                        if (knownDistance === undefined || distance < knownDistance) distances.set(territoryId, distance);
+                        if (distance >= stationRange) continue;
+                        const current = this.state.getTerritory(territoryId);
+                        if (!current) continue;
+                        current.neighbors.forEach((neighborId) => {
+                            if (localDistances.has(neighborId)) return;
+                            localDistances.set(neighborId, distance + 1);
+                            localPending.push(neighborId);
+                        });
+                    }
+                });
+
             return distances;
         }
 
@@ -1705,8 +2026,10 @@
             const rareMultiplier = territory.rareSite ? territory.rareSite.defenseMultiplier : 1;
             const combatMultiplier = faction ? faction.bonuses.combatMultiplier : 1;
             const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "defenseMultiplier");
+            const wonderMultiplier = faction ? 1 + this.getWonderGlobalEffect(faction.id, "defenseMultiplier") : 1;
+            const localWonderMultiplier = 1 + this.getWonderLocalDefenseBonus(territory);
             const capitalMultiplier = territory.isCapital ? 1 + this.capitalDefenseBonus : 1;
-            return type.defenseMultiplier * rareMultiplier * combatMultiplier * technologyMultiplier * capitalMultiplier;
+            return type.defenseMultiplier * rareMultiplier * combatMultiplier * technologyMultiplier * wonderMultiplier * localWonderMultiplier * capitalMultiplier;
         }
 
         getResearchRate(factionId) {
@@ -1807,7 +2130,13 @@
                     railroadConstructionProgressMs: territory.railroadConstructionProgressMs,
                     railroadPreviousProductionMode: territory.railroadPreviousProductionMode,
                     buildings: (territory.buildings || []).slice(),
-                    buildingConstruction: territory.buildingConstruction ? { ...territory.buildingConstruction } : null
+                    buildingConstruction: territory.buildingConstruction ? { ...territory.buildingConstruction } : null,
+                    wonderId: territory.wonderId,
+                    wonderBuilderFactionId: territory.wonderBuilderFactionId,
+                    wonderConstruction: territory.wonderConstruction ? { ...territory.wonderConstruction } : null,
+                    wonderActivationRemainingMs: territory.wonderActivationRemainingMs,
+                    wonderActionProgressMs: territory.wonderActionProgressMs,
+                    wonderLastAction: territory.wonderLastAction ? { ...territory.wonderLastAction } : null
                 })),
                 factions: this.state.factions.map((faction) => ({
                     id: faction.id,
@@ -1820,6 +2149,7 @@
                         progressMs: faction.research.progressMs
                     },
                     abilityCooldowns: { ...faction.abilityCooldowns },
+                    constructedWonderId: faction.constructedWonderId,
                     statistics: { ...faction.statistics }
                 })),
                 armies: this.state.armies.map((army) => army.toJSON()),
@@ -1842,6 +2172,10 @@
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
                 const previousOwnerId = territory.ownerId;
+                const previousWonderId = territory.wonderId;
+                const previousWonderConstruction = territory.wonderConstruction ? { ...territory.wonderConstruction } : null;
+                const previousWonderActivationRemainingMs = territory.wonderActivationRemainingMs;
+                const previousWonderActionAtMs = Number(territory.wonderLastAction?.firedAtMs) || 0;
                 territory.ownerId = dynamic.ownerId ?? null;
                 territory.units = Number(dynamic.units) || 0;
                 territory.productionProgress = Number(dynamic.productionProgress) || 0;
@@ -1863,7 +2197,44 @@
                         ? dynamic.buildingConstruction.previousProductionMode
                         : "units"
                 } : null;
-                territory.productionMode = territory.railroadConstructionActive || territory.buildingConstruction
+                const wonderDefinition = C.getWonderType(dynamic.wonderId);
+                territory.wonderId = wonderDefinition ? wonderDefinition.id : null;
+                territory.wonderBuilderFactionId = territory.wonderId && this.state.getFaction(dynamic.wonderBuilderFactionId)
+                    ? Number(dynamic.wonderBuilderFactionId)
+                    : null;
+                const wonderConstructionDefinition = C.getWonderType(dynamic.wonderConstruction?.wonderId);
+                const wonderConstructionBuilder = this.state.getFaction(dynamic.wonderConstruction?.builderFactionId);
+                territory.wonderConstruction = wonderConstructionDefinition && wonderConstructionBuilder ? {
+                    wonderId: wonderConstructionDefinition.id,
+                    builderFactionId: wonderConstructionBuilder.id,
+                    progressMs: Math.max(0, Number(dynamic.wonderConstruction.progressMs) || 0),
+                    previousProductionMode: ["units", "food", "research"].includes(dynamic.wonderConstruction.previousProductionMode)
+                        ? dynamic.wonderConstruction.previousProductionMode
+                        : "units"
+                } : null;
+                territory.wonderActivationRemainingMs = territory.wonderId
+                    ? Math.max(0, Number(dynamic.wonderActivationRemainingMs) || 0)
+                    : 0;
+                territory.wonderActionProgressMs = territory.wonderId === "big-bertha"
+                    ? Math.min(
+                        C.WONDER_TYPES["big-bertha"].siteEffects.fireIntervalMs,
+                        Math.max(0, Number(dynamic.wonderActionProgressMs) || 0)
+                    )
+                    : 0;
+                const wonderActionTarget = this.state.getTerritory(dynamic.wonderLastAction?.targetTerritoryId);
+                const wonderActionAtMs = Number(dynamic.wonderLastAction?.firedAtMs) || 0;
+                territory.wonderLastAction = territory.wonderId === "big-bertha" &&
+                    dynamic.wonderLastAction?.type === "big-bertha" &&
+                    wonderActionTarget && wonderActionAtMs > 0
+                    ? {
+                        type: "big-bertha",
+                        targetTerritoryId: wonderActionTarget.id,
+                        hit: Boolean(dynamic.wonderLastAction.hit),
+                        damage: Math.max(0, Number(dynamic.wonderLastAction.damage) || 0),
+                        firedAtMs: wonderActionAtMs
+                    }
+                    : null;
+                territory.productionMode = territory.railroadConstructionActive || territory.buildingConstruction || territory.wonderConstruction
                     ? "construction"
                     : ["food", "research"].includes(dynamic.productionMode) ? dynamic.productionMode : "units";
                 territory.productionModeChangedAtMs = Number(dynamic.productionModeChangedAtMs) || 0;
@@ -1873,6 +2244,49 @@
                         territoryId: territory.id,
                         previousOwnerId,
                         ownerId: territory.ownerId
+                    });
+                }
+                if (territory.wonderConstruction && previousWonderConstruction?.wonderId !== territory.wonderConstruction.wonderId) {
+                    this.notify({
+                        type: "WONDER_CONSTRUCTION_STARTED",
+                        factionId: territory.wonderConstruction.builderFactionId,
+                        territoryId: territory.id,
+                        wonderId: territory.wonderConstruction.wonderId,
+                        durationMs: C.getWonderType(territory.wonderConstruction.wonderId)?.constructionDurationMs
+                    });
+                } else if (previousWonderConstruction && !territory.wonderConstruction && territory.wonderId !== previousWonderConstruction.wonderId) {
+                    this.notify({
+                        type: "WONDER_CONSTRUCTION_CANCELLED",
+                        factionId: previousWonderConstruction.builderFactionId,
+                        territoryId: territory.id,
+                        wonderId: previousWonderConstruction.wonderId
+                    });
+                }
+                if (territory.wonderId && previousWonderId !== territory.wonderId) {
+                    this.notify({
+                        type: "WONDER_CONSTRUCTION_COMPLETED",
+                        factionId: territory.wonderBuilderFactionId,
+                        territoryId: territory.id,
+                        wonderId: territory.wonderId
+                    });
+                } else if (territory.wonderId && previousOwnerId !== territory.ownerId) {
+                    this.notify({
+                        type: "WONDER_CAPTURED",
+                        territoryId: territory.id,
+                        wonderId: territory.wonderId,
+                        previousOwnerId,
+                        ownerId: territory.ownerId,
+                        activationDelayMs: territory.wonderActivationRemainingMs
+                    });
+                } else if (territory.wonderId && previousWonderActivationRemainingMs > 0 && territory.wonderActivationRemainingMs === 0) {
+                    this.notify({ type: "WONDER_ACTIVATED", factionId: territory.ownerId, territoryId: territory.id, wonderId: territory.wonderId });
+                }
+                if (territory.wonderLastAction && territory.wonderLastAction.firedAtMs > previousWonderActionAtMs) {
+                    this.notify({
+                        ...territory.wonderLastAction,
+                        type: "BIG_BERTHA_FIRED",
+                        factionId: territory.ownerId,
+                        fromTerritoryId: territory.id
                     });
                 }
             });
@@ -1893,6 +2307,7 @@
                     paratrooper: Number(dynamic.abilityCooldowns?.paratrooper) || 0,
                     nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0
                 };
+                faction.constructedWonderId = C.getWonderType(dynamic.constructedWonderId)?.id || null;
                 faction.statistics = {
                     ...faction.statistics,
                     ...(dynamic.statistics || {})
@@ -1950,6 +2365,16 @@
             this.state.armies.forEach((army) => {
                 army.elapsedMs = Math.min(army.durationMs, army.elapsedMs + safeDelta);
             });
+            const bertha = C.WONDER_TYPES["big-bertha"];
+            if (bertha) {
+                this.state.territories.forEach((territory) => {
+                    if (territory.wonderId !== bertha.id || !this.isWonderActive(territory)) return;
+                    territory.wonderActionProgressMs = Math.min(
+                        bertha.siteEffects.fireIntervalMs,
+                        (Number(territory.wonderActionProgressMs) || 0) + safeDelta
+                    );
+                });
+            }
         }
 
         recordUnitLoss(victimFactionId, losses, destroyerFactionId = null) {

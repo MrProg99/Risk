@@ -97,7 +97,7 @@
                     const distance = visibilityMap.get(territory.id);
                     return distance === undefined
                         ? `${territory.id}:?`
-                        : `${territory.id}:${territory.ownerId ?? "n"}:${distance}:${territory.railroad ? "r" : territory.railroadConstructionActive ? "b" : "-"}:${(territory.buildings || []).join(".")}:${territory.buildingConstruction ? "c" : "-"}`;
+                        : `${territory.id}:${territory.ownerId ?? "n"}:${distance}:${territory.railroad ? "r" : territory.railroadConstructionActive ? "b" : "-"}:${(territory.buildings || []).join(".")}:${territory.buildingConstruction ? "c" : "-"}:${territory.wonderId || territory.wonderConstruction?.wonderId || "-"}:${territory.wonderActivationRemainingMs > 0 ? "i" : "a"}`;
                 }).join(",");
         }
 
@@ -159,6 +159,7 @@
 
             this.drawRailroads(ctx, state, visibilityMap);
             this.drawBuildingMarkers(ctx, state, visibilityMap);
+            this.drawWonderMarkers(ctx, state, visibilityMap);
             this.drawMountains(ctx, state);
             this.tracePolygon(ctx, state.islandPolygon);
             ctx.strokeStyle = "rgba(168, 217, 214, .55)";
@@ -231,6 +232,30 @@
                 ctx.fill();
                 ctx.strokeStyle = "rgba(5, 12, 8, .92)";
                 ctx.lineWidth = 1.2 * this.pixelRatio / this.scale;
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+
+        drawWonderMarkers(ctx, state, visibilityMap) {
+            ctx.save();
+            state.territories.forEach((territory) => {
+                if (!visibilityMap.has(territory.id)) return;
+                const definition = C.getWonderType(territory.wonderId || territory.wonderConstruction?.wonderId);
+                if (!definition) return;
+                const size = 6.2 * this.pixelRatio / this.scale;
+                ctx.beginPath();
+                ctx.moveTo(territory.center.x, territory.center.y - size);
+                ctx.lineTo(territory.center.x + size, territory.center.y);
+                ctx.lineTo(territory.center.x, territory.center.y + size);
+                ctx.lineTo(territory.center.x - size, territory.center.y);
+                ctx.closePath();
+                ctx.fillStyle = territory.wonderConstruction
+                    ? "#e39a48"
+                    : this.game.isWonderActive(territory) ? "#ffe08a" : "#8f8878";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(23, 13, 5, .96)";
+                ctx.lineWidth = 1.6 * this.pixelRatio / this.scale;
                 ctx.stroke();
             });
             ctx.restore();

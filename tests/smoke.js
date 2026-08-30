@@ -826,7 +826,268 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 22, "l’arbre propose quatre axes progressifs, dont le réseau ferroviaire et huit recherches de capacités sur deux niveaux");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 27, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
+        check(Object.keys(C.WONDER_TYPES).length === 5 && Object.values(C.WONDER_TYPES).every((definition) => definition.constructionDurationMs === 180000), "cinq merveilles de trois minutes sont définies dans un catalogue extensible");
+        const bigBerthaDefinition = C.WONDER_TYPES["big-bertha"];
+        check(bigBerthaDefinition.siteEffects.fireIntervalMs === 15000 && bigBerthaDefinition.siteEffects.rangeHops === 3 && bigBerthaDefinition.siteEffects.hitChance === 0.75 && bigBerthaDefinition.siteEffects.maximumDamage === 18, "la Grosse Bertha possède sa cadence, sa portée, sa précision et son plafond de dégâts");
+        check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "attack").technologyIds.includes("wonder-big-bertha") && C.TECHNOLOGIES["wonder-big-bertha"].prerequisiteId === "attack-4", "l’Artillerie super-lourde offre la Grosse Bertha comme choix final de l’axe Attaque");
+        check(new C.Game({ enableAI: false, enableWorldEvents: false }).wonderCaptureActivationDelayMs === 20000, "une merveille capturée attend 20 secondes avant de changer de camp opérationnel");
+
+        const wonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1, wonderCaptureActivationDelayMs: 2000 });
+        wonderGame.newGame(828282);
+        const wonderFaction = wonderGame.state.getFaction(1);
+        const wonderSite = wonderGame.state.getTerritoriesOwnedBy(1)[0];
+        const wonderSupport = wonderSite.neighbors
+            .map((territoryId) => wonderGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !wonderSite.isPathBlocked(territory.id));
+        wonderSupport.ownerId = 1;
+        wonderSupport.units = 8;
+        wonderSupport.productionMode = "units";
+        wonderSite.units = 12;
+        const lockedWonder = wonderGame.executeCommand({ type: "BUILD_WONDER", playerId: 1, territoryId: wonderSite.id, wonderId: "megacity" });
+        check(!lockedWonder.ok, "une merveille exige sa recherche ultime");
+        wonderFaction.research.completedTechnologyIds.push("wonder-megacity");
+        const wonderStarted = wonderGame.executeCommand({ type: "BUILD_WONDER", playerId: 1, territoryId: wonderSite.id, wonderId: "megacity" });
+        check(wonderStarted.ok && wonderSite.wonderConstruction?.wonderId === "megacity" && wonderSite.productionMode === "construction", "BUILD_WONDER lance un chantier qui suspend toute production locale");
+        const secondWonderSite = wonderGame.state.territories.find((territory) => !territory.isImpassable && territory.id !== wonderSite.id && territory.id !== wonderSupport.id);
+        secondWonderSite.ownerId = 1;
+        secondWonderSite.units = 10;
+        check(!wonderGame.executeCommand({ type: "BUILD_WONDER", playerId: 1, territoryId: secondWonderSite.id, wonderId: "megacity" }).ok, "une nation ne peut pas ouvrir deux chantiers de merveille simultanément");
+        wonderGame.updateWonderConstruction(90000);
+        const wonderProgressSnapshot = wonderGame.createNetworkSnapshot();
+        const remoteWonderGame = new C.Game({ playerId: 2, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1, wonderCaptureActivationDelayMs: 2000 });
+        remoteWonderGame.newGame(828282);
+        let remoteWonderStarts = 0;
+        let remoteWonderCompletions = 0;
+        remoteWonderGame.subscribe((change) => {
+            if (change.type === "WONDER_CONSTRUCTION_STARTED") remoteWonderStarts += 1;
+            if (change.type === "WONDER_CONSTRUCTION_COMPLETED") remoteWonderCompletions += 1;
+        });
+        remoteWonderGame.applyNetworkSnapshot(wonderProgressSnapshot);
+        remoteWonderGame.applyNetworkSnapshot(wonderProgressSnapshot);
+        check(remoteWonderGame.state.getTerritory(wonderSite.id).wonderConstruction?.progressMs === 90000 && remoteWonderStarts === 1, "la progression et l’annonce d’un chantier monumental sont synchronisées une seule fois dans Firebase");
+        wonderGame.updateWonderConstruction(90000);
+        check(wonderSite.wonderId === "megacity" && !wonderSite.wonderConstruction && wonderFaction.constructedWonderId === "megacity" && wonderFaction.statistics.wondersConstructed === 1, "la Mégapole achevée consomme le choix unique de sa nation");
+        const completedWonderSnapshot = wonderGame.createNetworkSnapshot();
+        remoteWonderGame.applyNetworkSnapshot(completedWonderSnapshot);
+        remoteWonderGame.applyNetworkSnapshot(completedWonderSnapshot);
+        check(remoteWonderGame.state.getTerritory(wonderSite.id).wonderId === "megacity" && remoteWonderGame.state.getFaction(1).constructedWonderId === "megacity" && remoteWonderCompletions === 1, "la merveille achevée, son bâtisseur et son quota national sont reproduits une seule fois chez les clients");
+        wonderSite.wonderActivationRemainingMs = 1;
+        const productionWithoutMegacity = wonderGame.getProductionMultiplier(wonderSupport);
+        wonderSite.wonderActivationRemainingMs = 0;
+        const productionWithMegacity = wonderGame.getProductionMultiplier(wonderSupport);
+        check(productionWithMegacity > productionWithoutMegacity * 1.11 && wonderGame.getFactionFoodState(1).wonderCapacity === 300, "la Mégapole fournit réellement +12 % de recrutement et +300 nourritures");
+        secondWonderSite.wonderId = "megacity";
+        secondWonderSite.wonderBuilderFactionId = 2;
+        secondWonderSite.wonderActivationRemainingMs = 0;
+        check(wonderGame.getWonderGlobalEffect(1, "productionMultiplier") === 0.12 && wonderGame.getFactionFoodState(1).wonderCapacity === 600, "deux Mégapoles contrôlées ne doublent pas le bonus global mais conservent leurs capacités alimentaires locales");
+
+        const arsenalSite = wonderGame.state.territories.find((territory) => !territory.isImpassable && ![wonderSite.id, wonderSupport.id, secondWonderSite.id].includes(territory.id));
+        arsenalSite.ownerId = 1;
+        arsenalSite.units = 8;
+        arsenalSite.productionMode = "units";
+        arsenalSite.wonderId = "grand-arsenal";
+        arsenalSite.wonderBuilderFactionId = 2;
+        arsenalSite.wonderActivationRemainingMs = 1;
+        const productionWithoutArsenal = wonderGame.getProductionMultiplier(arsenalSite);
+        const attackWithoutArsenal = wonderGame.getFactionAttackMultiplier(1);
+        arsenalSite.wonderActivationRemainingMs = 0;
+        check(wonderGame.getProductionMultiplier(arsenalSite) > productionWithoutArsenal * 1.29 && wonderGame.getFactionAttackMultiplier(1) > attackWithoutArsenal * 1.09, "le Grand Arsenal applique son recrutement local et son attaque globale");
+
+        const citadelTarget = arsenalSite.neighbors
+            .map((territoryId) => wonderGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !arsenalSite.isPathBlocked(territory.id));
+        citadelTarget.ownerId = 1;
+        citadelTarget.wonderId = null;
+        citadelTarget.wonderActivationRemainingMs = 0;
+        arsenalSite.wonderId = "monumental-citadel";
+        arsenalSite.wonderActivationRemainingMs = 1;
+        const defenseWithoutCitadel = wonderGame.getDefenseMultiplier(citadelTarget);
+        arsenalSite.wonderActivationRemainingMs = 0;
+        check(wonderGame.getDefenseMultiplier(citadelTarget) > defenseWithoutCitadel * 1.36, "la Citadelle cumule sa défense nationale et son aura locale sans dupliquer les exemplaires identiques");
+        arsenalSite.wonderId = "orbital-station";
+        arsenalSite.wonderActivationRemainingMs = 0;
+        check(wonderGame.getAbilityCooldownDuration(1, 300000) === 255000, "la Station orbitale réduit les recharges de capacités de 15 %");
+
+        const visionWonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        visionWonderGame.newGame(838383);
+        visionWonderGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) territory.ownerId = null;
+        });
+        const visionStation = visionWonderGame.state.territories.find((territory) => !territory.isImpassable);
+        const visionPath = findPathWithMinimumHops(visionWonderGame.state.territories, visionStation.id, 3);
+        visionStation.ownerId = 1;
+        visionStation.wonderId = "orbital-station";
+        visionStation.wonderActivationRemainingMs = 1;
+        const hiddenWithoutStation = !visionWonderGame.getTerritoryVisibilityMap(1).has(visionPath[3]);
+        visionStation.wonderActivationRemainingMs = 0;
+        check(hiddenWithoutStation && visionWonderGame.getTerritoryVisibilityMap(1).has(visionPath[3]), "la Station orbitale étend d’une frontière la vision autour de son territoire");
+
+        const berthaGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        berthaGame.newGame(838484);
+        berthaGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) {
+                territory.ownerId = null;
+                territory.units = 1;
+                territory.isCapital = false;
+            }
+            territory.wonderId = null;
+            territory.wonderConstruction = null;
+            territory.wonderActivationRemainingMs = 0;
+            territory.wonderActionProgressMs = 0;
+            territory.wonderLastAction = null;
+        });
+        const berthaSource = berthaGame.state.territories.find((territory) => {
+            if (territory.isImpassable) return false;
+            const distances = getGraphDistances(berthaGame.state.territories, [territory.id]);
+            return berthaGame.state.territories.some((candidate) => !candidate.isImpassable && distances.get(candidate.id) === 3);
+        });
+        const berthaDistances = getGraphDistances(berthaGame.state.territories, [berthaSource.id]);
+        const berthaTarget = berthaGame.state.territories.find((territory) => !territory.isImpassable && berthaDistances.get(territory.id) === 3);
+        const berthaScout = berthaTarget.neighbors
+            .map((territoryId) => berthaGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && berthaDistances.get(territory.id) === 2);
+        berthaSource.ownerId = 1;
+        berthaSource.units = 20;
+        berthaSource.isCapital = true;
+        berthaSource.wonderId = "big-bertha";
+        berthaSource.wonderBuilderFactionId = 1;
+        berthaGame.state.getFaction(1).capitalTerritoryId = berthaSource.id;
+        berthaTarget.ownerId = 2;
+        berthaTarget.units = 100;
+        const berthaShots = [];
+        berthaGame.subscribe((change) => {
+            if (change.type === "BIG_BERTHA_FIRED") berthaShots.push(change);
+        });
+        berthaGame.state.elapsedMs = 15000;
+        berthaSource.wonderActionProgressMs = bigBerthaDefinition.siteEffects.fireIntervalMs;
+        berthaGame.random = () => 0.1;
+        berthaGame.updateWonderWeapons(1);
+        check(berthaTarget.units === 100 && berthaShots.length === 0 && berthaSource.wonderActionProgressMs === 15000, "la Grosse Bertha conserve son obus lorsqu’aucune cible ennemie n’est visible");
+        berthaScout.ownerId = 1;
+        berthaScout.units = 1;
+        berthaGame.updateWonderWeapons(1);
+        check(berthaTarget.units === 87 && berthaShots.length === 1 && berthaShots[0].damage === 13 && berthaSource.wonderLastAction?.targetTerritoryId === berthaTarget.id, "un tir réussi de Grosse Bertha inflige 8 pertes plus 5 % de la garnison à trois territoires");
+        check(berthaGame.getBigBerthaDamage({ units: 500 }) === 18 && berthaGame.getBigBerthaDamage({ units: 5 }) === 4, "les dégâts de la Bertha sont plafonnés à 18 et préservent toujours le dernier défenseur");
+
+        const berthaSnapshot = berthaGame.createNetworkSnapshot();
+        const remoteBerthaGame = new C.Game({ playerId: 2, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteBerthaGame.newGame(838484);
+        let remoteBerthaShots = 0;
+        remoteBerthaGame.subscribe((change) => {
+            if (change.type === "BIG_BERTHA_FIRED") remoteBerthaShots += 1;
+        });
+        remoteBerthaGame.applyNetworkSnapshot(berthaSnapshot);
+        remoteBerthaGame.applyNetworkSnapshot(berthaSnapshot);
+        check(remoteBerthaGame.state.getTerritory(berthaSource.id).wonderLastAction?.damage === 13 && remoteBerthaShots === 1, "le tir de la Bertha et son animation sont reproduits une seule fois chez les clients Firebase");
+        remoteBerthaGame.updateRemotePresentation(250);
+        check(remoteBerthaGame.state.getTerritory(berthaSource.id).wonderActionProgressMs === 250, "le client multijoueur anime localement la recharge de la Bertha entre deux instantanés");
+
+        berthaTarget.units = 100;
+        berthaSource.wonderActionProgressMs = 15000;
+        berthaGame.random = () => 0.9;
+        berthaGame.updateWonderWeapons(1);
+        check(berthaTarget.units === 100 && berthaShots.length === 2 && !berthaShots[1].hit, "les 25 % de tirs manqués de la Grosse Bertha ne causent aucun dégât");
+        berthaTarget.units = 1;
+        berthaSource.wonderActionProgressMs = 15000;
+        berthaGame.updateWonderWeapons(1);
+        check(berthaTarget.units === 1 && berthaShots.length === 2 && berthaSource.wonderActionProgressMs === 15000, "la Grosse Bertha ne tire pas sur le dernier défenseur et ne conquiert jamais à distance");
+
+        const berthaCannon = berthaGame.state.territories.find((territory) => territory.installation?.type === "cannon");
+        berthaCannon.ownerId = 1;
+        berthaCannon.installationProgressMs = 0;
+        berthaGame.updateInstallations(1000);
+        check(berthaCannon.installationProgressMs === 1150, "contrôler la Grosse Bertha accélère les canons ordinaires de 15 %");
+        berthaCannon.ownerId = null;
+        berthaTarget.units = 500;
+        berthaScout.ownerId = null;
+        berthaSource.wonderId = "orbital-station";
+        check(berthaGame.aiSystem.chooseWonder(berthaGame.state.getFaction(1), [berthaSource], Object.values(C.WONDER_TYPES))?.id === "big-bertha", "l’IA privilégie la Grosse Bertha lorsqu’une très grande concentration ennemie est visible à distance");
+        const aiBerthaPlacementGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        aiBerthaPlacementGame.newGame(838485);
+        aiBerthaPlacementGame.state.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 2;
+            territory.units = 8;
+            territory.productionMode = "units";
+            territory.isCapital = false;
+        });
+        const aiBerthaFaction = aiBerthaPlacementGame.state.getFaction(2);
+        const aiBerthaCapital = aiBerthaPlacementGame.state.getTerritoriesOwnedBy(2)[0];
+        aiBerthaCapital.isCapital = true;
+        aiBerthaFaction.capitalTerritoryId = aiBerthaCapital.id;
+        aiBerthaFaction.research.completedTechnologyIds.push("wonder-big-bertha");
+        const aiBerthaBuilt = aiBerthaPlacementGame.aiSystem.manageWonderConstruction(aiBerthaFaction, aiBerthaPlacementGame.state.getTerritoriesOwnedBy(2));
+        const aiBerthaSite = aiBerthaPlacementGame.state.territories.find((territory) => territory.wonderConstruction?.wonderId === "big-bertha");
+        check(aiBerthaBuilt && aiBerthaSite && aiBerthaSite.units >= 8, "l’IA sait choisir un emplacement sûr et ouvrir le chantier de sa Grosse Bertha");
+        berthaSource.wonderId = "big-bertha";
+        berthaSource.wonderActionProgressMs = 9000;
+        berthaSource.wonderLastAction = { type: "big-bertha", targetTerritoryId: berthaTarget.id, hit: true, damage: 18, firedAtMs: 40000 };
+        berthaSource.ownerId = 2;
+        berthaGame.handleWonderOwnershipChange(berthaSource, 1, 2);
+        check(berthaSource.wonderActionProgressMs === 0 && !berthaSource.wonderLastAction && berthaSource.wonderActivationRemainingMs === 20000, "capturer la Grosse Bertha annule sa recharge et impose la réactivation normale de 20 secondes");
+
+        wonderGame.random = () => 0.5;
+        wonderSite.wonderId = "megacity";
+        wonderSite.wonderActivationRemainingMs = 0;
+        wonderSite.units = 1;
+        const wonderCaptor = wonderSite.neighbors
+            .map((territoryId) => wonderGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !wonderSite.isPathBlocked(territory.id));
+        wonderCaptor.ownerId = 2;
+        wonderCaptor.units = 500;
+        const wonderCaptureAttack = wonderGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: wonderCaptor.id, toTerritoryId: wonderSite.id, units: 400 });
+        wonderGame.resolveArmyArrival(wonderCaptureAttack.army);
+        check(wonderCaptureAttack.ok && wonderSite.ownerId === 2 && wonderSite.wonderId === "megacity" && wonderSite.wonderActivationRemainingMs === 2000, "une merveille achevée survit à la capture et respecte le délai de réactivation configuré");
+        wonderGame.updateWonderActivation(2000);
+        check(wonderGame.isWonderActive(wonderSite) && wonderFaction.constructedWonderId === "megacity" && wonderGame.state.getFaction(2).statistics.wondersCaptured === 1, "la merveille capturée s’active pour son nouveau propriétaire sans rendre le choix au bâtisseur");
+        const captorFaction = wonderGame.state.getFaction(2);
+        captorFaction.research.completedTechnologyIds.push("wonder-grand-arsenal");
+        const captorOwnWonder = wonderGame.executeCommand({ type: "BUILD_WONDER", playerId: 2, territoryId: wonderCaptor.id, wonderId: "grand-arsenal" });
+        check(captorOwnWonder.ok, "contrôler une merveille capturée n’empêche pas une nation de construire son propre choix");
+        wonderCaptor.ownerId = 1;
+        wonderGame.updateWonderConstruction(1);
+        check(!wonderCaptor.wonderConstruction && !captorFaction.constructedWonderId, "la capture d’un chantier inachevé l’annule sans consommer le choix du bâtisseur");
+
+        const aiWonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        aiWonderGame.newGame(848484);
+        const aiWonderFaction = aiWonderGame.state.getFaction(2);
+        aiWonderGame.state.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 2;
+            territory.units = 8;
+            territory.productionMode = "units";
+            territory.isCapital = false;
+        });
+        const aiWonderCapital = aiWonderGame.state.territories.find((territory) => !territory.isImpassable);
+        aiWonderCapital.isCapital = true;
+        aiWonderFaction.capitalTerritoryId = aiWonderCapital.id;
+        aiWonderGame.state.getTerritoriesOwnedBy(2).forEach((territory) => { territory.units = 40; });
+        check(aiWonderGame.aiSystem.chooseWonder(aiWonderFaction, aiWonderGame.state.getTerritoriesOwnedBy(2), Object.values(C.WONDER_TYPES))?.id === "megacity", "l’IA privilégie la Mégapole lorsqu’une armée trop vaste menace sa capacité alimentaire");
+        aiWonderGame.state.getTerritoriesOwnedBy(2).forEach((territory) => { territory.units = 8; });
+        aiWonderFaction.research.completedTechnologyIds.push("wonder-megacity");
+        check(aiWonderGame.aiSystem.manageWonderConstruction(aiWonderFaction, aiWonderGame.state.getTerritoriesOwnedBy(2)) && aiWonderGame.state.territories.some((territory) => territory.wonderConstruction?.builderFactionId === 2), "l’IA choisit un emplacement sûr et lance sa merveille débloquée");
+
+        const pressuredWonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        pressuredWonderGame.newGame(858586);
+        pressuredWonderGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) territory.ownerId = null;
+            territory.isCapital = false;
+        });
+        const pressuredFaction = pressuredWonderGame.state.getFaction(2);
+        const pressuredBorder = pressuredWonderGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((territoryId) => {
+            const neighbor = pressuredWonderGame.state.getTerritory(territoryId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+        }));
+        const pressuredEnemy = pressuredBorder.neighbors
+            .map((territoryId) => pressuredWonderGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !pressuredBorder.isPathBlocked(territory.id));
+        pressuredBorder.ownerId = 2;
+        pressuredBorder.units = 10;
+        pressuredBorder.isCapital = true;
+        pressuredFaction.capitalTerritoryId = pressuredBorder.id;
+        pressuredEnemy.ownerId = 1;
+        pressuredEnemy.units = 200;
+        check(pressuredWonderGame.aiSystem.chooseWonder(pressuredFaction, [pressuredBorder], Object.values(C.WONDER_TYPES))?.id === "monumental-citadel", "l’IA privilégie la Citadelle lorsqu’une frontière subit une pression militaire extrême");
+        check(typeof C.UIController.prototype.renderWonderPanel === "function" && typeof C.MapRenderer.prototype.drawWonderMarkers === "function" && typeof C.MiniMapRenderer.prototype.drawWonderMarkers === "function", "l’interface principale et la mini-carte exposent un rendu dédié aux merveilles");
         const researchGame = new C.Game({ playerId: 1, enableAI: false, enableWorldEvents: false, timeScale: 1 });
         researchGame.newGame(818181);
         const researchFaction = researchGame.state.getFaction(1);
@@ -985,6 +1246,8 @@
         check(audioManager.playResearchComplete() && startedNotes.length === 4 && playedFrequencies.length === 4, "la fin d’une recherche déclenche un carillon synthétique de quatre notes");
         const noteCountBeforeTerritoryLoss = startedNotes.length;
         check(audioManager.playTerritoryLost() && startedNotes.length === noteCountBeforeTerritoryLoss + 3, "la perte d’un territoire déclenche une alerte descendante de trois notes");
+        const noteCountBeforeBigBertha = startedNotes.length;
+        check(audioManager.playBigBertha() && startedNotes.length === noteCountBeforeBigBertha + 3, "le tir de la Grosse Bertha déclenche un grondement synthétique de trois notes graves");
         let nuclearSoundSource = "";
         let nuclearSoundPlayCount = 0;
         const fakeNuclearSound = {
@@ -1057,6 +1320,31 @@
             targetTerritoryId: 15
         });
         check(nuclearLaunchSounds === 1 && nuclearLaunchPulses === 2, "la bombe nucléaire joue son alerte pour tous les joueurs, même lorsqu’un adversaire la lance");
+        let berthaSounds = 0;
+        let berthaAnimations = 0;
+        let berthaToast = "";
+        const berthaUiStub = {
+            game: {
+                playerId: 1,
+                isTerritoryVisible: () => true,
+                state: { getTerritory: () => ({ id: 42, ownerId: 1, name: "Val d’Onyx" }) }
+            },
+            renderer: {
+                fireBigBertha: () => { berthaAnimations += 1; },
+                pulseTerritory: () => {}
+            },
+            audio: { playBigBertha: () => { berthaSounds += 1; } },
+            refreshDynamic: () => {},
+            showToast: (message) => { berthaToast = message; }
+        };
+        C.UIController.prototype.handleGameChange.call(berthaUiStub, {
+            type: "BIG_BERTHA_FIRED",
+            fromTerritoryId: 10,
+            targetTerritoryId: 42,
+            hit: true,
+            damage: 13
+        });
+        check(berthaSounds === 1 && berthaAnimations === 1 && /BOUM/.test(berthaToast), "un impact de Grosse Bertha visible anime l’obus, joue son grondement et avertit sa victime");
         let playerResearchSounds = 0;
         let researchToast = "";
         const researchUiStub = {
@@ -1457,6 +1745,7 @@
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
+        check(typeof C.MapRenderer.prototype.fireBigBertha === "function", "le rendu expose une trajectoire lourde dédiée à la Grosse Bertha");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");

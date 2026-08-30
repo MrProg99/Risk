@@ -24,6 +24,7 @@
                 progressMs: 0
             };
             this.abilityCooldowns = { missile: 0, reinforcement: 0, paratrooper: 0, nuclear: 0 };
+            this.constructedWonderId = null;
             this.statistics = {
                 territoriesCaptured: 0,
                 territoriesLost: 0,
@@ -36,7 +37,9 @@
                 researchCompleted: 0,
                 abilitiesUsed: 0,
                 railroadsBuilt: 0,
-                buildingsConstructed: 0
+                buildingsConstructed: 0,
+                wondersConstructed: 0,
+                wondersCaptured: 0
             };
         }
 
@@ -63,6 +66,7 @@
                     progressMs: this.research.progressMs
                 },
                 abilityCooldowns: { ...this.abilityCooldowns },
+                constructedWonderId: this.constructedWonderId,
                 statistics: { ...this.statistics }
             };
         }

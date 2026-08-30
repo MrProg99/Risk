@@ -8,7 +8,7 @@
             icon: "◆",
             color: "#e9bd63",
             description: "Développer la production et les réseaux logistiques.",
-            technologyIds: ["construction-1", "construction-2", "construction-railroad", "construction-agriculture", "construction-3", "construction-4"]
+            technologyIds: ["construction-1", "construction-2", "construction-railroad", "construction-agriculture", "construction-3", "construction-4", "wonder-megacity"]
         },
         {
             id: "attack",
@@ -16,7 +16,7 @@
             icon: "⚔",
             color: "#ff766d",
             description: "Améliorer la puissance et la mobilité des offensives.",
-            technologyIds: ["attack-1", "attack-2", "attack-3", "attack-4"]
+            technologyIds: ["attack-1", "attack-2", "attack-3", "attack-4", "wonder-grand-arsenal", "wonder-big-bertha"]
         },
         {
             id: "defense",
@@ -24,7 +24,7 @@
             icon: "⬟",
             color: "#57d8d0",
             description: "Renforcer les garnisons et les installations défensives.",
-            technologyIds: ["defense-1", "defense-2", "defense-3", "defense-4"]
+            technologyIds: ["defense-1", "defense-2", "defense-3", "defense-4", "wonder-monumental-citadel"]
         },
         {
             id: "abilities",
@@ -36,7 +36,7 @@
                 "ability-missile", "ability-missile-2",
                 "ability-reinforcement", "ability-reinforcement-2",
                 "ability-paratrooper", "ability-paratrooper-2",
-                "ability-nuclear", "ability-nuclear-2"
+                "ability-nuclear", "ability-nuclear-2", "wonder-orbital-station"
             ]
         }
     ];
@@ -108,6 +108,17 @@
             effects: { productionMultiplier: 0.15 },
             effectLabel: "+15 % de production d’unités"
         },
+        "wonder-megacity": {
+            id: "wonder-megacity",
+            branchId: "construction",
+            tier: 5,
+            name: "Urbanisme monumental",
+            description: "Mobilise les savoirs de construction nécessaires à l’édification d’une Mégapole.",
+            durationMs: 330000,
+            prerequisiteId: "construction-4",
+            effects: { unlockWonder: "megacity" },
+            effectLabel: "Débloque la merveille Mégapole"
+        },
         "attack-1": {
             id: "attack-1",
             branchId: "attack",
@@ -152,6 +163,28 @@
             effects: { attackMultiplier: 0.10 },
             effectLabel: "+10 % de puissance d’attaque"
         },
+        "wonder-grand-arsenal": {
+            id: "wonder-grand-arsenal",
+            branchId: "attack",
+            tier: 5,
+            name: "Hégémonie militaire",
+            description: "Réunit l’industrie et les états-majors autour d’un Grand Arsenal national.",
+            durationMs: 330000,
+            prerequisiteId: "attack-4",
+            effects: { unlockWonder: "grand-arsenal" },
+            effectLabel: "Débloque la merveille Grand Arsenal"
+        },
+        "wonder-big-bertha": {
+            id: "wonder-big-bertha",
+            branchId: "attack",
+            tier: 5,
+            name: "Artillerie super-lourde",
+            description: "Des ateliers monumentaux assemblent une pièce capable de bombarder au-delà des obstacles.",
+            durationMs: 330000,
+            prerequisiteId: "attack-4",
+            effects: { unlockWonder: "big-bertha" },
+            effectLabel: "Débloque la merveille Grosse Bertha"
+        },
         "defense-1": {
             id: "defense-1",
             branchId: "defense",
@@ -195,6 +228,17 @@
             prerequisiteId: "defense-3",
             effects: { defenseMultiplier: 0.12 },
             effectLabel: "+12 % de puissance défensive"
+        },
+        "wonder-monumental-citadel": {
+            id: "wonder-monumental-citadel",
+            branchId: "defense",
+            tier: 5,
+            name: "Architecture inexpugnable",
+            description: "Permet de bâtir une Citadelle monumentale protégeant toute la nation.",
+            durationMs: 330000,
+            prerequisiteId: "defense-4",
+            effects: { unlockWonder: "monumental-citadel" },
+            effectLabel: "Débloque la merveille Citadelle monumentale"
         },
         "ability-missile": {
             id: "ability-missile",
@@ -283,6 +327,17 @@
             prerequisiteId: "ability-nuclear",
             effects: { upgradeAbility: "nuclear" },
             effectLabel: "Dégâts : 40 % au centre · 20 % autour"
+        },
+        "wonder-orbital-station": {
+            id: "wonder-orbital-station",
+            branchId: "abilities",
+            tier: 4,
+            name: "Commandement orbital",
+            description: "Étend le réseau stratégique jusqu’à une Station orbitale de commandement.",
+            durationMs: 360000,
+            prerequisiteId: "ability-missile-2",
+            effects: { unlockWonder: "orbital-station" },
+            effectLabel: "Débloque la merveille Station orbitale"
         }
     };
 

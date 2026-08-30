@@ -192,6 +192,25 @@
             return true;
         }
 
+        playBigBertha() {
+            const context = this.getContext();
+            if (!context || context.state === "closed") return false;
+            this.duckBackgroundMusic(950);
+            const play = () => {
+                if (context.state === "suspended") return;
+                const startAt = context.currentTime + 0.02;
+                this.playChimeNote(context, 118, startAt, 0.32, 0.70, "square");
+                this.playChimeNote(context, 72, startAt + 0.035, 0.62, 0.92, "sawtooth");
+                this.playChimeNote(context, 43, startAt + 0.10, 0.82, 0.78, "sawtooth");
+            };
+            if (context.state === "suspended" && typeof context.resume === "function") {
+                context.resume().then(play).catch(() => {});
+            } else {
+                play();
+            }
+            return true;
+        }
+
         playNuclearLaunch() {
             if (!this.nuclearSound) {
                 try {

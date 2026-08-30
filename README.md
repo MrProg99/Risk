@@ -144,9 +144,23 @@ La carte actuelle possède au minimum **quatre aéroports**, et la grande carte 
 
 ### Recherche
 
-Le bouton **Recherche** ouvre un arbre de vingt-deux technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. Les Parachutistes exigent la Mobilisation d’urgence, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
+Le bouton **Recherche** ouvre un arbre de vingt-sept technologies réparties sur quatre axes : **Construction**, **Attaque**, **Défense** et **Capacités**. Une faction ne peut étudier qu’une technologie à la fois et doit débloquer les paliers progressifs dans l’ordre. Chaque axe se termine désormais par une recherche ultime de merveille, et l’axe Attaque propose deux projets concurrents. Les Parachutistes exigent la Mobilisation d’urgence, tandis que l’Arme nucléaire exige d’abord le Missile tactique. Les recherches durent de 1 min 30 à 6 minutes de temps simulé et continuent pendant les combats. Un carillon à quatre notes avertit le joueur lorsque sa propre recherche est terminée; les recherches des factions contrôlées par l’ordinateur restent silencieuses.
 
 Les bonus débloqués améliorent réellement la production, la puissance de combat, la vitesse des armées ou la cadence des canons. Les centres scientifiques, les centrales et le Centre spatial accélèrent légèrement la progression; les Technocrates tirent davantage profit de ces territoires. Toutes les factions contrôlées par l’ordinateur choisissent également leurs recherches, en privilégiant une branche adaptée à leur style.
+
+### Merveilles
+
+Les recherches ultimes permettent de construire une **Mégapole**, un **Grand Arsenal**, une **Grosse Bertha**, une **Citadelle monumentale** ou une **Station orbitale**. Une faction ne peut achever qu’une merveille nationale pendant toute la partie, même si elle la perd ensuite. Plusieurs factions peuvent choisir le même modèle. Le chantier dure **trois minutes** et suspend toute production locale, sans empêcher les garnisons ni les convois de circuler.
+
+- **Mégapole** : +12 % de recrutement national et +300 nourritures par site actif.
+- **Grand Arsenal** : +10 % d’attaque nationale et +30 % de recrutement sur le site.
+- **Grosse Bertha** : bombarde automatiquement un ennemi visible jusqu’à trois territoires de distance toutes les 15 secondes. Elle possède 75 % de précision, inflige 8 pertes plus 5 % de la garnison avec un maximum de 18, puis accélère les canons ordinaires de 15 %. Ses obus survolent montagnes et lacs, mais ne détruisent jamais le dernier défenseur.
+- **Citadelle monumentale** : +10 % de défense nationale et +25 % sur le site ainsi que ses territoires adjacents du même propriétaire.
+- **Station orbitale** : −15 % sur les recharges de capacités et une frontière de vision supplémentaire autour du site.
+
+Une merveille achevée demeure lors d’une conquête, puis se réactive pour son nouveau propriétaire après **20 secondes**. Un chantier inachevé est détruit et ne consomme pas le choix permanent du constructeur. Il est possible de contrôler plusieurs merveilles capturées : les effets nationaux de modèles différents se cumulent, mais plusieurs exemplaires d’un même modèle ne multiplient pas leur bonus national. Leurs effets locaux restent propres à chaque site.
+
+L’IA évalue son alimentation, sa doctrine militaire, la pression ennemie, les concentrations visibles et son usage des capacités pour choisir une merveille. Elle préfère notamment la Grosse Bertha contre les lourdes garnisons, la place deux ou trois territoires derrière le front et la protège comme une cible prioritaire. Elle recherche le palier requis, renforce le chantier et la merveille achevée, puis accorde une forte valeur offensive aux merveilles adverses. Les commandes `BUILD_WONDER`, la progression, le constructeur historique, les captures, les tirs et la réactivation sont sérialisés dans les instantanés Firebase; les règles Realtime Database existantes n’ont pas besoin d’être modifiées.
 
 ### Capacités stratégiques
 
@@ -185,7 +199,7 @@ css/
   style.css    Interface du jeu
   help.css     Mise en page responsive du manuel
 js/
-  data/       Définitions des factions, terrains, bâtiments et sites rares
+  data/       Définitions des factions, terrains, bâtiments, merveilles et sites rares
   utils/      Géométrie, clipping Voronoï et utilitaires déterministes
   game/       État, modèles, génération, simulation et combats
   render/     Lecture de l’état et rendu Canvas uniquement

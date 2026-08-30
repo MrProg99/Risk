@@ -60,6 +60,7 @@
             this.alliedDefenseConvoysSent = 0;
             this.railroadsConstructed = 0;
             this.farmsConstructed = 0;
+            this.wondersConstructed = 0;
             this.reset();
         }
 
@@ -76,6 +77,7 @@
             this.alliedDefenseConvoysSent = 0;
             this.railroadsConstructed = 0;
             this.farmsConstructed = 0;
+            this.wondersConstructed = 0;
             this.thinkTimers.clear();
             this.offensivePlans.clear();
             this.alliedAidCooldowns.clear();
@@ -117,6 +119,10 @@
             if (this.manageResearchAllocation(faction, owned)) return true;
 
             if (this.manageFoodSupply(faction, owned)) return true;
+
+            if (this.manageWonderConstruction(faction, owned)) return true;
+
+            if (this.manageWonderDefense(faction, owned)) return true;
 
             if (this.manageFarmConstruction(faction, owned)) return true;
 
@@ -204,7 +210,8 @@
                 const reserve = profile.garrison +
                     (source.isCapital ? 15 : 0) +
                     (source.installation ? 8 : 0) +
-                    (source.rareSite ? 5 : 0);
+                    (source.rareSite ? 5 : 0) +
+                    (source.wonderId || source.wonderConstruction ? 28 : 0);
                 const surplus = source.units - reserve;
                 if (surplus < 12) return;
 
@@ -244,8 +251,7 @@
         launchOpportunisticNeutralExpansion(faction, owned) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
-            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
-                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+            const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
             const capital = state.getTerritory(faction.capitalTerritoryId);
             const mapMiddleX = state.mapWidth / 2;
             const capitalSide = capital ? Math.sign(capital.center.x - mapMiddleX) : 0;
@@ -282,6 +288,7 @@
                         score: (sameHourglassSide ? 100 : 0) +
                             (type.productionMultiplier - 1) * 18 +
                             (target.rareSite ? 20 : 0) +
+                            (target.wonderId ? 90 : 0) +
                             projectedPower / defensePower * 5 -
                             target.units * .12
                     });
@@ -574,6 +581,186 @@
             return true;
         }
 
+        chooseWonder(faction, owned, definitions = C.getUnlockedWonderTypes(faction)) {
+            if (!definitions.length) return null;
+            const food = this.game.getFactionFoodState(faction.id);
+            const demandToCapacity = food.capacity > 0 ? food.demand / food.capacity : 2;
+            let hostilePower = 0;
+            let borderPower = 0;
+            owned.forEach((territory) => {
+                const hostiles = territory.neighbors
+                    .map((territoryId) => this.game.state.getTerritory(territoryId))
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
+                if (!hostiles.length) return;
+                borderPower += territory.units;
+                hostilePower += hostiles.reduce((sum, territory) => sum + territory.units, 0);
+            });
+            const pressure = hostilePower / Math.max(1, borderPower);
+            const abilityLevels = ["missile", "reinforcement", "paratrooper", "nuclear"]
+                .reduce((sum, abilityId) => sum + C.getFactionAbilityLevel(faction, abilityId), 0);
+            const profileId = Number(faction.definitionId ?? faction.id);
+            const visibility = this.game.getTerritoryVisibilityMap(faction.id);
+            const largestVisibleEnemy = this.game.state.territories
+                .filter((territory) =>
+                    visibility.has(territory.id) &&
+                    territory.ownerId !== null &&
+                    !territory.isImpassable &&
+                    !this.game.areAllied(territory.ownerId, faction.id))
+                .reduce((largest, territory) => Math.max(largest, territory.units), 0);
+            const controlledCannons = owned.filter((territory) => territory.installation?.type === "cannon").length;
+            const scores = {
+                megacity: 28 + Math.max(0, demandToCapacity - 0.72) * 85 + (profileId === 2 ? 16 : 0),
+                "grand-arsenal": 30 + Math.max(0, 1.25 - pressure) * 22 + ([1, 3].includes(profileId) ? 18 : 0),
+                "big-bertha": 24 + Math.min(45, largestVisibleEnemy * 0.12) + controlledCannons * 5 + ([1, 3].includes(profileId) ? 14 : profileId === 2 ? 8 : 0),
+                "monumental-citadel": 25 + Math.min(2, pressure) * 42 + (profileId === 4 ? 10 : 0),
+                "orbital-station": 18 + abilityLevels * 8 + (profileId === 2 ? 12 : 0)
+            };
+            return definitions.slice().sort((first, second) =>
+                (scores[second.id] || 0) - (scores[first.id] || 0))[0] || null;
+        }
+
+        getWonderFrontDistance(factionId, origin, maximumDistance = 7) {
+            const visited = new Set([origin.id]);
+            let frontier = [origin];
+            for (let distance = 0; distance <= maximumDistance && frontier.length; distance += 1) {
+                const next = [];
+                for (const territory of frontier) {
+                    const touchesHostile = territory.neighbors.some((neighborId) => {
+                        if (territory.isPathBlocked(neighborId)) return false;
+                        const neighbor = this.game.state.getTerritory(neighborId);
+                        return neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, factionId);
+                    });
+                    if (touchesHostile) return distance;
+                    territory.neighbors.forEach((neighborId) => {
+                        if (visited.has(neighborId) || territory.isPathBlocked(neighborId)) return;
+                        const neighbor = this.game.state.getTerritory(neighborId);
+                        if (!neighbor || neighbor.isImpassable || neighbor.ownerId !== factionId) return;
+                        visited.add(neighborId);
+                        next.push(neighbor);
+                    });
+                }
+                frontier = next;
+            }
+            return maximumDistance + 1;
+        }
+
+        manageWonderConstruction(faction, owned) {
+            if (faction.constructedWonderId || owned.some((territory) => territory.wonderConstruction?.builderFactionId === faction.id)) return false;
+            const unlocked = C.getUnlockedWonderTypes(faction);
+            if (!unlocked.length || owned.length < 6) return false;
+            const definition = this.chooseWonder(faction, owned, unlocked);
+            if (!definition) return false;
+            const food = this.game.getFactionFoodState(faction.id);
+            if (food.demand > 0 && food.ratio < 0.95) return false;
+            const state = this.game.state;
+            const routeTerritoryIds = new Set(state.reinforcementRoutes
+                .filter((route) => route.active && route.ownerId === faction.id)
+                .flatMap((route) => route.path));
+            const candidates = owned
+                .filter((territory) => !territory.wonderId && !this.game.isTerritoryUnderConstruction(territory))
+                .filter((territory) => ["units", "food", "research"].includes(territory.productionMode) && territory.units >= 8)
+                .map((territory) => {
+                    const suspendedFood = this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory);
+                    if (food.demand > 0 && (food.capacity - suspendedFood) / food.demand < 0.92) return null;
+                    const frontDistance = this.getWonderFrontDistance(faction.id, territory);
+                    const alliedNeighbors = territory.neighbors
+                        .map((territoryId) => state.getTerritory(territoryId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId === faction.id && !territory.isPathBlocked(neighbor.id)).length;
+                    const base = alliedNeighbors * 8 + (territory.railroad ? 24 : 0) + (routeTerritoryIds.has(territory.id) ? 18 : 0) + Math.min(frontDistance, 5) * 9;
+                    let specialization = 0;
+                    if (definition.id === "megacity") specialization = (territory.isCapital ? 48 : 0) + (frontDistance >= 3 ? 25 : -40) + (territory.terrain === "agriculture" || territory.terrain === "plain" ? 12 : 0);
+                    else if (definition.id === "grand-arsenal") specialization = (frontDistance >= 2 && frontDistance <= 4 ? 34 : 0) + (territory.railroad ? 30 : 0) + (territory.terrain === "industry" ? 24 : 0);
+                    else if (definition.id === "big-bertha") {
+                        const visibility = this.game.getTerritoryVisibilityMap(faction.id);
+                        const targets = this.game.getTerritoriesWithinHops(territory, definition.siteEffects.rangeHops)
+                            .filter((target) =>
+                                visibility.has(target.id) &&
+                                !target.isImpassable &&
+                                target.ownerId !== null &&
+                                !this.game.areAllied(target.ownerId, faction.id));
+                        const bombardmentValue = targets.reduce((best, target) => Math.max(best,
+                            this.game.getBigBerthaDamage(target) * 2 +
+                            (target.wonderId ? 28 : 0) +
+                            (target.isCapital ? 16 : 0)), 0);
+                        specialization = (frontDistance >= 2 && frontDistance <= 3 ? 48 : frontDistance >= 4 ? 8 : -20) +
+                            (territory.railroad ? 24 : 0) +
+                            (["industry", "fortress"].includes(territory.terrain) ? 20 : 0) +
+                            Math.min(55, bombardmentValue);
+                    }
+                    else if (definition.id === "monumental-citadel") specialization = (frontDistance === 1 ? 50 : frontDistance === 2 ? 38 : 0) + (territory.isChokePoint ? 65 : 0) + (territory.terrain === "fortress" ? 28 : 0);
+                    else specialization = (territory.isCapital ? 25 : 0) + (frontDistance >= 3 ? 30 : -25) + (["science", "power", "radar"].includes(territory.terrain) ? 28 : 0);
+                    return { territory, score: base + specialization + Math.min(territory.units, 45) * 0.4 };
+                })
+                .filter(Boolean)
+                .sort((first, second) => second.score - first.score);
+            const selected = candidates[0]?.territory;
+            if (!selected) return false;
+            const result = this.game.executeCommand({
+                type: "BUILD_WONDER",
+                playerId: faction.id,
+                territoryId: selected.id,
+                wonderId: definition.id
+            });
+            if (!result.ok) return false;
+            this.ordersIssued += 1;
+            this.wondersConstructed += 1;
+            return true;
+        }
+
+        manageWonderDefense(faction, owned) {
+            const state = this.game.state;
+            const wonders = owned.filter((territory) => territory.wonderId || territory.wonderConstruction);
+            if (!wonders.length) return false;
+            const incomingWonderIds = new Set(state.armies
+                .filter((army) => army.ownerId === faction.id && army.isConvoy)
+                .map((army) => army.finalTerritoryId ?? army.toTerritoryId));
+            const targets = wonders
+                .filter((territory) => !incomingWonderIds.has(territory.id))
+                .map((territory) => {
+                    const definition = C.getWonderType(territory.wonderId || territory.wonderConstruction?.wonderId);
+                    const desired = definition?.id === "monumental-citadel" ? 55 : definition?.id === "big-bertha" ? 52 : territory.wonderConstruction ? 38 : 45;
+                    const hostileStrength = territory.neighbors
+                        .map((territoryId) => state.getTerritory(territoryId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id))
+                        .reduce((sum, neighbor) => sum + neighbor.units, 0);
+                    return { territory, desired, missing: Math.max(0, desired + Math.ceil(hostileStrength * 0.35) - territory.units) };
+                })
+                .filter((entry) => entry.missing >= 6)
+                .sort((first, second) => second.missing - first.missing);
+            const target = targets[0];
+            if (!target) return false;
+            const profile = this.getProfile(faction.id);
+            const donors = owned
+                .filter((territory) => territory.id !== target.territory.id && territory.units > profile.garrison + 10)
+                .map((territory) => {
+                    const path = this.game.findOwnedPath(faction.id, territory.id, target.territory.id);
+                    if (!path) return null;
+                    const hostileNeighbor = territory.neighbors.some((neighborId) => {
+                        const neighbor = state.getTerritory(neighborId);
+                        return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id);
+                    });
+                    if (hostileNeighbor) return null;
+                    const reserve = profile.garrison + (territory.isCapital ? 12 : 0) + (territory.wonderId ? 25 : 0);
+                    const surplus = territory.units - reserve;
+                    return surplus >= 6 ? { territory, path, surplus, score: surplus - path.length * 2 } : null;
+                })
+                .filter(Boolean)
+                .sort((first, second) => second.score - first.score);
+            const donor = donors[0];
+            if (!donor) return false;
+            const result = this.game.executeCommand({
+                type: "SEND_REINFORCEMENT_ROUTE",
+                playerId: faction.id,
+                fromTerritoryId: donor.territory.id,
+                toTerritoryId: target.territory.id,
+                units: Math.min(donor.surplus, target.missing)
+            });
+            if (!result.ok) return false;
+            result.army.logisticsPurpose = "wonder-defense";
+            this.ordersIssued += 1;
+            return true;
+        }
+
         manageRailroadConstruction(faction, owned) {
             if (!faction.research.completedTechnologyIds.includes("construction-railroad")) return false;
             const state = this.game.state;
@@ -673,6 +860,7 @@
                 const strategicValue = (target.isCapital ? 50 : 0) +
                     (target.installation ? 25 : 0) +
                     (target.rareSite ? 15 : 0) +
+                    (target.wonderId || target.wonderConstruction ? 65 : 0) +
                     (target.terrain === "airport" ? 12 : 0) +
                     (target.productionMode === "food" ? 18 : target.productionMode === "research" ? 15 : 0);
                 return { target, danger, hostileStrength, incomingAidUnits, cooldownKey, score: danger * 45 + strategicValue };
@@ -728,6 +916,7 @@
                         (target.rareSite ? 15 : 0) +
                         (target.installation?.type === "cannon" ? 10 : 0) +
                         (target.isCapital ? 20 : 0) +
+                        (target.wonderId ? 45 : 0) +
                         (target.ownerId !== null ? 5 : 0);
                     if (!best || priority > best.priority) {
                         best = { airport, target, priority };
@@ -759,7 +948,7 @@
                         .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id))
                         .reduce((sum, neighbor) => sum + neighbor.units, 0);
                     const danger = hostileStrength / Math.max(1, territory.units);
-                    const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0);
+                    const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0) + (territory.wonderId || territory.wonderConstruction ? 55 : 0);
                     return { territory, danger, score: danger * 35 + strategic - territory.units * 0.12 };
                 }).sort((a, b) => b.score - a.score);
                 const best = targets[0];
@@ -778,8 +967,7 @@
             if (completed.includes(C.ABILITY_DEFINITIONS.paratrooper.technologyId) && (cooldowns.paratrooper || 0) <= 0) {
                 const definition = C.getFactionAbilityStats(faction, "paratrooper");
                 const visibility = this.game.getTerritoryVisibilityMap(faction.id);
-                const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
-                    (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+                const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
                 const candidates = this.game.state.territories
                     .filter((territory) => territory.ownerId !== null && !territory.isImpassable &&
                         !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id))
@@ -794,7 +982,8 @@
                             (territory.installation ? 13 : 0) +
                             (territory.terrain === "airport" ? 12 : 0) +
                             (territory.productionMode === "food" ? 9 : territory.productionMode === "research" ? 8 : 0) +
-                            (territory.rareSite ? 10 : 0);
+                            (territory.rareSite ? 10 : 0) +
+                            (territory.wonderId ? 70 : 0);
                         return { territory, powerRatio, score: powerRatio * 14 + deepStrikeValue + strategicValue - territory.units * 0.12 };
                     })
                     .filter((candidate) => candidate.powerRatio >= 1.25)
@@ -833,7 +1022,7 @@
                             if (this.game.areAllied(affected.ownerId, faction.id)) alliedLosses += expectedLoss;
                             else enemyLosses += expectedLoss;
                         });
-                        const strategicValue = (territory.isCapital ? 18 : 0) + (territory.installation ? 9 : 0) + (territory.rareSite ? 7 : 0);
+                        const strategicValue = (territory.isCapital ? 18 : 0) + (territory.installation ? 9 : 0) + (territory.rareSite ? 7 : 0) + (territory.wonderId ? 45 : 0);
                         return { territory, enemyLosses, alliedLosses, score: enemyLosses + strategicValue - alliedLosses * 3 };
                     })
                     .filter((candidate) => candidate.enemyLosses >= 12 && candidate.alliedLosses <= candidate.enemyLosses * 0.2)
@@ -854,7 +1043,7 @@
                     .filter((territory) => !territory.isImpassable && !this.game.areAllied(territory.ownerId, faction.id) && visibility.has(territory.id) && territory.units >= 12)
                     .map((territory) => ({
                         territory,
-                        score: territory.units + (territory.isCapital ? 28 : 0) + (territory.installation ? 16 : 0) + (territory.terrain === "airport" ? 14 : 0) + (territory.productionMode === "food" ? 10 : territory.productionMode === "research" ? 9 : 0) + (territory.rareSite ? 12 : 0)
+                        score: territory.units + (territory.isCapital ? 28 : 0) + (territory.installation ? 16 : 0) + (territory.terrain === "airport" ? 14 : 0) + (territory.productionMode === "food" ? 10 : territory.productionMode === "research" ? 9 : 0) + (territory.rareSite ? 12 : 0) + (territory.wonderId ? 55 : 0)
                     }))
                     .sort((a, b) => b.score - a.score);
                 if (candidates.length) {
@@ -968,6 +1157,7 @@
                     const type = C.TERRITORY_TYPES[target.terrain];
                     const strategicValue = (type.productionMultiplier - 1) * 12 +
                         (target.rareSite ? 12 : 0) +
+                        (target.wonderId ? 85 : 0) +
                         (target.ownerId === null ? 1 : 5);
                     const pathCost = donors.reduce((sum, donor) => sum + donor.path.length - 1, 0);
                     const concentrationRatio = combinedUnits / Math.max(1, requiredUnits);
@@ -1001,7 +1191,7 @@
                         !neighbor.isImpassable &&
                         !this.game.areAllied(neighbor.ownerId, faction.id) &&
                         !territory.isPathBlocked(neighbor.id));
-                const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3);
+                const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3) + (territory.wonderId || territory.wonderConstruction ? 28 : 0);
                 const surplus = territory.units - reserve;
                 if (surplus < 2) return null;
                 const preferred = preferredContributorIds.includes(territory.id) ? 12 : 0;
@@ -1012,8 +1202,7 @@
 
         getCoordinatedAttackRequirement(faction, target) {
             const profile = this.getProfile(faction.id);
-            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
-                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+            const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
             const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
             const coordinationSafety = C.Geometry.clamp(profile.safety, 1.08, 1.18);
             return Math.ceil((defensePower / Math.max(attackMultiplier, 0.1)) * coordinationSafety) + 1;
@@ -1098,7 +1287,7 @@
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 const danger = hostileStrength / Math.max(1, territory.units);
                 const preferred = this.getProfile(faction.id).preferredTerrains.includes(territory.terrain) ? 1.5 : 0;
-                const score = danger * 9 + hostileNeighbors.length * 2.5 + (territory.rareSite ? 4 : 0) + preferred;
+                const score = danger * 9 + hostileNeighbors.length * 2.5 + (territory.rareSite ? 4 : 0) + (territory.wonderId || territory.wonderConstruction ? 22 : 0) + preferred;
                 return { territory, score };
             }).filter(Boolean).sort((a, b) => b.score - a.score);
         }
@@ -1122,8 +1311,7 @@
             const profile = this.getProfile(faction.id);
             const enemyOnly = options.enemyOnly === true;
             const minimumPowerRatio = Math.max(0, Number(options.minimumPowerRatio) || 0);
-            const attackMultiplier = faction.bonuses.attackMultiplier * faction.bonuses.combatMultiplier *
-                (1 + C.getFactionTechnologyBonus(faction, "attackMultiplier"));
+            const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
             const candidates = [];
 
             owned.forEach((source) => {
@@ -1152,6 +1340,7 @@
                     score += target.ownerId === null ? 6 : 2;
                     score += (type.productionMultiplier - 1) * 18;
                     score += target.rareSite ? 18 : 0;
+                    score += target.wonderId ? 95 : 0;
                     score += profile.preferredTerrains.includes(target.terrain) ? 5 : 0;
                     score += target.neighbors.filter((id) => state.getTerritory(id).ownerId === faction.id).length * 1.5;
                     score += this.game.random() * 2.5;
@@ -1231,21 +1420,28 @@
             const completed = faction.research.completedTechnologyIds;
             const available = Object.values(C.TECHNOLOGIES).filter((technology) =>
                 !completed.includes(technology.id) &&
+                (!technology.effects?.unlockWonder || !faction.constructedWonderId) &&
                 (!technology.prerequisiteId || completed.includes(technology.prerequisiteId)));
             if (!available.length) return false;
 
+            const profileId = Number(faction.definitionId ?? faction.id);
             const preferredBranch = {
                 1: "attack",
                 2: "construction",
                 3: "attack",
                 4: "defense"
-            }[faction.id] || "construction";
+            }[profileId] || "construction";
+            const availableWonderDefinitions = available
+                .map((technology) => C.getWonderType(technology.effects?.unlockWonder))
+                .filter(Boolean);
+            const preferredWonder = this.chooseWonder(faction, this.game.state.getTerritoriesOwnedBy(faction.id), availableWonderDefinitions);
             available.sort((a, b) => {
                 const score = (technology) =>
                     (technology.branchId === preferredBranch ? 20 : 0) +
                     (technology.branchId === "abilities" ? 10 : 0) +
                     (technology.id === "construction-railroad" ? 18 : 0) +
                     (technology.id === "construction-agriculture" ? 16 : 0) +
+                    (technology.effects?.unlockWonder === preferredWonder?.id ? 85 : technology.effects?.unlockWonder ? -12 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
                 return score(b) - score(a);
             });
