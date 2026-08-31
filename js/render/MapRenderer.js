@@ -15,6 +15,15 @@
             this.cannonShots = [];
             this.capturePulses = [];
             this.visibilityMap = new Map();
+            this.waterTexturePattern = null;
+            this.waterTexture = new Image();
+            this.waterTexture.addEventListener("load", () => {
+                this.waterTexturePattern = this.createWaterTexturePattern();
+            });
+            this.waterTexture.addEventListener("error", () => {
+                this.waterTexturePattern = null;
+            });
+            this.waterTexture.src = "Image/Water1.jpg";
             this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             this.minZoom = 0.42;
             this.maxZoom = 1.6;
@@ -27,6 +36,33 @@
             this.resizeObserver = new ResizeObserver(() => this.resize());
             this.resizeObserver.observe(canvas);
             this.resize();
+        }
+
+        createWaterTexturePattern() {
+            if (!this.waterTexture.naturalWidth || !this.waterTexture.naturalHeight) return null;
+
+            // Four mirrored copies remove the hard seams of a repeating photograph.
+            const tileSize = 520;
+            const halfTile = tileSize / 2;
+            const tile = document.createElement("canvas");
+            const tileContext = tile.getContext("2d");
+            tile.width = tileSize;
+            tile.height = tileSize;
+
+            for (let row = 0; row < 2; row += 1) {
+                for (let column = 0; column < 2; column += 1) {
+                    tileContext.save();
+                    tileContext.translate(
+                        column * halfTile + (column ? halfTile : 0),
+                        row * halfTile + (row ? halfTile : 0)
+                    );
+                    tileContext.scale(column ? -1 : 1, row ? -1 : 1);
+                    tileContext.drawImage(this.waterTexture, 0, 0, halfTile, halfTile);
+                    tileContext.restore();
+                }
+            }
+
+            return this.context.createPattern(tile, "repeat");
         }
 
         resize() {
@@ -122,7 +158,6 @@
             ctx.setTransform(this.viewScale, 0, 0, this.viewScale, this.offsetX, this.offsetY);
             this.drawIslandShadow(ctx, state);
             this.drawTerritories(ctx, state, now);
-            this.drawLakeSurfaces(ctx, state, now);
             this.drawRailroads(ctx, state);
             this.drawFogOfWar(ctx, state, now);
             this.drawReinforcementRoutes(ctx, state, now);
@@ -153,6 +188,14 @@
             gradient.addColorStop(1, "#061219");
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            if (this.waterTexturePattern) {
+                ctx.save();
+                ctx.globalAlpha = 0.12;
+                ctx.fillStyle = this.waterTexturePattern;
+                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                ctx.restore();
+            }
 
             const spacing = 24 * this.pixelRatio;
             ctx.fillStyle = "rgba(137, 195, 203, 0.055)";
@@ -207,11 +250,20 @@
                 ctx.fillStyle = fill;
                 ctx.fill();
 
+                if (territory.isImpassable && this.waterTexturePattern) {
+                    ctx.save();
+                    this.tracePolygon(ctx, territory.polygon);
+                    ctx.globalAlpha = 0.52;
+                    ctx.fillStyle = this.waterTexturePattern;
+                    ctx.fill();
+                    ctx.restore();
+                }
+
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = !isVisible && !territory.isImpassable
                     ? "rgba(7, 17, 20, .18)"
                     : territory.isImpassable
-                    ? "rgba(27, 112, 132, .13)"
+                    ? this.waterTexturePattern ? "rgba(2, 32, 44, .38)" : "rgba(27, 112, 132, .13)"
                     : territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
                 ctx.fill();
 
@@ -271,29 +323,6 @@
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText("?", territory.center.x, territory.center.y);
-            });
-        }
-
-        drawLakeSurfaces(ctx, state, now) {
-            state.territories.filter((territory) => territory.isImpassable).forEach((lake, lakeIndex) => {
-                const center = lake.center;
-                const shimmer = Math.sin(now / 850 + lakeIndex) * 3;
-                ctx.save();
-                this.tracePolygon(ctx, lake.polygon);
-                ctx.clip();
-                ctx.lineWidth = 1.4;
-                ctx.strokeStyle = "rgba(116, 220, 226, .24)";
-                for (let row = -2; row <= 2; row += 1) {
-                    const y = center.y + row * 12 + shimmer;
-                    ctx.beginPath();
-                    for (let x = center.x - 54; x <= center.x + 54; x += 6) {
-                        const waveY = y + Math.sin((x + now * 0.025) / 14 + row) * 2.2;
-                        if (x === center.x - 54) ctx.moveTo(x, waveY);
-                        else ctx.lineTo(x, waveY);
-                    }
-                    ctx.stroke();
-                }
-                ctx.restore();
             });
         }
 
@@ -697,17 +726,29 @@
                                 return definition ? C.Geometry.clamp(territory.buildingConstruction.progressMs / definition.constructionDurationMs, 0, 1) : 0;
                             })()
                         : foodMode || researchMode ? 1 : C.Geometry.clamp(territory.productionProgress, 0, 1);
+                    const progressRadius = radius + 4;
+                    ctx.save();
                     ctx.beginPath();
-                    ctx.arc(center.x, center.y + 1, radius + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-                    ctx.strokeStyle = foodMode
-                        ? "rgba(158,215,122,.92)"
-                        : researchMode
-                            ? "rgba(181,140,255,.96)"
-                            : constructionMode
-                                ? "rgba(240,182,82,.98)"
-                            : faction ? C.Geometry.rgba(faction.color, .82) : "rgba(216,255,104,.65)";
-                    ctx.lineWidth = 2;
+                    ctx.arc(center.x, center.y + 1, progressRadius, 0, Math.PI * 2);
+                    ctx.strokeStyle = "rgba(2, 9, 12, .94)";
+                    ctx.lineWidth = 5;
                     ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(center.x, center.y + 1, progressRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                    ctx.strokeStyle = foodMode
+                        ? "rgba(174, 242, 132, .98)"
+                        : researchMode
+                            ? "rgba(205, 177, 255, .98)"
+                            : constructionMode
+                                ? "rgba(255, 202, 103, .99)"
+                                : "rgba(232, 255, 244, .99)";
+                    ctx.lineWidth = 2.8;
+                    ctx.lineCap = "round";
+                    ctx.shadowColor = "rgba(206, 255, 234, .72)";
+                    ctx.shadowBlur = 4;
+                    ctx.stroke();
+                    ctx.restore();
                     if (foodMode) {
                         const foodX = center.x + radius + 7;
                         const foodY = center.y - radius + 1;

@@ -1839,6 +1839,7 @@
         check(typeof C.MapRenderer.prototype.fireAirstrike === "function", "le rendu expose l’animation des frappes automatiques de l’aéroport");
         check(typeof C.MapRenderer.prototype.fireBigBertha === "function", "le rendu expose une trajectoire lourde dédiée à la Grosse Bertha");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
+        check(typeof C.MapRenderer.prototype.createWaterTexturePattern === "function", "le rendu prépare une texture d’eau répétable sans couture dure");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");
         check(typeof C.MiniMapRenderer === "function", "la mini-carte possède un moteur de rendu indépendant de la simulation");
