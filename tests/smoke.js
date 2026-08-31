@@ -724,6 +724,30 @@
         });
         check(airstrike.ok && airstrike.damage === 10 && airstrikeTarget.units === 90, "un aéroport contrôlé peut lancer une frappe aérienne à portée");
         check(airport.airstrikeCooldownMs === airportGame.airstrikeCooldownMs, "une frappe aérienne déclenche la recharge de l’aéroport");
+        const heavyBomberGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        heavyBomberGame.newGame(424242);
+        const heavyBomberAirport = heavyBomberGame.state.territories.find((territory) => territory.terrain === "airport");
+        const heavyBomberTarget = heavyBomberGame.getTerritoriesWithinHops(heavyBomberAirport, heavyBomberGame.airstrikeRangeHops)
+            .find((territory) => !territory.isImpassable);
+        heavyBomberAirport.ownerId = 1;
+        heavyBomberAirport.airstrikeCooldownMs = 0;
+        heavyBomberTarget.ownerId = 2;
+        heavyBomberTarget.units = 100;
+        heavyBomberGame.state.getFaction(1).research.completedTechnologyIds.push("attack-heavy-bomber");
+        const heavyAirstrike = heavyBomberGame.executeCommand({
+            type: "AIRSTRIKE",
+            playerId: 1,
+            fromTerritoryId: heavyBomberAirport.id,
+            toTerritoryId: heavyBomberTarget.id
+        });
+        check(heavyAirstrike.ok && heavyAirstrike.damage === 15 && heavyBomberTarget.units === 85, "Bombardier lourd fait passer les dégâts d’un raid aérien de 10 à 15 %");
+        const heavyBomberAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+        heavyBomberAiGame.newGame(434343);
+        const heavyBomberAiFaction = heavyBomberAiGame.state.getFaction(2);
+        const heavyBomberAiAirport = heavyBomberAiGame.state.getTerritoriesOwnedBy(2)[0];
+        heavyBomberAiAirport.terrain = "airport";
+        heavyBomberAiFaction.research.completedTechnologyIds.push("attack-1", "attack-2", "attack-3");
+        check(heavyBomberAiGame.aiSystem.chooseResearch(heavyBomberAiFaction) && heavyBomberAiFaction.research.activeTechnologyId === "attack-heavy-bomber", "l’IA possédant un aéroport priorise la recherche Bombardier lourd");
         airportGame.state.territories.forEach((territory) => {
             if (territory.id === airport.id) return;
             territory.ownerId = null;
@@ -916,11 +940,12 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 27, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 28, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
         check(Object.keys(C.WONDER_TYPES).length === 5 && Object.values(C.WONDER_TYPES).every((definition) => definition.constructionDurationMs === 180000), "cinq merveilles de trois minutes sont définies dans un catalogue extensible");
         const bigBerthaDefinition = C.WONDER_TYPES["big-bertha"];
         check(bigBerthaDefinition.siteEffects.fireIntervalMs === 15000 && bigBerthaDefinition.siteEffects.rangeHops === 3 && bigBerthaDefinition.siteEffects.hitChance === 0.75 && bigBerthaDefinition.siteEffects.maximumDamage === 18, "la Grosse Bertha possède sa cadence, sa portée, sa précision et son plafond de dégâts");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "attack").technologyIds.includes("wonder-big-bertha") && C.TECHNOLOGIES["wonder-big-bertha"].prerequisiteId === "attack-4", "l’Artillerie super-lourde offre la Grosse Bertha comme choix final de l’axe Attaque");
+        check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "attack").technologyIds.includes("attack-heavy-bomber") && C.TECHNOLOGIES["attack-heavy-bomber"].prerequisiteId === "attack-3", "Bombardier lourd apparaît au quatrième palier de l’axe Attaque");
         check(new C.Game({ enableAI: false, enableWorldEvents: false }).wonderCaptureActivationDelayMs === 20000, "une merveille capturée attend 20 secondes avant de changer de camp opérationnel");
 
         const wonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1, wonderCaptureActivationDelayMs: 2000 });

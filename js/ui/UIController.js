@@ -1551,11 +1551,13 @@
             if (!canUseAirport) return;
             const remainingSeconds = Math.ceil(Math.max(0, territory.airstrikeCooldownMs) / 1000);
             const reloading = remainingSeconds > 0;
+            const damagePercent = Math.round(this.game.getAirstrikeDamageRatio(this.game.playerId) * 100);
+            const heavyBombers = this.game.state.getFaction(this.game.playerId)?.research.completedTechnologyIds.includes("attack-heavy-bomber");
             this.elements.airportStatus.textContent = reloading ? `${remainingSeconds} S` : "EN VEILLE";
             this.elements.airportStatus.classList.toggle("reloading", reloading);
             this.elements.airportDetail.textContent = reloading
-                ? "Les bombardiers se préparent pour leur prochaine mission automatique."
-                : "Escadrille prête : elle frappera automatiquement la meilleure cible hostile visible à quatre frontières ou moins.";
+                ? `Les bombardiers se préparent pour leur prochaine mission automatique. Dégâts : ${damagePercent} % de la garnison.`
+                : `Escadrille ${heavyBombers ? "lourde " : ""}prête : frappe automatique jusqu’à quatre frontières. Dégâts : ${damagePercent} % de la garnison.`;
         }
 
         renderActiveRoute(territory) {

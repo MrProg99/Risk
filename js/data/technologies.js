@@ -16,7 +16,7 @@
             icon: "⚔",
             color: "#ff766d",
             description: "Améliorer la puissance et la mobilité des offensives.",
-            technologyIds: ["attack-1", "attack-2", "attack-3", "attack-4", "wonder-grand-arsenal", "wonder-big-bertha"]
+            technologyIds: ["attack-1", "attack-2", "attack-3", "attack-heavy-bomber", "attack-4", "wonder-grand-arsenal", "wonder-big-bertha"]
         },
         {
             id: "defense",
@@ -151,6 +151,17 @@
             prerequisiteId: "attack-2",
             effects: { travelSpeedMultiplier: 0.10 },
             effectLabel: "+10 % de vitesse de déplacement"
+        },
+        "attack-heavy-bomber": {
+            id: "attack-heavy-bomber",
+            branchId: "attack",
+            tier: 4,
+            name: "Bombardier lourd",
+            description: "Des appareils à long rayon d’action emportent des charges plus puissantes lors des raids automatiques des aéroports.",
+            durationMs: 240000,
+            prerequisiteId: "attack-3",
+            effects: { airstrikeDamageRatioBonus: 0.05 },
+            effectLabel: "Dégâts des raids aériens : 10 % → 15 %"
         },
         "attack-4": {
             id: "attack-4",

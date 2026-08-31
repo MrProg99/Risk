@@ -654,16 +654,25 @@
             return result;
         }
 
-        getAirstrikeDamage(target) {
+        getAirstrikeDamageRatio(factionId = null) {
+            const faction = factionId === null ? null : this.state.getFaction(factionId);
+            return C.Geometry.clamp(
+                this.airstrikeDamageRatio + C.getFactionTechnologyBonus(faction, "airstrikeDamageRatioBonus"),
+                0.01,
+                0.95
+            );
+        }
+
+        getAirstrikeDamage(target, factionId = null) {
             if (!target || target.units <= 1) return 0;
-            return Math.min(target.units - 1, Math.max(1, Math.round(target.units * this.airstrikeDamageRatio)));
+            return Math.min(target.units - 1, Math.max(1, Math.round(target.units * this.getAirstrikeDamageRatio(factionId))));
         }
 
         findAirportTarget(source) {
             if (!source || source.terrain !== "airport" || source.ownerId === null) return null;
             const visibility = this.getTerritoryVisibilityMap(source.ownerId);
             const strategicScore = (target) =>
-                this.getAirstrikeDamage(target) * 8 +
+                this.getAirstrikeDamage(target, source.ownerId) * 8 +
                 target.units * 0.12 +
                 (target.isCapital ? 35 : 0) +
                 (target.wonderId || target.wonderConstruction ? 60 : 0) +
@@ -683,7 +692,7 @@
         resolveAirstrike(source, target, automatic = false) {
             const faction = this.state.getFaction(source?.ownerId);
             if (!source || !target || !faction) return { ok: false, error: "Frappe aérienne invalide." };
-            const damage = this.getAirstrikeDamage(target);
+            const damage = this.getAirstrikeDamage(target, faction.id);
             target.units -= damage;
             this.recordUnitLoss(target.ownerId, damage, faction.id);
             source.airstrikeCooldownMs = this.airstrikeCooldownMs;
@@ -736,7 +745,7 @@
             if (!this.isTerritoryVisible(target.id, faction.id)) {
                 return { ok: false, error: "La cible doit être visible pour les bombardiers." };
             }
-            const damage = this.getAirstrikeDamage(target);
+            const damage = this.getAirstrikeDamage(target, faction.id);
             target.units -= damage;
             this.recordUnitLoss(target.ownerId, damage, faction.id);
             source.airstrikeCooldownMs = this.airstrikeCooldownMs;

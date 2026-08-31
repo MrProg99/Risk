@@ -1395,6 +1395,8 @@
                 3: "attack",
                 4: "defense"
             }[profileId] || "construction";
+            const airportCount = this.game.state.getTerritoriesOwnedBy(faction.id)
+                .filter((territory) => territory.terrain === "airport").length;
             const availableWonderDefinitions = available
                 .map((technology) => C.getWonderType(technology.effects?.unlockWonder))
                 .filter(Boolean);
@@ -1405,6 +1407,7 @@
                     (technology.branchId === "abilities" ? 10 : 0) +
                     (technology.id === "construction-railroad" ? 18 : 0) +
                     (technology.id === "construction-agriculture" ? 16 : 0) +
+                    (technology.id === "attack-heavy-bomber" ? airportCount > 0 ? 24 + Math.min(airportCount, 3) * 6 : -16 : 0) +
                     (technology.effects?.unlockWonder === preferredWonder?.id ? 85 : technology.effects?.unlockWonder ? -12 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
                 return score(b) - score(a);
