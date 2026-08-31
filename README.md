@@ -70,11 +70,11 @@ Les routes logistiques adverses ne sont jamais affichées. Une armée ennemie de
 ## Jouer
 
 1. Cliquer sur un territoire jaune de l’Empire.
-2. Cliquer sur un territoire voisin, sur la carte ou dans la liste **Frontières**.
-3. Choisir le nombre d’unités avec le curseur, puis lancer l’offensive.
+2. Cliquer sur un territoire voisin pour ouvrir l’ordre tactique directement près de la cible.
+3. Choisir le nombre d’unités dans le panneau contextuel, puis lancer l’offensive. `Entrée` confirme également l’ordre et `Échap` l’annule. Déplacer ou zoomer la carte ferme seulement la cible et conserve le territoire d’origine sélectionné.
 4. Les unités voyagent jusqu’à la cible avant la résolution du combat.
 
-Un voisin déjà contrôlé peut également être choisi comme destination : le bouton devient **Envoyer le renfort** et les unités rejoignent le territoire allié après leur déplacement.
+Le panneau latéral demeure consacré aux renseignements du territoire. Un voisin déjà contrôlé ou appartenant à un équipier peut également être choisi comme destination : le panneau contextuel passe au turquoise, son bouton devient **Envoyer le renfort** et les unités rejoignent la garnison alliée après leur déplacement.
 
 Pour acheminer des renforts plus loin :
 

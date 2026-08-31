@@ -9,6 +9,7 @@
             this.rightClickListeners = new Set();
             this.quickTransferListeners = new Set();
             this.continuousTransferListeners = new Set();
+            this.viewChangeListeners = new Set();
             this.lastPointerDown = null;
             this.rightDrag = null;
             this.suppressContextMenuUntil = 0;
@@ -41,6 +42,7 @@
                     if (totalDistance > 5) drag.moved = true;
                     if (drag.moved) {
                         this.renderer.panByScreenDelta(event.clientX - drag.lastX, event.clientY - drag.lastY);
+                        this.viewChangeListeners.forEach((listener) => listener("pan"));
                         this.renderer.setHovered(null);
                         this.canvas.style.cursor = "grabbing";
                     }
@@ -137,6 +139,7 @@
                 event.preventDefault();
                 const factor = Math.exp(-event.deltaY * 0.0012);
                 this.renderer.zoomAt(event.clientX, event.clientY, factor);
+                this.viewChangeListeners.forEach((listener) => listener("zoom"));
             }, { passive: false });
 
             this.canvas.addEventListener("contextmenu", (event) => {
@@ -186,6 +189,11 @@
         onContinuousTransfer(listener) {
             this.continuousTransferListeners.add(listener);
             return () => this.continuousTransferListeners.delete(listener);
+        }
+
+        onViewChange(listener) {
+            this.viewChangeListeners.add(listener);
+            return () => this.viewChangeListeners.delete(listener);
         }
     }
 

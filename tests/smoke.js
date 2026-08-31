@@ -1833,6 +1833,7 @@
         check(typeof C.InputManager.prototype.onTerritoryRightClick === "function", "l’interface expose la sélection de destination au clic droit");
         check(typeof C.InputManager.prototype.onQuickTransfer === "function", "l’interface expose le transfert rapide par glisser droit");
         check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
+        check(typeof C.InputManager.prototype.onViewChange === "function", "l’interface signale un déplacement de caméra afin de fermer un ordre contextuel devenu obsolète");
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
@@ -1840,6 +1841,7 @@
         check(typeof C.MapRenderer.prototype.fireBigBertha === "function", "le rendu expose une trajectoire lourde dédiée à la Grosse Bertha");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.MapRenderer.prototype.createWaterTexturePattern === "function", "le rendu prépare une texture d’eau répétable sans couture dure");
+        check(typeof C.UIController.prototype.positionAttackPanel === "function" && typeof C.UIController.prototype.cancelAttackTarget === "function", "l’ordre tactique peut être positionné près de sa cible et annulé sans modifier la simulation");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");
         check(typeof C.MiniMapRenderer === "function", "la mini-carte possède un moteur de rendu indépendant de la simulation");
@@ -1871,9 +1873,13 @@
         let quickGesture = null;
         let continuousGesture = null;
         let regularRightClicks = 0;
+        let viewChanges = 0;
         gestureInput.onQuickTransfer((source, target) => { quickGesture = [source.id, target.id]; });
         gestureInput.onContinuousTransfer((source, target) => { continuousGesture = [source.id, target.id]; });
         gestureInput.onTerritoryRightClick(() => { regularRightClicks += 1; });
+        gestureInput.onViewChange(() => { viewChanges += 1; });
+        gestureCanvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 80, clientX: 20, clientY: 20 }));
+        check(viewChanges === 1, "zoomer la carte ferme le panneau tactique contextuel");
         gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, ctrlKey: true, clientX: 10, clientY: 10, pointerId: 41 }));
         gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));
         gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));
@@ -1900,6 +1906,22 @@
         const cameraXBefore = cameraRenderer.cameraX;
         cameraRenderer.panByScreenDelta(-80, 0);
         check(cameraRenderer.cameraX > cameraXBefore, "le glisser déplace réellement la caméra sur le monde");
+        const cameraCenterOnScreen = cameraRenderer.worldToScreen(cameraRenderer.cameraX, cameraRenderer.cameraY);
+        const cameraRect = cameraCanvas.getBoundingClientRect();
+        check(Math.abs(cameraCenterOnScreen.x - cameraRect.width / 2) < 1 && Math.abs(cameraCenterOnScreen.y - cameraRect.height / 2) < 1, "le rendu convertit une cible du monde vers sa position dans la carte");
+
+        let popupSelectionSyncs = 0;
+        const popupController = Object.create(C.UIController.prototype);
+        popupController.targetTerritoryId = 18;
+        popupController.plannedRoute = [12, 18];
+        popupController.lastRouteKey = "12-18";
+        popupController.elements = {
+            continuousRoute: { checked: true },
+            relayAllReinforcements: { checked: true }
+        };
+        popupController.syncSelection = () => { popupSelectionSyncs += 1; };
+        popupController.cancelAttackTarget();
+        check(popupController.targetTerritoryId === null && popupController.plannedRoute.length === 0 && !popupController.elements.continuousRoute.checked && popupSelectionSyncs === 1, "fermer l’ordre tactique conserve l’origine mais retire proprement la cible et ses options");
 
         const miniMapPanel = document.createElement("section");
         const miniMapToggle = document.createElement("button");

@@ -126,6 +126,7 @@
                 routeRelayed: byId("route-relayed"),
                 stopRouteButton: byId("stop-route-button"),
                 attackPanel: byId("attack-panel"),
+                attackCancelButton: byId("attack-cancel-button"),
                 attackSource: byId("attack-source"),
                 attackTarget: byId("attack-target"),
                 routeArrow: byId("route-arrow"),
@@ -148,6 +149,7 @@
             this.input.onTerritoryRightClick((territory) => this.handleTerritoryRightClick(territory));
             this.input.onQuickTransfer((source, target) => this.handleQuickTransfer(source, target));
             this.input.onContinuousTransfer((source, target) => this.handleContinuousTransfer(source, target));
+            this.input.onViewChange(() => this.cancelAttackTarget());
 
             this.elements.togglePause.addEventListener("click", () => {
                 this.game.setPaused(!this.game.paused);
@@ -164,6 +166,7 @@
             this.elements.relayAllReinforcements.addEventListener("change", () => this.renderTerritoryPanel());
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
+            this.elements.attackCancelButton.addEventListener("click", () => this.cancelAttackTarget());
             this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
             this.elements.abilityParatrooper.addEventListener("click", () => this.toggleAbilityTargeting("paratrooper"));
@@ -186,6 +189,10 @@
             this.elements.matchSummary.addEventListener("click", () => this.showVictoryScreen());
             document.addEventListener("keydown", (event) => {
                 this.handleGlobalKeydown(event);
+            });
+            document.addEventListener("pointerdown", (event) => {
+                if (this.elements.attackPanel.hidden || this.elements.attackPanel.contains(event.target) || event.target === this.input.canvas) return;
+                this.cancelAttackTarget();
             });
             this.elements.zoomIn.addEventListener("click", () => {
                 this.renderer.zoomBy(1.2);
@@ -1119,6 +1126,7 @@
                 this.elements.territoryId.textContent = "—";
                 this.elements.emptySelection.hidden = false;
                 this.elements.territoryDetails.hidden = true;
+                this.elements.attackPanel.hidden = true;
                 return;
             }
 
@@ -1638,6 +1646,8 @@
             this.elements.attackPanel.hidden = !canCommand || !target;
             if (!canCommand || !target) return;
 
+            const isReinforcement = this.game.areAllied(target.ownerId, source.ownerId);
+            this.elements.attackPanel.classList.toggle("reinforcement", isReinforcement);
             this.elements.attackSource.textContent = source.name;
             this.elements.attackTarget.textContent = target.name;
             const isLongRoute = this.plannedRoute.length > 1;
@@ -1678,9 +1688,46 @@
                     : "Activer le flux continu "
                 : isLongRoute
                     ? "Acheminer les renforts "
-                : target.ownerId === source.ownerId
+                : isReinforcement
                     ? "Envoyer le renfort "
                     : "Lancer l’offensive ";
+            this.positionAttackPanel(target);
+        }
+
+        positionAttackPanel(target) {
+            if (!target || this.elements.attackPanel.hidden) return;
+            const panel = this.elements.attackPanel;
+            const container = panel.parentElement;
+            const anchor = this.renderer.worldToScreen(target.center.x, target.center.y);
+            const padding = 12;
+            const gap = 32;
+            const panelWidth = panel.offsetWidth || 310;
+            const panelHeight = panel.offsetHeight || 210;
+            const containerWidth = Math.max(1, container.clientWidth);
+            const containerHeight = Math.max(1, container.clientHeight);
+            let left = anchor.x + gap;
+            let placement = "right";
+
+            if (left + panelWidth + padding > containerWidth) {
+                left = anchor.x - panelWidth - gap;
+                placement = "left";
+            }
+
+            const maximumLeft = Math.max(padding, containerWidth - panelWidth - padding);
+            const maximumTop = Math.max(padding, containerHeight - panelHeight - padding);
+            panel.style.left = `${Math.round(C.Geometry.clamp(left, padding, maximumLeft))}px`;
+            panel.style.top = `${Math.round(C.Geometry.clamp(anchor.y - panelHeight / 2, padding, maximumTop))}px`;
+            panel.dataset.placement = placement;
+        }
+
+        cancelAttackTarget() {
+            if (this.targetTerritoryId === null) return;
+            this.targetTerritoryId = null;
+            this.plannedRoute = [];
+            this.lastRouteKey = null;
+            this.elements.continuousRoute.checked = false;
+            this.elements.relayAllReinforcements.checked = false;
+            this.syncSelection();
         }
 
         renderPauseState() {
@@ -1711,6 +1758,15 @@
                     this.multiSelectedTerritoryIds.size || this.targetingAbilityId) {
                     event.preventDefault();
                     this.clearSelection();
+                }
+                return;
+            }
+            if (event.key === "Enter" && !this.elements.attackPanel.hidden) {
+                const target = event.target;
+                const tagName = String(target?.tagName || "").toUpperCase();
+                if (!["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tagName) && !target?.isContentEditable) {
+                    event.preventDefault();
+                    this.launchAttack();
                 }
                 return;
             }

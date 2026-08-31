@@ -1388,6 +1388,20 @@
             };
         }
 
+        worldToScreen(worldX, worldY) {
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasWidth = Math.max(1, this.canvas.width);
+            const canvasHeight = Math.max(1, this.canvas.height);
+            const x = (worldX * this.viewScale + this.offsetX) * rect.width / canvasWidth;
+            const y = (worldY * this.viewScale + this.offsetY) * rect.height / canvasHeight;
+            return {
+                x,
+                y,
+                clientX: rect.left + x,
+                clientY: rect.top + y
+            };
+        }
+
         getTerritoryAt(clientX, clientY) {
             const point = this.screenToWorld(clientX, clientY);
             for (let index = this.game.state.territories.length - 1; index >= 0; index -= 1) {

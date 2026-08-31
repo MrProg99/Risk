@@ -251,6 +251,54 @@
             <section class="map-card" aria-label="Carte stratégique">
                 <canvas id="game-canvas" aria-label="Carte des territoires générée aléatoirement"></canvas>
 
+                <section class="attack-panel attack-popup" id="attack-panel" hidden role="dialog" aria-modal="false" aria-labelledby="attack-popup-title">
+                    <header class="attack-popup-header">
+                        <span id="attack-popup-title">Ordre tactique</span>
+                        <button id="attack-cancel-button" type="button" title="Annuler la cible" aria-label="Annuler la cible">×</button>
+                    </header>
+                    <div class="attack-route">
+                        <div>
+                            <span class="detail-label">Origine</span>
+                            <strong id="attack-source">—</strong>
+                        </div>
+                        <span class="route-arrow" id="route-arrow">⟶</span>
+                        <div class="route-target">
+                            <span class="detail-label">Cible</span>
+                            <strong id="attack-target">—</strong>
+                        </div>
+                    </div>
+                    <div class="route-summary" id="route-summary" hidden></div>
+                    <div class="continuous-options" id="continuous-control" hidden>
+                        <label class="continuous-control">
+                            <input type="checkbox" id="continuous-route">
+                            <span class="continuous-switch" aria-hidden="true"></span>
+                            <span>
+                                <strong>Flux continu</strong>
+                                <small>Transmettre chaque nouvelle unité produite</small>
+                            </span>
+                        </label>
+                        <label class="relay-all-control" id="relay-all-control">
+                            <input type="checkbox" id="relay-all-reinforcements">
+                            <span class="relay-check" aria-hidden="true">✓</span>
+                            <span>
+                                <strong>Tout relayer · Hub</strong>
+                                <small>Envoie la garnison disponible puis toutes les arrivées</small>
+                            </span>
+                        </label>
+                    </div>
+                    <div id="unit-send-controls">
+                        <label class="unit-control" for="attack-units">
+                            <span>Unités à envoyer</span>
+                            <output id="attack-output">1</output>
+                        </label>
+                        <input type="range" id="attack-units" min="1" max="1" value="1">
+                        <div class="range-labels"><span>1</span><span id="attack-max">1 max.</span></div>
+                    </div>
+                    <button class="button attack-button" id="attack-button" type="button">
+                        Lancer l’offensive <span>⟶</span>
+                    </button>
+                </section>
+
                 <div class="map-corner map-meta">
                     <span class="live-dot"></span>
                     <span id="simulation-status">SIMULATION ACTIVE</span>
@@ -312,50 +360,6 @@
                             <strong id="selected-units">0</strong>
                         </div>
                     </div>
-
-                    <section class="attack-panel" id="attack-panel" hidden>
-                        <div class="attack-route">
-                            <div>
-                                <span class="detail-label">Origine</span>
-                                <strong id="attack-source">—</strong>
-                            </div>
-                            <span class="route-arrow" id="route-arrow">⟶</span>
-                            <div class="route-target">
-                                <span class="detail-label">Cible</span>
-                                <strong id="attack-target">—</strong>
-                            </div>
-                        </div>
-                        <div class="route-summary" id="route-summary" hidden></div>
-                        <div class="continuous-options" id="continuous-control" hidden>
-                            <label class="continuous-control">
-                                <input type="checkbox" id="continuous-route">
-                                <span class="continuous-switch" aria-hidden="true"></span>
-                                <span>
-                                    <strong>Flux continu</strong>
-                                    <small>Transmettre chaque nouvelle unité produite</small>
-                                </span>
-                            </label>
-                            <label class="relay-all-control" id="relay-all-control">
-                                <input type="checkbox" id="relay-all-reinforcements">
-                                <span class="relay-check" aria-hidden="true">✓</span>
-                                <span>
-                                    <strong>Tout relayer · Hub</strong>
-                                    <small>Envoie la garnison disponible puis toutes les arrivées</small>
-                                </span>
-                            </label>
-                        </div>
-                        <div id="unit-send-controls">
-                            <label class="unit-control" for="attack-units">
-                                <span>Unités à envoyer</span>
-                                <output id="attack-output">1</output>
-                            </label>
-                            <input type="range" id="attack-units" min="1" max="1" value="1">
-                            <div class="range-labels"><span>1</span><span id="attack-max">1 max.</span></div>
-                        </div>
-                        <button class="button attack-button" id="attack-button" type="button">
-                            Lancer l’offensive <span>⟶</span>
-                        </button>
-                    </section>
 
                     <div class="detail-grid">
                         <div class="detail-card">
