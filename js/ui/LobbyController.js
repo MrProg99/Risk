@@ -166,7 +166,7 @@
                 opponentMode: this.form.elements.opponentMode?.value === "human" ? "human" : "ai",
                 aiDifficulty,
                 aiProductionMultiplier: LobbyController.getAIProductionMultiplier(aiDifficulty),
-                mapType: this.form.elements.mapType?.value === "hourglass" ? "hourglass" : "standard",
+                mapType: C.normalizeMapType(this.form.elements.mapType?.value),
                 mapSize: C.normalizeMapSize(this.form.elements.mapSize?.value),
                 teamId: Number(this.form.elements.preferredTeam?.value) || 1,
                 raceId: playerId,
@@ -302,7 +302,7 @@
                         factionSetups,
                         aiFactionIds,
                         seed: Number(room.meta.seed),
-                        mapType: room.meta.mapType === "hourglass" ? "hourglass" : "standard",
+                        mapType: C.normalizeMapType(room.meta.mapType),
                         mapSize: C.normalizeMapSize(room.meta.mapSize),
                         aiDifficulty: LobbyController.normalizeAIDifficulty(room.meta.aiDifficulty),
                         aiProductionMultiplier: LobbyController.getAIProductionMultiplier(room.meta.aiDifficulty),
@@ -336,7 +336,8 @@
                 : isHost ? "Les équipes sont prêtes. Lancez la partie." : "En attente du lancement par l’hôte…";
             const aiCount = players.filter((player) => player.isAI).length;
             const mapSizeLabel = C.getMapSizeDefinition(room.meta.mapSize).name;
-            this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""} · ${mapSizeLabel}`;
+            const mapTypeLabel = C.getMapTypeLabel(room.meta.mapType).toLocaleLowerCase("fr-CA");
+            this.summary.textContent = `Salon ${this.network.roomCode} · ${humanPlayers.length}/${expectedHumans} humains${aiCount ? ` · ${aiCount} IA` : ""} · ${mapTypeLabel} · ${mapSizeLabel}`;
             this.startButton.hidden = !isHost;
             if (this.joinAction) this.joinAction.hidden = true;
             if (this.joinButton) this.joinButton.disabled = true;

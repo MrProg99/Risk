@@ -152,7 +152,7 @@
                     aiDifficulty: ["relaxed", "normal", "hard", "relentless"].includes(options.aiDifficulty)
                         ? options.aiDifficulty
                         : "normal",
-                    mapType: options.mapType === "hourglass" ? "hourglass" : "standard",
+                    mapType: C.normalizeMapType(options.mapType),
                     mapSize: C.normalizeMapSize(options.mapSize),
                     seed: null,
                     createdAt: now,

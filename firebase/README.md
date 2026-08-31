@@ -31,7 +31,7 @@ Le mode solo fonctionne encore en ouvrant `index.html` directement. Le mode mult
 
 Lors de la création d’un salon, l’hôte peut réserver toute l’équipe adverse à l’IA. Ces participants sont décrits par `meta.opponentMode` et simulés uniquement par l’hôte; ils n’écrivent pas de faux comptes dans `players`. Le champ supplémentaire est accepté par les règles existantes, donc aucune nouvelle publication des règles Firebase n’est requise.
 
-Le type de carte choisi par l’hôte est conservé dans `meta.mapType` (`standard` ou `hourglass`). Comme la graine, cette valeur est lue avant la construction locale de la carte par chaque client. Les règles actuelles acceptent aussi ce champ sans modification.
+Le type de carte choisi par l’hôte est conservé dans `meta.mapType` (`standard`, `hourglass` ou `archipelago`). Comme la graine, cette valeur est lue avant la construction locale de la carte par chaque client. Les règles actuelles acceptent aussi cette nouvelle valeur sans modification.
 
 La taille choisie est conservée dans `meta.mapSize` (`standard` ou `large`). Elle détermine les dimensions et le nombre de territoires reconstruits à partir de la graine commune. Ce champ supplémentaire est accepté par les règles actuelles et ne demande aucune nouvelle publication.
 

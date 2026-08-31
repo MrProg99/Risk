@@ -21,6 +21,8 @@
             this.isImpassable = false;
             this.isCapital = false;
             this.isChokePoint = false;
+            this.archipelagoIslandId = null;
+            this.isArchipelagoPassage = false;
             this.airstrikeCooldownMs = 0;
             this.airstrikeLastAction = null;
             this.productionMode = "units";
@@ -67,6 +69,8 @@
                 isImpassable: this.isImpassable,
                 isCapital: this.isCapital,
                 isChokePoint: this.isChokePoint,
+                archipelagoIslandId: this.archipelagoIslandId,
+                isArchipelagoPassage: this.isArchipelagoPassage,
                 airstrikeCooldownMs: this.airstrikeCooldownMs,
                 airstrikeLastAction: this.airstrikeLastAction ? { ...this.airstrikeLastAction } : null,
                 productionMode: this.productionMode,

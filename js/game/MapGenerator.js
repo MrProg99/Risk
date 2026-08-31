@@ -28,8 +28,11 @@
 
         generate(seed, requestedCount, mapType = "standard") {
             const random = C.Geometry.seededRandom(seed);
-            const normalizedMapType = mapType === "hourglass" ? "hourglass" : "standard";
-            const territoryCount = requestedCount || C.Geometry.randomInt(random, this.minimumTerritories, this.maximumTerritories);
+            const normalizedMapType = C.normalizeMapType(mapType);
+            const baseTerritoryCount = requestedCount || C.Geometry.randomInt(random, this.minimumTerritories, this.maximumTerritories);
+            const territoryCount = normalizedMapType === "archipelago" && !requestedCount
+                ? Math.round(baseTerritoryCount * 1.12)
+                : baseTerritoryCount;
             const islandPolygon = this.createIsland(random);
             const sites = this.createSites(territoryCount, islandPolygon, random);
             const polygons = sites.map((site, siteIndex) => this.createVoronoiCell(site, siteIndex, sites, islandPolygon));
@@ -48,8 +51,12 @@
             });
 
             this.detectNeighbors(territories);
-            const chokeEdges = normalizedMapType === "hourglass" ? this.createHourglassChoke(territories) : [];
-            this.createLakes(territories, random);
+            const chokeEdges = normalizedMapType === "hourglass"
+                ? this.createHourglassChoke(territories)
+                : normalizedMapType === "archipelago"
+                    ? this.createArchipelago(territories, random)
+                    : [];
+            if (normalizedMapType !== "archipelago") this.createLakes(territories, random);
             this.ensureMinimumTerrain(territories, "airport", this.minimumAirports, random);
             this.createMountainBarriers(territories, random);
             return { islandPolygon, territories, mapType: normalizedMapType, chokeEdges };
@@ -96,6 +103,283 @@
                 territory.resource = "Carrefour stratégique";
             });
             return opened.map((edge) => [edge.first.id, edge.second.id]);
+        }
+
+        createArchipelago(territories) {
+            const isLarge = this.maximumTerritories >= 150;
+            const columns = isLarge ? 3 : 2;
+            const rows = 2;
+            const xCuts = columns === 3
+                ? [this.width * 0.36, this.width * 0.64]
+                : [this.width * 0.5];
+            const yCut = this.height * 0.5;
+            const xBand = this.width * (columns === 3 ? 0.04 : 0.052);
+            const yBand = this.height * (isLarge ? 0.064 : 0.07);
+            const islandCount = columns * rows;
+            let seaIndex = 0;
+
+            const getColumn = (x) => {
+                for (let index = 0; index < xCuts.length; index += 1) {
+                    if (x < xCuts[index]) return index;
+                }
+                return xCuts.length;
+            };
+            const distanceFromSeparator = (territory) => Math.min(
+                Math.abs(territory.center.y - yCut) / this.height,
+                ...xCuts.map((cut) => Math.abs(territory.center.x - cut) / this.width)
+            );
+            const makeSea = (territory) => {
+                territory.isImpassable = true;
+                territory.isChokePoint = false;
+                territory.isArchipelagoPassage = false;
+                territory.name = `Mer intérieure ${++seaIndex}`;
+                territory.terrain = "lake";
+                territory.resource = "Eaux interinsulaires";
+                territory.production = 0;
+                territory.productionProgress = 0;
+                territory.ownerId = null;
+                territory.units = 0;
+            };
+
+            territories.forEach((territory) => {
+                const column = getColumn(territory.center.x);
+                const row = territory.center.y < yCut ? 0 : 1;
+                territory.archipelagoIslandId = row * columns + column;
+                const inVerticalChannel = xCuts.some((cut) => Math.abs(territory.center.x - cut) <= xBand);
+                const inHorizontalChannel = Math.abs(territory.center.y - yCut) <= yBand;
+                if (inVerticalChannel || inHorizontalChannel) makeSea(territory);
+            });
+
+            // Une cellule très large peut parfois toucher les deux rives d'un chenal.
+            // On transforme alors la cellule la plus proche de la séparation en mer
+            // afin qu'aucun passage terrestre invisible ne relie deux îles.
+            let safety = territories.length;
+            while (safety-- > 0) {
+                let leak = null;
+                territories.some((territory) => territory.neighbors.some((neighborId) => {
+                    const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                    if (!neighbor || territory.isImpassable || neighbor.isImpassable) return false;
+                    if (territory.archipelagoIslandId === neighbor.archipelagoIslandId) return false;
+                    leak = { territory, neighbor };
+                    return true;
+                }));
+                if (!leak) break;
+                const candidate = distanceFromSeparator(leak.territory) <= distanceFromSeparator(leak.neighbor)
+                    ? leak.territory
+                    : leak.neighbor;
+                makeSea(candidate);
+            }
+
+            // On conserve une masse terrestre principale par île. Les minuscules
+            // fragments que peut créer une cellule Voronoï très étirée deviennent
+            // de l'eau plutôt qu'une cinquième île accidentelle.
+            for (let islandId = 0; islandId < islandCount; islandId += 1) {
+                const remaining = new Set(territories
+                    .filter((territory) => !territory.isImpassable && territory.archipelagoIslandId === islandId)
+                    .map((territory) => territory.id));
+                const components = [];
+                while (remaining.size) {
+                    const firstId = remaining.values().next().value;
+                    const component = [];
+                    const pending = [firstId];
+                    remaining.delete(firstId);
+                    while (pending.length) {
+                        const territoryId = pending.pop();
+                        const territory = territories.find((candidate) => candidate.id === territoryId);
+                        component.push(territory);
+                        territory.neighbors.forEach((neighborId) => {
+                            const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                            if (!neighbor || neighbor.isImpassable || neighbor.archipelagoIslandId !== islandId || !remaining.has(neighborId)) return;
+                            remaining.delete(neighborId);
+                            pending.push(neighborId);
+                        });
+                    }
+                    components.push(component);
+                }
+                components.sort((first, second) => second.length - first.length);
+                components.slice(1).flat().forEach((territory) => makeSea(territory));
+            }
+
+            const rowCenters = [this.height * 0.29, this.height * 0.71];
+            const columnCenters = columns === 3
+                ? [this.width * 0.22, this.width * 0.5, this.width * 0.78]
+                : [this.width * 0.29, this.width * 0.71];
+            const passagePlans = [];
+            for (let row = 0; row < rows; row += 1) {
+                for (let column = 0; column < columns - 1; column += 1) {
+                    passagePlans.push({
+                        firstIslandId: row * columns + column,
+                        secondIslandId: row * columns + column + 1,
+                        anchor: { x: xCuts[column], y: rowCenters[row] }
+                    });
+                }
+            }
+            for (let column = 0; column < columns; column += 1) {
+                passagePlans.push({
+                    firstIslandId: column,
+                    secondIslandId: columns + column,
+                    anchor: { x: columnCenters[column], y: yCut }
+                });
+            }
+
+            const passageNames = [
+                "Chaussée du Nord", "Pont du Levant", "Chaussée du Sud", "Pont du Ponant",
+                "Passage des Brumes", "Pont Central", "Chaussée d’Azur", "Passage des Échos"
+            ];
+            const openedEdges = [];
+            passagePlans.forEach((plan, index) => {
+                const first = this.findNearestIslandTerritory(territories, plan.firstIslandId, plan.anchor);
+                const second = this.findNearestIslandTerritory(territories, plan.secondIslandId, plan.anchor);
+                if (!first || !second) return;
+                const path = this.findArchipelagoPath(
+                    territories,
+                    first,
+                    second,
+                    plan.anchor,
+                    new Set([plan.firstIslandId, plan.secondIslandId]),
+                    false
+                );
+                openedEdges.push(...this.openArchipelagoPath(
+                    path,
+                    passageNames[index] || `Passage interinsulaire ${index + 1}`
+                ));
+            });
+
+            // Sécurité pour les géométries Voronoï exceptionnelles : si une île
+            // demeure isolée, le corridor le plus court est ouvert vers le réseau.
+            let components = this.getTraversableComponents(territories);
+            let fallbackIndex = 1;
+            while (components.length > 1 && fallbackIndex <= islandCount * 2) {
+                let closest = null;
+                for (let firstIndex = 0; firstIndex < components.length; firstIndex += 1) {
+                    for (let secondIndex = firstIndex + 1; secondIndex < components.length; secondIndex += 1) {
+                        components[firstIndex].forEach((first) => components[secondIndex].forEach((second) => {
+                            const distance = C.Geometry.squaredDistance(first.center, second.center);
+                            if (!closest || distance < closest.distance) closest = { first, second, distance };
+                        }));
+                    }
+                }
+                if (!closest) break;
+                const anchor = {
+                    x: (closest.first.center.x + closest.second.center.x) / 2,
+                    y: (closest.first.center.y + closest.second.center.y) / 2
+                };
+                const path = this.findArchipelagoPath(territories, closest.first, closest.second, anchor, null, true);
+                if (!path.length) break;
+                openedEdges.push(...this.openArchipelagoPath(path, `Passage de secours ${fallbackIndex++}`));
+                components = this.getTraversableComponents(territories);
+            }
+            return [...new Map(openedEdges.map((edge) => [`${Math.min(...edge)}:${Math.max(...edge)}`, edge])).values()];
+        }
+
+        findNearestIslandTerritory(territories, islandId, anchor) {
+            return territories
+                .filter((territory) => !territory.isImpassable && territory.archipelagoIslandId === islandId)
+                .sort((first, second) =>
+                    C.Geometry.squaredDistance(first.center, anchor) - C.Geometry.squaredDistance(second.center, anchor))[0] || null;
+        }
+
+        findArchipelagoPath(territories, source, target, anchor, allowedIslandIds = null, allowExistingPassages = false) {
+            if (!source || !target) return [];
+            const byId = new Map(territories.map((territory) => [territory.id, territory]));
+            const distances = new Map([[source.id, 0]]);
+            const previous = new Map();
+            const pending = new Set(territories.map((territory) => territory.id));
+            const maximumDimension = Math.max(this.width, this.height);
+
+            const allowed = (territory) => {
+                if (territory.id === source.id || territory.id === target.id || territory.isImpassable) return true;
+                if (territory.isArchipelagoPassage) return allowExistingPassages;
+                return !allowedIslandIds || allowedIslandIds.has(territory.archipelagoIslandId);
+            };
+
+            while (pending.size) {
+                let currentId = null;
+                let currentDistance = Infinity;
+                pending.forEach((territoryId) => {
+                    const distance = distances.get(territoryId) ?? Infinity;
+                    if (distance < currentDistance) {
+                        currentDistance = distance;
+                        currentId = territoryId;
+                    }
+                });
+                if (currentId === null || currentDistance === Infinity) break;
+                pending.delete(currentId);
+                if (currentId === target.id) break;
+                const current = byId.get(currentId);
+                current.neighbors.forEach((neighborId) => {
+                    if (!pending.has(neighborId)) return;
+                    const neighbor = byId.get(neighborId);
+                    if (!neighbor || !allowed(neighbor)) return;
+                    const anchorPenalty = C.Geometry.distance(neighbor.center, anchor) / maximumDimension;
+                    const stepCost = (neighbor.isImpassable ? 4 : 0.55) + anchorPenalty * 1.8;
+                    const nextDistance = currentDistance + stepCost;
+                    if (nextDistance >= (distances.get(neighborId) ?? Infinity)) return;
+                    distances.set(neighborId, nextDistance);
+                    previous.set(neighborId, currentId);
+                });
+            }
+
+            if (!distances.has(target.id)) return [];
+            const path = [];
+            let currentId = target.id;
+            while (currentId !== undefined) {
+                path.unshift(byId.get(currentId));
+                if (currentId === source.id) break;
+                currentId = previous.get(currentId);
+            }
+            return path[0]?.id === source.id ? path : [];
+        }
+
+        openArchipelagoPath(path, name) {
+            if (!path.length) return [];
+            const converted = path.filter((territory) => territory.isImpassable);
+            converted.forEach((territory, index) => {
+                territory.isImpassable = false;
+                territory.isChokePoint = true;
+                territory.isArchipelagoPassage = true;
+                territory.archipelagoIslandId = null;
+                territory.name = converted.length > 1 ? `${name} ${index + 1}` : name;
+                territory.terrain = "plain";
+                territory.resource = "Liaison interinsulaire";
+                territory.production = 1;
+                territory.productionProgress = 0;
+                territory.ownerId = null;
+                territory.units = 0;
+            });
+            if (!converted.length) {
+                path.slice(0, 2).forEach((territory) => {
+                    territory.isChokePoint = true;
+                    territory.isArchipelagoPassage = true;
+                });
+            }
+            return path.slice(1).map((territory, index) => [path[index].id, territory.id]);
+        }
+
+        getTraversableComponents(territories) {
+            const traversable = territories.filter((territory) => !territory.isImpassable);
+            const byId = new Map(territories.map((territory) => [territory.id, territory]));
+            const remaining = new Set(traversable.map((territory) => territory.id));
+            const components = [];
+            while (remaining.size) {
+                const firstId = remaining.values().next().value;
+                const component = [];
+                const pending = [firstId];
+                remaining.delete(firstId);
+                while (pending.length) {
+                    const territory = byId.get(pending.pop());
+                    if (!territory) continue;
+                    component.push(territory);
+                    territory.neighbors.forEach((neighborId) => {
+                        const neighbor = byId.get(neighborId);
+                        if (!neighbor || neighbor.isImpassable || territory.isPathBlocked(neighborId) || !remaining.has(neighborId)) return;
+                        remaining.delete(neighborId);
+                        pending.push(neighborId);
+                    });
+                }
+                components.push(component);
+            }
+            return components;
         }
 
         createIsland(random) {
@@ -189,6 +473,7 @@
             const mapCenter = { x: this.width / 2, y: this.height / 2 };
             const names = C.Geometry.shuffle(LAKE_NAMES, random);
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
+                !territory.isImpassable &&
                 !territory.isChokePoint &&
                 territory.neighbors.length >= 4 &&
                 C.Geometry.distance(territory.center, mapCenter) < this.width * 0.34), random);
@@ -223,6 +508,7 @@
                     if (territory.id >= neighborId) return;
                     const neighbor = territories.find((candidate) => candidate.id === neighborId);
                     if (!neighbor || neighbor.isImpassable) return;
+                    if (territory.isArchipelagoPassage || neighbor.isArchipelagoPassage) return;
                     const segment = C.Geometry.sharedEdgeSegment(territory.polygon, neighbor.polygon);
                     if (!segment || segment.length < 25) return;
                     edges.push({
@@ -264,8 +550,9 @@
 
                 const firstStillOpenEnough = this.countOpenBorders(edge.first, territories) >= minimumOpenBorders;
                 const secondStillOpenEnough = this.countOpenBorders(edge.second, territories) >= minimumOpenBorders;
+                const archipelagoIslandsStayConnected = this.areArchipelagoIslandsInternallyConnected(territories);
 
-                if (!firstStillOpenEnough || !secondStillOpenEnough || !this.isTraversableGraphConnected(territories)) {
+                if (!firstStillOpenEnough || !secondStillOpenEnough || !archipelagoIslandsStayConnected || !this.isTraversableGraphConnected(territories)) {
                     edge.first.blockedNeighbors.pop();
                     edge.second.blockedNeighbors.pop();
                     continue;
@@ -274,6 +561,31 @@
                 placed += 1;
                 if (placed >= targetCount) break;
             }
+        }
+
+        areArchipelagoIslandsInternallyConnected(territories) {
+            const islandIds = [...new Set(territories
+                .filter((territory) => !territory.isImpassable && territory.archipelagoIslandId !== null)
+                .map((territory) => territory.archipelagoIslandId))];
+            if (!islandIds.length) return true;
+            return islandIds.every((islandId) => {
+                const islandTerritories = territories.filter((territory) =>
+                    !territory.isImpassable && territory.archipelagoIslandId === islandId);
+                if (!islandTerritories.length) return false;
+                const islandIdsSet = new Set(islandTerritories.map((territory) => territory.id));
+                const visited = new Set();
+                const pending = [islandTerritories[0].id];
+                while (pending.length) {
+                    const territoryId = pending.pop();
+                    if (visited.has(territoryId)) continue;
+                    visited.add(territoryId);
+                    const territory = territories.find((candidate) => candidate.id === territoryId);
+                    territory.neighbors.forEach((neighborId) => {
+                        if (islandIdsSet.has(neighborId) && !territory.isPathBlocked(neighborId) && !visited.has(neighborId)) pending.push(neighborId);
+                    });
+                }
+                return visited.size === islandTerritories.length;
+            });
         }
 
         countOpenBorders(territory, territories) {

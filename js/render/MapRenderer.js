@@ -634,16 +634,16 @@
                 if (territory.isChokePoint) {
                     ctx.beginPath();
                     ctx.arc(center.x, center.y - 30, 13, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(22, 13, 28, .9)";
+                    ctx.fillStyle = territory.isArchipelagoPassage ? "rgba(8, 28, 35, .92)" : "rgba(22, 13, 28, .9)";
                     ctx.fill();
-                    ctx.strokeStyle = "rgba(205, 150, 255, .9)";
+                    ctx.strokeStyle = territory.isArchipelagoPassage ? "rgba(116, 220, 226, .9)" : "rgba(205, 150, 255, .9)";
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
-                    ctx.fillStyle = "#d7a6ff";
+                    ctx.fillStyle = territory.isArchipelagoPassage ? "#a9eef0" : "#d7a6ff";
                     ctx.font = "700 15px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("⌛", center.x, center.y - 30.5);
+                    ctx.fillText(territory.isArchipelagoPassage ? "≋" : "⌛", center.x, center.y - 30.5);
                 } else if (territory.rareSite) {
                     ctx.beginPath();
                     ctx.arc(center.x, center.y - 30, 13, 0, Math.PI * 2);

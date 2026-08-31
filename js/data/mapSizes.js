@@ -29,4 +29,10 @@
     C.MAP_SIZE_DEFINITIONS = Object.freeze(definitions);
     C.normalizeMapSize = (value) => value === "large" ? "large" : "standard";
     C.getMapSizeDefinition = (value) => definitions[C.normalizeMapSize(value)];
+    C.normalizeMapType = (value) => ["hourglass", "archipelago"].includes(value) ? value : "standard";
+    C.getMapTypeLabel = (value) => ({
+        standard: "CONTINENT",
+        hourglass: "SABLIER",
+        archipelago: "ARCHIPEL"
+    })[C.normalizeMapType(value)];
 })(window.Conquest = window.Conquest || {});

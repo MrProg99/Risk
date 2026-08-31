@@ -152,7 +152,8 @@ body.lobby-open { overflow: hidden; }
 .player-count-choice:has(input:focus-visible), .faction-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .map-type-choices, .map-size-choices, .ai-difficulty-choices { display: grid; gap: 9px; }
-.map-type-choices, .map-size-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.map-type-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.map-size-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ai-difficulty-choices { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .lobby-subheading { margin-top: 15px !important; color: #94a9ae !important; font-size: .67rem !important; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .map-type-choices label, .map-size-choices label, .ai-difficulty-choices label { cursor: pointer; }
@@ -621,6 +622,7 @@ button { color: inherit; }
     .lobby-form { padding: 19px; }
     .faction-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ai-difficulty-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .map-type-choices { grid-template-columns: 1fr; }
     .lobby-footer { align-items: stretch; flex-direction: column; gap: 14px; }
     .lobby-footer-actions { width: 100%; }
     .lobby-footer .help-link { flex: 0 0 92px; }

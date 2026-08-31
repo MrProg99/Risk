@@ -21,7 +21,7 @@
             this.mapSize = C.normalizeMapSize(options.mapSize);
             const mapSize = C.getMapSizeDefinition(this.mapSize);
             this.state = new C.GameState({ mapSize: this.mapSize });
-            this.mapType = options.mapType === "hourglass" ? "hourglass" : "standard";
+            this.mapType = C.normalizeMapType(options.mapType);
             this.mapGenerator = new C.MapGenerator(mapSize.width, mapSize.height, mapSize);
             this.listeners = new Set();
             this.random = Math.random;
@@ -99,7 +99,9 @@
                     : `La faction ${list} est contrôlée par l’ordinateur.`, "info");
             }
             const lakeCount = state.territories.filter((territory) => territory.isImpassable).length;
-            this.addEvent(`Carte générée : ${state.territories.length - lakeCount} territoires et ${lakeCount} lacs infranchissables.`, "info");
+            this.addEvent(this.mapType === "archipelago"
+                ? `Archipel généré : ${state.territories.length - lakeCount} territoires terrestres, ${lakeCount} zones maritimes et plusieurs passages interinsulaires.`
+                : `Carte générée : ${state.territories.length - lakeCount} territoires et ${lakeCount} lacs infranchissables.`, "info");
             const cannonCount = state.territories.filter((territory) => territory.installation?.type === "cannon").length;
             this.addEvent(`${cannonCount} canons de campagne sont disséminés sur la carte.`, "info");
             this.notify({ type: "NEW_GAME", seed: normalizedSeed });
@@ -119,7 +121,9 @@
             const territories = this.state.territories.filter((territory) => !territory.isImpassable);
             const starts = this.mapType === "hourglass"
                 ? this.selectHourglassStartingTerritories(territories)
-                : this.selectDistributedStartingTerritories(territories);
+                : this.mapType === "archipelago"
+                    ? this.selectArchipelagoStartingTerritories(territories)
+                    : this.selectDistributedStartingTerritories(territories);
 
             this.state.territories.forEach((territory) => {
                 territory.ownerId = null;
@@ -203,6 +207,53 @@
                     return score(b) - score(a);
                 });
                 starts.push(candidates[0]);
+            });
+            return starts;
+        }
+
+        selectArchipelagoStartingTerritories(territories) {
+            const islandTerritories = territories.filter((territory) =>
+                !territory.isChokePoint && territory.archipelagoIslandId !== null);
+            const islandIds = [...new Set(islandTerritories.map((territory) => territory.archipelagoIslandId))].sort((a, b) => a - b);
+            if (!islandIds.length) return this.selectDistributedStartingTerritories(territories);
+
+            const columns = Math.max(1, islandIds.length / 2);
+            const teams = [...new Set(this.state.factions.map((faction) => faction.teamId))];
+            const usedIslands = new Set();
+            const teamIslands = new Map();
+            const starts = [];
+
+            this.state.factions.forEach((faction) => {
+                const teamIndex = teams.indexOf(faction.teamId);
+                const preferredIslands = teams.length === 2
+                    ? islandIds.filter((islandId) => Math.floor(islandId / columns) === teamIndex)
+                    : islandIds;
+                const alreadyUsedByTeam = teamIslands.get(faction.teamId) || new Set();
+                let candidateIslandIds = preferredIslands.filter((islandId) => !alreadyUsedByTeam.has(islandId));
+                if (!candidateIslandIds.length) candidateIslandIds = preferredIslands.length ? preferredIslands : islandIds;
+
+                const passageCenters = territories
+                    .filter((territory) => territory.isArchipelagoPassage)
+                    .map((territory) => territory.center);
+                const candidates = islandTerritories.filter((territory) => candidateIslandIds.includes(territory.archipelagoIslandId));
+                candidates.sort((first, second) => {
+                    const score = (territory) => {
+                        const spacing = starts.length
+                            ? Math.min(...starts.map((start) => C.Geometry.squaredDistance(start.center, territory.center)))
+                            : C.Geometry.squaredDistance(territory.center, { x: this.state.mapWidth / 2, y: this.state.mapHeight / 2 });
+                        const passageDistance = passageCenters.length
+                            ? Math.min(...passageCenters.map((center) => C.Geometry.squaredDistance(center, territory.center)))
+                            : 0;
+                        const unusedIslandBonus = usedIslands.has(territory.archipelagoIslandId) ? 0 : 1e9;
+                        return unusedIslandBonus + spacing + passageDistance * 0.22 + territory.neighbors.length * 1800;
+                    };
+                    return score(second) - score(first);
+                });
+                const selected = candidates[0] || islandTerritories.find((territory) => !starts.includes(territory));
+                starts.push(selected);
+                usedIslands.add(selected.archipelagoIslandId);
+                if (!teamIslands.has(faction.teamId)) teamIslands.set(faction.teamId, new Set());
+                teamIslands.get(faction.teamId).add(selected.archipelagoIslandId);
             });
             return starts;
         }

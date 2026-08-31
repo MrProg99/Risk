@@ -1045,7 +1045,7 @@
             this.elements.playerFactionDot.style.color = player.color;
             this.elements.centerMap.title = `Recentrer sur ${player.name}`;
             this.elements.centerMap.setAttribute("aria-label", `Recentrer sur ${player.name}`);
-            const mapLabel = this.game.state.mapType === "hourglass" ? "SABLIER" : "CONTINENT";
+            const mapLabel = C.getMapTypeLabel(this.game.state.mapType);
             const sizeLabel = this.game.state.mapSize === "large" ? "GRANDE" : "ACTUELLE";
             this.elements.mapSeed.textContent = `${mapLabel} · ${sizeLabel} · CARTE #${String(this.game.state.seed).padStart(6, "0")}`;
             this.renderLegend();

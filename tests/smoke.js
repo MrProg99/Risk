@@ -27,6 +27,28 @@
         return visited.size === relevantTerritories.length;
     }
 
+    function countArchipelagoIslands(territories) {
+        const relevant = territories.filter((territory) => !territory.isImpassable && !territory.isArchipelagoPassage);
+        const relevantIds = new Set(relevant.map((territory) => territory.id));
+        const remaining = new Set(relevantIds);
+        let components = 0;
+        while (remaining.size) {
+            components += 1;
+            const pending = [remaining.values().next().value];
+            remaining.delete(pending[0]);
+            while (pending.length) {
+                const territoryId = pending.pop();
+                const territory = territories.find((candidate) => candidate.id === territoryId);
+                territory.neighbors.forEach((neighborId) => {
+                    if (!remaining.has(neighborId) || territory.isPathBlocked(neighborId)) return;
+                    remaining.delete(neighborId);
+                    pending.push(neighborId);
+                });
+            }
+        }
+        return components;
+    }
+
     function findPathWithMinimumHops(territories, startId, minimumHops) {
         const pending = [[startId]];
         const visited = new Set([startId]);
@@ -104,6 +126,40 @@
         check(largeMapGame.state.toJSON().mapSize === "large", "la taille de carte est incluse dans l’état sérialisable");
         const largeHourglassMap = largeMapGame.mapGenerator.generate(424245, undefined, "hourglass");
         check(largeHourglassMap.mapType === "hourglass" && graphIsConnected(largeHourglassMap.territories, true), "la grande carte Sablier conserve son passage central franchissable");
+        const archipelagoMap = game.mapGenerator.generate(424246, undefined, "archipelago");
+        const archipelagoPassages = archipelagoMap.territories.filter((territory) => territory.isArchipelagoPassage);
+        const separatedArchipelagoIslands = countArchipelagoIslands(archipelagoMap.territories);
+        check(archipelagoMap.mapType === "archipelago" && graphIsConnected(archipelagoMap.territories, true), "la carte Archipel relie toutes ses terres par des passages franchissables");
+        check(new Set(archipelagoMap.territories.filter((territory) => territory.archipelagoIslandId !== null && !territory.isImpassable).map((territory) => territory.archipelagoIslandId)).size === 4, "la carte actuelle Archipel contient quatre îles terrestres");
+        check(separatedArchipelagoIslands === 4 && archipelagoPassages.length >= 4, `les quatre îles redeviennent distinctes lorsque les passages interinsulaires sont retirés (${separatedArchipelagoIslands} composantes, ${archipelagoPassages.length} passages)`);
+        check(archipelagoPassages.every((territory) => !territory.isImpassable && territory.isChokePoint && territory.blockedNeighbors.length === 0), "les montagnes ne ferment jamais les passages de l’Archipel");
+        const largeArchipelagoMap = largeMapGame.mapGenerator.generate(424247, undefined, "archipelago");
+        check(graphIsConnected(largeArchipelagoMap.territories, true) && countArchipelagoIslands(largeArchipelagoMap.territories) === 6, "la grande carte Archipel contient six îles toutes accessibles");
+        check(largeArchipelagoMap.territories.filter((territory) => territory.isArchipelagoPassage).length >= 7, "la grande carte ouvre au moins sept corridors entre ses six îles");
+        const stableArchipelagoGeneration = [11111, 22222, 33333, 44444, 55555].every((seed) => {
+            const generatedMap = game.mapGenerator.generate(seed, undefined, "archipelago");
+            return graphIsConnected(generatedMap.territories, true) &&
+                countArchipelagoIslands(generatedMap.territories) === 4 &&
+                generatedMap.territories.filter((territory) => territory.isArchipelagoPassage).length >= 4;
+        });
+        check(stableArchipelagoGeneration, "plusieurs graines Archipel conservent quatre îles et un réseau terrestre complet");
+        const archipelagoGame = new C.Game({ playerId: 1, mapType: "archipelago", enableAI: false, enableWorldEvents: false });
+        archipelagoGame.newGame(424246);
+        const archipelagoStarts = archipelagoGame.state.factions.map((faction) => archipelagoGame.state.getTerritoriesOwnedBy(faction.id)[0]);
+        check(new Set(archipelagoStarts.map((territory) => territory.archipelagoIslandId)).size === 4 && archipelagoStarts.every((territory) => !territory.isArchipelagoPassage), "les quatre factions commencent sur quatre îles différentes, loin des ponts");
+        const archipelagoTeamSetups = C.FACTION_DEFINITIONS.map((definition, index) => ({
+            ...definition,
+            bonuses: { ...definition.bonuses },
+            teamId: index < 2 ? 1 : 2,
+            isAI: index !== 0
+        }));
+        const archipelagoTeamGame = new C.Game({ playerId: 1, mapType: "archipelago", factionSetups: archipelagoTeamSetups, enableAI: false, enableWorldEvents: false });
+        archipelagoTeamGame.newGame(424248);
+        const archipelagoTeamRows = archipelagoTeamGame.state.factions.map((faction) => {
+            const start = archipelagoTeamGame.state.getTerritoriesOwnedBy(faction.id)[0];
+            return Math.floor(start.archipelagoIslandId / 2);
+        });
+        check(archipelagoTeamRows.slice(0, 2).every((row) => row === 0) && archipelagoTeamRows.slice(2).every((row) => row === 1), "en 2v2, les alliés commencent sur la même rangée d’îles face à l’équipe adverse");
         const hourglassMap = game.mapGenerator.generate(424243, 115, "hourglass");
         const hourglassCenterX = game.state.mapWidth / 2;
         const openHourglassCrossings = hourglassMap.territories.reduce((edges, territory) => {
@@ -224,6 +280,7 @@
                     <input type="radio" name="playerCount" value="4">
                     <input type="radio" name="mapType" value="standard">
                     <input type="radio" name="mapType" value="hourglass" checked>
+                    <input type="radio" name="mapType" value="archipelago">
                     <input type="radio" name="mapSize" value="standard">
                     <input type="radio" name="mapSize" value="large" checked>
                     <input type="radio" name="aiDifficulty" value="normal">
@@ -245,6 +302,8 @@
         lobbyController.form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
         check(Boolean(submittedLobbyConfiguration && submittedLobbyConfiguration.playerId === 2 && submittedLobbyConfiguration.playerCount === 3), "le formulaire du lobby transmet la race et le nombre de joueurs sélectionnés");
         check(submittedLobbyConfiguration.mapType === "hourglass", "le lobby transmet le type de carte Sablier au moteur");
+        lobbyFixture.querySelector('input[name="mapType"][value="archipelago"]').checked = true;
+        check(lobbyController.getConfiguration().mapType === "archipelago" && C.getMapTypeLabel("archipelago") === "ARCHIPEL", "le lobby et l’interface reconnaissent le type de carte Archipel");
         check(submittedLobbyConfiguration.mapSize === "large", "le lobby transmet le choix Grande carte au moteur");
         check(submittedLobbyConfiguration.aiDifficulty === "hard" && submittedLobbyConfiguration.aiProductionMultiplier === 1.20, "le lobby transmet le niveau Difficile et son bonus de production");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
