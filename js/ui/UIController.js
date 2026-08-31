@@ -12,7 +12,6 @@
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
-            this.airstrikeSourceId = null;
             this.targetingAbilityId = null;
             this.lastEventId = null;
             this.lastLostTerritoryId = null;
@@ -117,7 +116,6 @@
                 airportPanel: byId("airport-panel"),
                 airportStatus: byId("airport-status"),
                 airportDetail: byId("airport-detail"),
-                airstrikeButton: byId("airstrike-button"),
                 activeRoutePanel: byId("active-route-panel"),
                 activeRouteStatus: byId("active-route-status"),
                 activeRouteSource: byId("active-route-source"),
@@ -166,7 +164,6 @@
             this.elements.relayAllReinforcements.addEventListener("change", () => this.renderTerritoryPanel());
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
-            this.elements.airstrikeButton.addEventListener("click", () => this.toggleAirstrikeTargeting());
             this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
             this.elements.abilityParatrooper.addEventListener("click", () => this.toggleAbilityTargeting("paratrooper"));
@@ -240,6 +237,7 @@
                 }
                 this.refreshDynamic();
             } else if (change.type === "AIRSTRIKE_RESOLVED") {
+                this.renderer.fireAirstrike?.(change.sourceTerritoryId, change.targetTerritoryId);
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#75baff");
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_LAUNCHED") {
@@ -600,11 +598,6 @@
                 return;
             }
 
-            if (this.airstrikeSourceId !== null) {
-                this.launchAirstrikeAt(territory);
-                return;
-            }
-
             if (event.shiftKey) {
                 if (territory.isImpassable || territory.ownerId !== this.game.playerId) {
                     this.showToast("La sélection multiple accepte uniquement vos territoires franchissables.");
@@ -935,7 +928,6 @@
             this.targetTerritoryId = null;
             this.plannedRoute = [];
             this.lastRouteKey = null;
-            this.airstrikeSourceId = null;
             this.targetingAbilityId = null;
             this.syncSelection();
             this.refreshAbilities();
@@ -951,7 +943,6 @@
             }
             if ((faction.abilityCooldowns[abilityId] || 0) > 0) return;
             const abilityStats = C.getFactionAbilityStats(faction, abilityId);
-            this.airstrikeSourceId = null;
             this.targetingAbilityId = this.targetingAbilityId === abilityId ? null : abilityId;
             this.clearTerritorySelectionOnly();
             this.refreshAbilities();
@@ -1552,50 +1543,11 @@
             if (!canUseAirport) return;
             const remainingSeconds = Math.ceil(Math.max(0, territory.airstrikeCooldownMs) / 1000);
             const reloading = remainingSeconds > 0;
-            const armed = this.airstrikeSourceId === territory.id;
-            this.elements.airportStatus.textContent = reloading ? `${remainingSeconds} S` : armed ? "CIBLE ?" : "PRÊTE";
+            this.elements.airportStatus.textContent = reloading ? `${remainingSeconds} S` : "EN VEILLE";
             this.elements.airportStatus.classList.toggle("reloading", reloading);
             this.elements.airportDetail.textContent = reloading
-                ? "Les bombardiers se préparent pour une nouvelle mission."
-                : "Détruit 10 % des forces d’un territoire ennemi visible à quatre frontières ou moins.";
-            this.elements.airstrikeButton.disabled = reloading;
-            this.elements.airstrikeButton.classList.toggle("armed", armed);
-            this.elements.airstrikeButton.textContent = armed ? "Annuler la frappe" : "Préparer la frappe";
-        }
-
-        toggleAirstrikeTargeting() {
-            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
-            if (!territory || territory.terrain !== "airport" || territory.ownerId !== this.game.playerId) return;
-            if (territory.airstrikeCooldownMs > 0) return;
-            this.airstrikeSourceId = this.airstrikeSourceId === territory.id ? null : territory.id;
-            this.renderAirportPanel(territory);
-            this.showToast(this.airstrikeSourceId === null
-                ? "Frappe aérienne annulée."
-                : "Cliquez sur une cible ennemie visible dans un rayon de quatre territoires.");
-        }
-
-        launchAirstrikeAt(target) {
-            const source = this.game.state.getTerritory(this.airstrikeSourceId);
-            if (!source) {
-                this.airstrikeSourceId = null;
-                return;
-            }
-            if (this.game.areAllied(target.ownerId, this.game.playerId)) {
-                this.showToast("Impossible de bombarder un territoire allié.");
-                return;
-            }
-            const result = this.game.executeCommand({
-                type: "AIRSTRIKE",
-                playerId: this.game.playerId,
-                fromTerritoryId: source.id,
-                toTerritoryId: target.id
-            });
-            if (!result.ok) {
-                this.showToast(result.error);
-                return;
-            }
-            this.clearSelection();
-            this.showToast(`Frappe aérienne lancée sur ${target.name}.`);
+                ? "Les bombardiers se préparent pour leur prochaine mission automatique."
+                : "Escadrille prête : elle frappera automatiquement la meilleure cible hostile visible à quatre frontières ou moins.";
         }
 
         renderActiveRoute(territory) {
@@ -1756,7 +1708,7 @@
             if (event.key === "Escape") {
                 if (!this.elements.researchScreen.hidden) this.closeResearchScreen();
                 else if (this.selectedTerritoryId !== null || this.targetTerritoryId !== null ||
-                    this.multiSelectedTerritoryIds.size || this.targetingAbilityId || this.airstrikeSourceId !== null) {
+                    this.multiSelectedTerritoryIds.size || this.targetingAbilityId) {
                     event.preventDefault();
                     this.clearSelection();
                 }

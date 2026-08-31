@@ -134,8 +134,6 @@
 
             if (this.considerAlliedDefense(faction, owned)) return true;
 
-            if (this.considerAirstrike(faction, owned)) return true;
-
             const plannedAction = this.advanceOffensivePlan(faction, owned);
             if (plannedAction !== null) return plannedAction;
 
@@ -899,40 +897,6 @@
                 return true;
             }
             return false;
-        }
-
-        considerAirstrike(faction, owned) {
-            const airports = owned.filter((territory) =>
-                territory.terrain === "airport" && territory.airstrikeCooldownMs <= 0);
-            if (!airports.length) return false;
-
-            let best = null;
-            airports.forEach((airport) => {
-                const candidates = this.game.getTerritoriesWithinHops(airport, this.game.airstrikeRangeHops)
-                    .filter((target) => !target.isImpassable && !this.game.areAllied(target.ownerId, faction.id) && target.units > 1);
-
-                candidates.forEach((target) => {
-                    const priority = target.units +
-                        (target.rareSite ? 15 : 0) +
-                        (target.installation?.type === "cannon" ? 10 : 0) +
-                        (target.isCapital ? 20 : 0) +
-                        (target.wonderId ? 45 : 0) +
-                        (target.ownerId !== null ? 5 : 0);
-                    if (!best || priority > best.priority) {
-                        best = { airport, target, priority };
-                    }
-                });
-            });
-            if (!best) return false;
-
-            const result = this.game.executeCommand({
-                type: "AIRSTRIKE",
-                playerId: faction.id,
-                fromTerritoryId: best.airport.id,
-                toTerritoryId: best.target.id
-            });
-            if (result.ok) this.ordersIssued += 1;
-            return result.ok;
         }
 
         considerAbilities(faction, owned) {

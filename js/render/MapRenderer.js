@@ -884,8 +884,12 @@
 
         drawCannonShots(ctx, now) {
             this.cannonShots = this.cannonShots.filter((shot) =>
-                now - shot.startedAt < (shot.heavy ? 1600 : 900));
+                now - shot.startedAt < (shot.heavy ? 1600 : shot.airstrike ? 1300 : 900));
             this.cannonShots.forEach((shot) => {
+                if (shot.airstrike) {
+                    this.drawAirstrikeShot(ctx, shot, now);
+                    return;
+                }
                 const durationMs = shot.heavy ? 1600 : 900;
                 const progress = C.Geometry.clamp((now - shot.startedAt) / durationMs, 0, 1);
                 const previousProgress = Math.max(0, progress - (shot.heavy ? 0.055 : 0.09));
@@ -940,6 +944,53 @@
                 }
                 ctx.restore();
             });
+        }
+
+        drawAirstrikeShot(ctx, shot, now) {
+            const progress = C.Geometry.clamp((now - shot.startedAt) / 1300, 0, 1);
+            const positionAt = (value) => ({
+                x: C.Geometry.lerp(shot.start.x, shot.end.x, value),
+                y: C.Geometry.lerp(shot.start.y, shot.end.y, value) - Math.sin(value * Math.PI) * 34
+            });
+            const position = positionAt(progress);
+            const previous = positionAt(Math.max(0, progress - 0.12));
+            const forward = positionAt(Math.min(1, progress + 0.01));
+            const angle = Math.atan2(forward.y - position.y, forward.x - position.x);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(previous.x, previous.y);
+            ctx.lineTo(position.x, position.y);
+            ctx.strokeStyle = C.Geometry.rgba(shot.color, .48);
+            ctx.lineWidth = 2.4;
+            ctx.setLineDash([8, 6]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.translate(position.x, position.y);
+            ctx.rotate(angle);
+            ctx.beginPath();
+            ctx.moveTo(13, 0);
+            ctx.lineTo(-8, -4);
+            ctx.lineTo(-3, 0);
+            ctx.lineTo(-8, 4);
+            ctx.closePath();
+            ctx.fillStyle = "#dff5ff";
+            ctx.shadowColor = shot.color;
+            ctx.shadowBlur = 13;
+            ctx.fill();
+            ctx.restore();
+
+            if (progress > 0.76) {
+                const impactProgress = (progress - 0.76) / 0.24;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(shot.end.x, shot.end.y, 7 + impactProgress * 32, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(117, 186, 255, ${1 - impactProgress})`;
+                ctx.lineWidth = 5;
+                ctx.stroke();
+                ctx.restore();
+            }
         }
 
         drawAbilityActions(ctx, state, now) {
@@ -1355,6 +1406,23 @@
                 end: { ...target.center },
                 color: faction ? faction.accent : "#d5c38c",
                 hit: Boolean(hit),
+                startedAt: performance.now()
+            });
+        }
+
+        fireAirstrike(fromTerritoryId, targetTerritoryId) {
+            const source = this.game.state.getTerritory(fromTerritoryId);
+            const target = this.game.state.getTerritory(targetTerritoryId);
+            if (!source || !target) return;
+            const visibility = this.game.getTerritoryVisibilityMap(this.game.playerId);
+            if (!this.game.isTerritoryVisible(source.id, this.game.playerId, visibility) &&
+                !this.game.isTerritoryVisible(target.id, this.game.playerId, visibility)) return;
+            const faction = this.game.state.getFaction(source.ownerId);
+            this.cannonShots.push({
+                start: { ...source.center },
+                end: { ...target.center },
+                color: faction ? faction.accent : "#75baff",
+                airstrike: true,
                 startedAt: performance.now()
             });
         }

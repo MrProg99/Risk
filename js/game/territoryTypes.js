@@ -113,7 +113,7 @@
             color: "#4a6fa5",
             productionMultiplier: 1,
             defenseMultiplier: 1,
-            bonuses: ["Frappe aérienne : élimine 10 % des troupes d’une cible dans un rayon de 4 territoires (survole les montagnes)", "Recharge des bombardiers en ~38 s"]
+            bonuses: ["Frappe automatique : élimine 10 % des troupes de la meilleure cible hostile visible dans un rayon de 4 territoires (survole les montagnes)", "Recharge des bombardiers en ~38 s"]
         }
     };
 

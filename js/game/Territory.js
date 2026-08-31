@@ -22,6 +22,7 @@
             this.isCapital = false;
             this.isChokePoint = false;
             this.airstrikeCooldownMs = 0;
+            this.airstrikeLastAction = null;
             this.productionMode = "units";
             this.productionModeChangedAtMs = 0;
             this.railroad = false;
@@ -67,6 +68,7 @@
                 isCapital: this.isCapital,
                 isChokePoint: this.isChokePoint,
                 airstrikeCooldownMs: this.airstrikeCooldownMs,
+                airstrikeLastAction: this.airstrikeLastAction ? { ...this.airstrikeLastAction } : null,
                 productionMode: this.productionMode,
                 productionModeChangedAtMs: this.productionModeChangedAtMs,
                 railroad: this.railroad,

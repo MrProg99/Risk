@@ -122,7 +122,7 @@
             foodCapacity: 25,
             defenseMultiplier: 1,
             bonuses: [
-                "Frappe aérienne : élimine 10 % des troupes d’une cible dans un rayon de 4 territoires",
+                "Frappe automatique : élimine 10 % des troupes de la meilleure cible hostile visible dans un rayon de 4 territoires",
                 "Les bombardiers survolent les montagnes",
                 "Recharge des bombardiers en environ 38 secondes"
             ]

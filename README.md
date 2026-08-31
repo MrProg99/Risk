@@ -140,7 +140,7 @@ Chaque carte contient exactement **deux canons de campagne**, placés sur des te
 
 ### Aéroports
 
-La carte actuelle possède au minimum **quatre aéroports**, et la grande carte au minimum **six**. Ils sont reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé permet une frappe aérienne dans un rayon de quatre territoires : elle survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis impose environ 38 secondes de recharge. L’ordinateur sait également employer les aéroports qu’il contrôle.
+La carte actuelle possède au minimum **quatre aéroports**, et la grande carte au minimum **six**. Ils sont reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé recherche automatiquement une force hostile visible dans un rayon de quatre territoires. Il privilégie les grosses garnisons et les objectifs stratégiques, survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis recharge ses bombardiers pendant environ 38 secondes. Les territoires neutres ne sont pas bombardés automatiquement.
 
 ### Recherche
 

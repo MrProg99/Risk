@@ -140,6 +140,7 @@
                 territory.wonderActivationRemainingMs = 0;
                 territory.wonderActionProgressMs = 0;
                 territory.wonderLastAction = null;
+                territory.airstrikeLastAction = null;
             });
             starts.forEach((territory, index) => {
                 const faction = this.state.factions[index];
@@ -148,6 +149,11 @@
                 territory.productionProgress = 0;
                 territory.isCapital = true;
                 faction.capitalTerritoryId = territory.id;
+            });
+            this.state.territories.forEach((territory) => {
+                territory.airstrikeCooldownMs = territory.terrain === "airport" && territory.ownerId !== null
+                    ? this.airstrikeCooldownMs
+                    : 0;
             });
         }
 
@@ -294,7 +300,7 @@
             changed = this.updateResearch(safeDelta) || changed;
             changed = this.updateWonderWeapons(safeDelta) || changed;
             changed = this.updateInstallations(safeDelta) || changed;
-            this.updateAirstrikeCooldowns(safeDelta);
+            changed = this.updateAirports(safeDelta) || changed;
             changed = this.updateAbilities(safeDelta) || changed;
 
             const arrivedArmies = [];
@@ -308,13 +314,29 @@
             if (changed || arrivedArmies.length) this.state.touch();
         }
 
-        updateAirstrikeCooldowns(deltaMs) {
+        updateAirports(deltaMs) {
+            let changed = false;
             this.state.territories.forEach((territory) => {
-                if (territory.terrain !== "airport" || territory.ownerId === null) return;
+                if (territory.terrain !== "airport") return;
+                if (territory.ownerId === null) {
+                    territory.airstrikeCooldownMs = 0;
+                    return;
+                }
+                const wasReloading = territory.airstrikeCooldownMs > 0;
                 if (territory.airstrikeCooldownMs > 0) {
                     territory.airstrikeCooldownMs = Math.max(0, territory.airstrikeCooldownMs - deltaMs);
                 }
+                if (territory.airstrikeCooldownMs > 0) return;
+                const crossedScanBoundary = Math.floor(this.state.elapsedMs / 1000) !==
+                    Math.floor(Math.max(0, this.state.elapsedMs - deltaMs) / 1000);
+                if (!wasReloading && !crossedScanBoundary) return;
+
+                const target = this.findAirportTarget(territory);
+                if (!target) return;
+                this.resolveAirstrike(territory, target, true);
+                changed = true;
             });
+            return changed;
         }
 
         updateAbilities(deltaMs) {
@@ -581,6 +603,64 @@
             return result;
         }
 
+        getAirstrikeDamage(target) {
+            if (!target || target.units <= 1) return 0;
+            return Math.min(target.units - 1, Math.max(1, Math.round(target.units * this.airstrikeDamageRatio)));
+        }
+
+        findAirportTarget(source) {
+            if (!source || source.terrain !== "airport" || source.ownerId === null) return null;
+            const visibility = this.getTerritoryVisibilityMap(source.ownerId);
+            const strategicScore = (target) =>
+                this.getAirstrikeDamage(target) * 8 +
+                target.units * 0.12 +
+                (target.isCapital ? 35 : 0) +
+                (target.wonderId || target.wonderConstruction ? 60 : 0) +
+                (target.installation ? 18 : 0) +
+                (target.rareSite ? 16 : 0) +
+                (target.productionMode === "food" ? 9 : target.productionMode === "research" ? 7 : 0);
+            return this.getTerritoriesWithinHops(source, this.airstrikeRangeHops)
+                .filter((target) =>
+                    !target.isImpassable &&
+                    target.ownerId !== null &&
+                    !this.areAllied(target.ownerId, source.ownerId) &&
+                    target.units > 1 &&
+                    visibility.has(target.id))
+                .sort((first, second) => strategicScore(second) - strategicScore(first))[0] || null;
+        }
+
+        resolveAirstrike(source, target, automatic = false) {
+            const faction = this.state.getFaction(source?.ownerId);
+            if (!source || !target || !faction) return { ok: false, error: "Frappe aérienne invalide." };
+            const damage = this.getAirstrikeDamage(target);
+            target.units -= damage;
+            this.recordUnitLoss(target.ownerId, damage, faction.id);
+            source.airstrikeCooldownMs = this.airstrikeCooldownMs;
+            source.airstrikeLastAction = {
+                targetTerritoryId: target.id,
+                damage,
+                automatic: Boolean(automatic),
+                firedAtMs: Math.max(1, this.state.elapsedMs)
+            };
+
+            const defender = this.state.getFaction(target.ownerId);
+            if (damage > 0) {
+                this.addEvent(`${faction.name} lance ${automatic ? "automatiquement " : ""}un raid aérien depuis ${source.name} sur ${target.name}${defender ? ` (${defender.name})` : ""} : ${damage} perte${damage > 1 ? "s" : ""}.`, "combat");
+            } else {
+                this.addEvent(`${faction.name} lance un raid aérien depuis ${source.name} sur ${target.name}, sans effet notable.`, "combat");
+            }
+            this.notify({
+                type: "AIRSTRIKE_RESOLVED",
+                sourceTerritoryId: source.id,
+                targetTerritoryId: target.id,
+                factionId: faction.id,
+                damage,
+                automatic: Boolean(automatic),
+                firedAtMs: source.airstrikeLastAction.firedAtMs
+            });
+            return { ok: true, damage };
+        }
+
         isWithinAirstrikeRange(source, target) {
             return this.getTerritoriesWithinHops(source, this.airstrikeRangeHops).some((candidate) => candidate.id === target.id);
         }
@@ -602,12 +682,19 @@
                 return { ok: false, error: `Cible hors de portée (max ${this.airstrikeRangeHops} territoires).` };
             }
 
-            const damage = target.units > 1
-                ? Math.min(target.units - 1, Math.max(1, Math.round(target.units * this.airstrikeDamageRatio)))
-                : 0;
+            if (!this.isTerritoryVisible(target.id, faction.id)) {
+                return { ok: false, error: "La cible doit être visible pour les bombardiers." };
+            }
+            const damage = this.getAirstrikeDamage(target);
             target.units -= damage;
             this.recordUnitLoss(target.ownerId, damage, faction.id);
             source.airstrikeCooldownMs = this.airstrikeCooldownMs;
+            source.airstrikeLastAction = {
+                targetTerritoryId: target.id,
+                damage,
+                automatic: false,
+                firedAtMs: Math.max(1, this.state.elapsedMs)
+            };
 
             const defender = this.state.getFaction(target.ownerId);
             if (damage > 0) {
@@ -620,7 +707,9 @@
                 sourceTerritoryId: source.id,
                 targetTerritoryId: target.id,
                 factionId: faction.id,
-                damage
+                damage,
+                automatic: false,
+                firedAtMs: source.airstrikeLastAction.firedAtMs
             });
             this.state.touch();
             return { ok: true, damage };
@@ -1681,6 +1770,7 @@
                     target.installationProgressMs = 0;
                     target.isCapital = false;
                     target.airstrikeCooldownMs = 0;
+                    target.airstrikeLastAction = null;
                     this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, null);
                     const defeated = previousOwner ? previousOwner.name : "les forces locales";
                     this.addEvent(`Les Barbares mettent ${target.name} à sac face à ${defeated} — le territoire redevient neutre.`, "world");
@@ -1711,7 +1801,8 @@
                 target.productionModeChangedAtMs = this.state.elapsedMs;
                 target.installationProgressMs = 0;
                 target.isCapital = false;
-                target.airstrikeCooldownMs = 0;
+                target.airstrikeCooldownMs = target.terrain === "airport" ? this.airstrikeCooldownMs : 0;
+                target.airstrikeLastAction = null;
                 this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, attacker.id);
                 attacker.statistics.peakTerritories = Math.max(
                     attacker.statistics.peakTerritories,
@@ -2123,6 +2214,7 @@
                     installationProgressMs: territory.installationProgressMs,
                     isCapital: territory.isCapital,
                     airstrikeCooldownMs: territory.airstrikeCooldownMs,
+                    airstrikeLastAction: territory.airstrikeLastAction ? { ...territory.airstrikeLastAction } : null,
                     productionMode: territory.productionMode,
                     productionModeChangedAtMs: territory.productionModeChangedAtMs,
                     railroad: territory.railroad,
@@ -2176,12 +2268,23 @@
                 const previousWonderConstruction = territory.wonderConstruction ? { ...territory.wonderConstruction } : null;
                 const previousWonderActivationRemainingMs = territory.wonderActivationRemainingMs;
                 const previousWonderActionAtMs = Number(territory.wonderLastAction?.firedAtMs) || 0;
+                const previousAirstrikeAtMs = Number(territory.airstrikeLastAction?.firedAtMs) || 0;
                 territory.ownerId = dynamic.ownerId ?? null;
                 territory.units = Number(dynamic.units) || 0;
                 territory.productionProgress = Number(dynamic.productionProgress) || 0;
                 territory.installationProgressMs = Number(dynamic.installationProgressMs) || 0;
                 territory.isCapital = Boolean(dynamic.isCapital);
                 territory.airstrikeCooldownMs = Number(dynamic.airstrikeCooldownMs) || 0;
+                const airstrikeTarget = this.state.getTerritory(dynamic.airstrikeLastAction?.targetTerritoryId);
+                const airstrikeAtMs = Number(dynamic.airstrikeLastAction?.firedAtMs) || 0;
+                territory.airstrikeLastAction = territory.terrain === "airport" && airstrikeTarget && airstrikeAtMs > 0
+                    ? {
+                        targetTerritoryId: airstrikeTarget.id,
+                        damage: Math.max(0, Number(dynamic.airstrikeLastAction.damage) || 0),
+                        automatic: Boolean(dynamic.airstrikeLastAction.automatic),
+                        firedAtMs: airstrikeAtMs
+                    }
+                    : null;
                 territory.railroad = Boolean(dynamic.railroad);
                 territory.railroadConstructionActive = Boolean(dynamic.railroadConstructionActive);
                 territory.railroadConstructionProgressMs = Number(dynamic.railroadConstructionProgressMs) || 0;
@@ -2244,6 +2347,14 @@
                         territoryId: territory.id,
                         previousOwnerId,
                         ownerId: territory.ownerId
+                    });
+                }
+                if (territory.airstrikeLastAction && territory.airstrikeLastAction.firedAtMs > previousAirstrikeAtMs) {
+                    this.notify({
+                        ...territory.airstrikeLastAction,
+                        type: "AIRSTRIKE_RESOLVED",
+                        factionId: territory.ownerId,
+                        sourceTerritoryId: territory.id
                     });
                 }
                 if (territory.wonderConstruction && previousWonderConstruction?.wonderId !== territory.wonderConstruction.wonderId) {

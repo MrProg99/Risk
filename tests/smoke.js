@@ -665,6 +665,37 @@
         });
         check(airstrike.ok && airstrike.damage === 10 && airstrikeTarget.units === 90, "un aéroport contrôlé peut lancer une frappe aérienne à portée");
         check(airport.airstrikeCooldownMs === airportGame.airstrikeCooldownMs, "une frappe aérienne déclenche la recharge de l’aéroport");
+        airportGame.state.territories.forEach((territory) => {
+            if (territory.id === airport.id) return;
+            territory.ownerId = null;
+            territory.units = Math.max(2, territory.units);
+        });
+        airstrikeTarget.ownerId = 2;
+        airstrikeTarget.units = 100;
+        airport.airstrikeCooldownMs = 1000;
+        const automaticAirstrikes = [];
+        airportGame.subscribe((change) => {
+            if (change.type === "AIRSTRIKE_RESOLVED" && change.automatic) automaticAirstrikes.push(change);
+        });
+        airportGame.update(1000);
+        check(airstrikeTarget.units === 90 && automaticAirstrikes.length === 1 && automaticAirstrikes[0].sourceTerritoryId === airport.id, "un aéroport prêt bombarde automatiquement une force hostile visible");
+        check(airport.airstrikeCooldownMs === airportGame.airstrikeCooldownMs && airport.airstrikeLastAction?.targetTerritoryId === airstrikeTarget.id, "la frappe automatique recharge l’escadrille et mémorise sa cible");
+        const automaticSnapshot = airportGame.createNetworkSnapshot();
+        const remoteAirportGame = new C.Game({ playerId: 2, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteAirportGame.newGame(424242);
+        let remoteAutomaticAirstrikes = 0;
+        remoteAirportGame.subscribe((change) => {
+            if (change.type === "AIRSTRIKE_RESOLVED" && change.automatic) remoteAutomaticAirstrikes += 1;
+        });
+        remoteAirportGame.applyNetworkSnapshot(automaticSnapshot);
+        remoteAirportGame.applyNetworkSnapshot(automaticSnapshot);
+        check(remoteAutomaticAirstrikes === 1 && remoteAirportGame.state.getTerritory(airport.id).airstrikeLastAction?.damage === 10, "la frappe automatique et son animation sont reproduites une seule fois chez les clients Firebase");
+        airstrikeTarget.ownerId = null;
+        airstrikeTarget.units = 100;
+        airport.airstrikeCooldownMs = 0;
+        const automaticShotCount = automaticAirstrikes.length;
+        airportGame.update(1000);
+        check(airstrikeTarget.units === 100 && automaticAirstrikes.length === automaticShotCount, "un aéroport automatique ne bombarde pas les territoires neutres");
 
         const aiJournalGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: true, enableWorldEvents: false });
         aiJournalGame.newGame(515151);
@@ -1706,6 +1737,7 @@
             territory.ownerId = 1;
             territory.units = 1000;
             territory.productionProgress = 0;
+            territory.airstrikeCooldownMs = territory.terrain === "airport" ? concentrationGame.airstrikeCooldownMs : 0;
         });
         concentrationDonor.ownerId = 2;
         concentrationDonor.units = 100;
@@ -1745,6 +1777,7 @@
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
+        check(typeof C.MapRenderer.prototype.fireAirstrike === "function", "le rendu expose l’animation des frappes automatiques de l’aéroport");
         check(typeof C.MapRenderer.prototype.fireBigBertha === "function", "le rendu expose une trajectoire lourde dédiée à la Grosse Bertha");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");

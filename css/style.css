@@ -538,9 +538,6 @@ button { color: inherit; }
 .airport-panel p { margin: 8px 0 10px; color: #8da5b6; font-size: .66rem; line-height: 1.45; }
 .airport-status { color: #8bc8ff; font: 700 .58rem var(--mono); letter-spacing: .08em; }
 .airport-status.reloading { color: #d6a46d; }
-.airstrike-button { width: 100%; padding: 8px; border: 1px solid rgba(91,157,226,.35); border-radius: 6px; color: #bfe0ff; background: rgba(74,111,165,.13); font-size: .62rem; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; }
-.airstrike-button:hover:not(:disabled), .airstrike-button.armed { border-color: #75baff; color: #06121a; background: #75baff; }
-.airstrike-button:disabled { opacity: .48; cursor: not-allowed; }
 .route-status { padding: 3px 5px; border-radius: 4px; color: var(--cyan) !important; background: rgba(78,215,208,.09); font: 600 .56rem var(--mono) !important; }
 .route-status.paused { color: #f2c072 !important; background: rgba(242,192,114,.09); }
 .active-route-line { margin-top: 10px; display: grid; grid-template-columns: 1fr 24px 1fr; align-items: center; gap: 4px; color: #64878b; font-size: .64rem; }
