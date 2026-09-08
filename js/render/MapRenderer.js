@@ -24,6 +24,15 @@
                 this.waterTexturePattern = null;
             });
             this.waterTexture.src = "Image/Water1.jpg";
+            this.grassTexturePattern = null;
+            this.grassTexture = new Image();
+            this.grassTexture.addEventListener("load", () => {
+                this.grassTexturePattern = this.createGrassTexturePattern();
+            });
+            this.grassTexture.addEventListener("error", () => {
+                this.grassTexturePattern = null;
+            });
+            this.grassTexture.src = "Image/grass.jpg";
             this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
             this.minZoom = 0.42;
             this.maxZoom = 1.6;
@@ -63,6 +72,53 @@
             }
 
             return this.context.createPattern(tile, "repeat");
+        }
+
+        createGrassTexturePattern() {
+            if (!this.grassTexture.naturalWidth || !this.grassTexture.naturalHeight) return null;
+
+            // Preserve the photograph's proportions and mirror it so that its edges do not form a grid.
+            const cellWidth = 300;
+            const cellHeight = Math.max(120, Math.round(
+                cellWidth * this.grassTexture.naturalHeight / this.grassTexture.naturalWidth
+            ));
+            const tile = document.createElement("canvas");
+            tile.width = cellWidth * 2;
+            tile.height = cellHeight * 2;
+            const tileContext = tile.getContext("2d");
+            if (!tileContext) return null;
+
+            // Only luminance is retained: faction colors will remain the visual ownership cue.
+            if ("filter" in tileContext) {
+                tileContext.filter = "grayscale(1) contrast(.92) brightness(1.06)";
+            }
+            for (let row = 0; row < 2; row += 1) {
+                for (let column = 0; column < 2; column += 1) {
+                    tileContext.save();
+                    tileContext.translate(
+                        column * cellWidth + (column ? cellWidth : 0),
+                        row * cellHeight + (row ? cellHeight : 0)
+                    );
+                    tileContext.scale(column ? -1 : 1, row ? -1 : 1);
+                    tileContext.drawImage(this.grassTexture, 0, 0, cellWidth, cellHeight);
+                    tileContext.restore();
+                }
+            }
+            tileContext.filter = "none";
+
+            return this.context.createPattern(tile, "repeat");
+        }
+
+        drawPlainTexture(ctx, territory, faction, isVisible) {
+            if (territory.terrain !== "plain" || !isVisible || !this.grassTexturePattern) return;
+
+            ctx.save();
+            this.tracePolygon(ctx, territory.polygon);
+            ctx.globalCompositeOperation = "soft-light";
+            ctx.globalAlpha = faction ? 0.34 : 0.26;
+            ctx.fillStyle = this.grassTexturePattern;
+            ctx.fill();
+            ctx.restore();
         }
 
         resize() {
@@ -174,6 +230,7 @@
             this.drawCannonShots(ctx, now);
             this.drawTransferPreview(ctx, state, now);
             this.drawCapturePulses(ctx, now);
+            C.drawTeamSignals?.(ctx, this.game, (territory) => territory.center, now, 1 / this.zoom);
             ctx.restore();
         }
 
@@ -258,6 +315,8 @@
                     ctx.fill();
                     ctx.restore();
                 }
+
+                this.drawPlainTexture(ctx, territory, faction, isVisible);
 
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = !isVisible && !territory.isImpassable

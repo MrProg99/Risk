@@ -24,6 +24,7 @@
             this.mapType = C.normalizeMapType(options.mapType);
             this.mapGenerator = new C.MapGenerator(mapSize.width, mapSize.height, mapSize);
             this.listeners = new Set();
+            this.teamSignals = new C.TeamSignalSystem(this);
             this.random = Math.random;
             this.paused = false;
             this.timeScale = C.Geometry.clamp(Number(options.timeScale ?? 0.72), 0.25, 2);
@@ -74,6 +75,7 @@
                 return new C.Faction(definition);
             });
             this.state = state;
+            this.teamSignals.highestSeenId = 0;
             this.random = C.Geometry.seededRandom((normalizedSeed ^ 0x9E3779B9) >>> 0);
             this.paused = false;
 
@@ -325,6 +327,7 @@
             const safeDelta = Math.min(deltaMs, 1000) * this.timeScale;
             this.state.elapsedMs += safeDelta;
             let changed = false;
+            changed = this.teamSignals.update() || changed;
 
             this.maintainReinforcementRoutes();
             changed = this.updateRailroadConstruction(safeDelta) || changed;
@@ -378,6 +381,7 @@
                     territory.airstrikeCooldownMs = Math.max(0, territory.airstrikeCooldownMs - deltaMs);
                 }
                 if (territory.airstrikeCooldownMs > 0) return;
+                if (this.isFactionBlackoutActive(territory.ownerId)) return;
                 const crossedScanBoundary = Math.floor(this.state.elapsedMs / 1000) !==
                     Math.floor(Math.max(0, this.state.elapsedMs - deltaMs) / 1000);
                 if (!wasReloading && !crossedScanBoundary) return;
@@ -399,6 +403,20 @@
                     faction.abilityCooldowns[abilityId] = Math.max(0, remaining - deltaMs);
                 });
             });
+
+            this.state.blackoutStates.forEach((blackout) => {
+                const wasActive = blackout.activeRemainingMs > 0;
+                const hadImmunity = blackout.immunityRemainingMs > 0;
+                blackout.activeRemainingMs = Math.max(0, blackout.activeRemainingMs - deltaMs);
+                blackout.immunityRemainingMs = Math.max(0, blackout.immunityRemainingMs - deltaMs);
+                if (wasActive && blackout.activeRemainingMs === 0) {
+                    this.addEvent(`Les communications de l’équipe ${blackout.teamId} sont rétablies.`, "info");
+                    this.notify({ type: "BLACKOUT_ENDED", targetTeamId: blackout.teamId });
+                    changed = true;
+                }
+                if (hadImmunity && blackout.immunityRemainingMs === 0) changed = true;
+            });
+            this.state.blackoutStates = this.state.blackoutStates.filter((blackout) => blackout.immunityRemainingMs > 0);
 
             const ready = this.state.abilityActions.filter((action) =>
                 action.resolvedAtMs == null && action.executeAtMs <= this.state.elapsedMs);
@@ -480,6 +498,7 @@
                     territory.installationProgressMs + deltaMs * reloadMultiplier
                 );
                 if (territory.installationProgressMs < cannon.fireIntervalMs) return;
+                if (this.isFactionBlackoutActive(territory.ownerId)) return;
 
                 const target = this.findCannonTarget(territory);
                 if (!target) return;
@@ -562,6 +581,7 @@
                     Math.max(0, Number(territory.wonderActionProgressMs) || 0) + deltaMs
                 );
                 if (territory.wonderActionProgressMs < effects.fireIntervalMs) return;
+                if (this.isFactionBlackoutActive(territory.ownerId)) return;
                 const target = this.findBigBerthaTarget(territory);
                 if (!target) return;
 
@@ -732,6 +752,7 @@
             if (!faction || !source || !target) return { ok: false, error: "Territoire introuvable." };
             if (source.ownerId !== faction.id) return { ok: false, error: "Cet aéroport ne vous appartient pas." };
             if (source.terrain !== "airport") return { ok: false, error: "Ce territoire ne dispose pas d’un aéroport." };
+            if (this.isFactionBlackoutActive(faction.id)) return { ok: false, error: "BLACKOUT : vos forces ne peuvent lancer aucune offensive." };
             if (source.id === target.id) return { ok: false, error: "Cible invalide." };
             if (target.isImpassable) return { ok: false, error: "Cible invalide." };
             if (this.areAllied(target.ownerId, faction.id)) return { ok: false, error: "Impossible de bombarder un territoire allié." };
@@ -779,9 +800,14 @@
             if (!command || typeof command.type !== "string") {
                 return { ok: false, error: "Commande invalide." };
             }
+            if (command.type === "SEND_TEAM_SIGNAL") {
+                const validation = this.teamSignals.validate(command);
+                if (!validation.ok) return validation;
+            }
             if (this.commandTransport && !this.isApplyingRemoteCommand) {
                 return this.commandTransport({ ...command });
             }
+            if (command.type === "SEND_TEAM_SIGNAL") return this.teamSignals.send(command);
             if (command.type === "SEND_ARMY") return this.sendArmy(command);
             if (command.type === "SEND_REINFORCEMENT_ROUTE") return this.sendReinforcementRoute(command);
             if (command.type === "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE") return this.createContinuousReinforcementRoute(command);
@@ -812,6 +838,50 @@
             const abilityStats = C.getFactionAbilityStats(faction, definition.id);
             const cooldown = Number(faction.abilityCooldowns?.[definition.id]) || 0;
             if (cooldown > 0) return { ok: false, error: `Capacité en recharge (${Math.ceil(cooldown / 1000)} s).` };
+            if (definition.id !== "reinforcement" && this.isFactionBlackoutActive(playerId)) {
+                return { ok: false, error: "BLACKOUT : les capacités offensives sont indisponibles." };
+            }
+
+            if (definition.id === "blackout") {
+                if (target.ownerId === null || this.areAllied(target.ownerId, playerId)) {
+                    return { ok: false, error: "Le Blackout doit viser un territoire ennemi." };
+                }
+                if (!this.isTerritoryVisible(target.id, playerId)) {
+                    return { ok: false, error: "Le Blackout exige une cible ennemie visible." };
+                }
+                const targetFaction = this.state.getFaction(target.ownerId);
+                if (!targetFaction) return { ok: false, error: "Équipe ennemie introuvable." };
+                const currentBlackout = this.getTeamBlackoutState(targetFaction.teamId);
+                if (currentBlackout?.activeRemainingMs > 0) {
+                    return { ok: false, error: "Cette équipe subit déjà un Blackout." };
+                }
+                if (currentBlackout?.immunityRemainingMs > 0) {
+                    return { ok: false, error: `Cette équipe résiste encore au brouillage (${Math.ceil(currentBlackout.immunityRemainingMs / 1000)} s).` };
+                }
+
+                const blackout = {
+                    teamId: targetFaction.teamId,
+                    sourceFactionId: faction.id,
+                    activeRemainingMs: abilityStats.durationMs,
+                    immunityRemainingMs: abilityStats.durationMs + abilityStats.immunityMs
+                };
+                this.state.blackoutStates.push(blackout);
+                faction.abilityCooldowns.blackout = this.getAbilityCooldownDuration(faction.id, abilityStats.cooldownMs);
+                faction.statistics.abilitiesUsed += 1;
+                this.addEvent(`BLACKOUT : ${faction.name} brouille les communications de l’équipe ${targetFaction.teamId} pendant ${Math.ceil(abilityStats.durationMs / 1000)} secondes.`, "combat");
+                this.notify({
+                    type: "BLACKOUT_STARTED",
+                    abilityId: definition.id,
+                    factionId: faction.id,
+                    targetFactionId: targetFaction.id,
+                    targetTeamId: targetFaction.teamId,
+                    targetTerritoryId: target.id,
+                    durationMs: abilityStats.durationMs,
+                    immunityMs: abilityStats.immunityMs
+                });
+                this.state.touch();
+                return { ok: true, blackout };
+            }
 
             if (definition.id === "missile" || definition.id === "nuclear") {
                 if (this.areAllied(target.ownerId, playerId)) return { ok: false, error: "Impossible de viser un territoire allié." };
@@ -1270,6 +1340,30 @@
             return Boolean(first && second && first.teamId === second.teamId);
         }
 
+        getTeamBlackoutState(teamId) {
+            const normalizedTeamId = Number(teamId);
+            return this.state.blackoutStates.find((blackout) => Number(blackout.teamId) === normalizedTeamId) || null;
+        }
+
+        getFactionBlackoutState(factionId) {
+            const faction = this.state.getFaction(factionId);
+            return faction ? this.getTeamBlackoutState(faction.teamId) : null;
+        }
+
+        isFactionBlackoutActive(factionId) {
+            return (this.getFactionBlackoutState(factionId)?.activeRemainingMs || 0) > 0;
+        }
+
+        getFactionBlackoutRemainingMs(factionId) {
+            return Math.max(0, Number(this.getFactionBlackoutState(factionId)?.activeRemainingMs) || 0);
+        }
+
+        getTeamBlackoutImmunityRemainingMs(teamId) {
+            const blackout = this.getTeamBlackoutState(teamId);
+            if (!blackout) return 0;
+            return Math.max(0, (Number(blackout.immunityRemainingMs) || 0) - (Number(blackout.activeRemainingMs) || 0));
+        }
+
         startResearch(command) {
             const faction = this.state.getFaction(command.playerId);
             const technology = C.TECHNOLOGIES[command.technologyId];
@@ -1315,6 +1409,9 @@
             if (units >= from.units) return { ok: false, error: "Une unité doit rester pour tenir le territoire." };
 
             const faction = this.state.getFaction(playerId);
+            if (!this.areAllied(to.ownerId, playerId) && this.isFactionBlackoutActive(playerId)) {
+                return { ok: false, error: "BLACKOUT : impossible de lancer une offensive. Les renforts alliés restent disponibles." };
+            }
             const durationMs = this.getTravelDuration(from, to, faction);
             const army = new C.Army({
                 id: this.state.nextArmyId++,
@@ -2155,6 +2252,15 @@
                     }
                 });
 
+            if (this.isFactionBlackoutActive(normalizedFactionId)) {
+                [...distances.keys()].forEach((territoryId) => {
+                    const territory = this.state.getTerritory(territoryId);
+                    if (territory?.ownerId !== null && !this.areAllied(territory.ownerId, normalizedFactionId)) {
+                        distances.delete(territoryId);
+                    }
+                });
+            }
+
             return distances;
         }
 
@@ -2254,6 +2360,9 @@
 
         createNetworkSnapshot() {
             return {
+                teamSignals: this.state.teamSignals.map((signal) => ({ ...signal })),
+                nextTeamSignalId: this.state.nextTeamSignalId,
+                lastTeamSignalAtMs: { ...this.state.lastTeamSignalAtMs },
                 revision: this.state.revision,
                 elapsedMs: this.state.elapsedMs,
                 winnerTeamId: this.state.winnerTeamId,
@@ -2312,6 +2421,7 @@
                     data: { ...(event.data || {}) }
                 })),
                 abilityActions: this.state.abilityActions.map((action) => ({ ...action })),
+                blackoutStates: this.state.blackoutStates.map((blackout) => ({ ...blackout })),
                 events: this.state.events.slice(-60)
             };
         }
@@ -2320,6 +2430,7 @@
             if (!snapshot || Number(snapshot.revision) < this.state.revision) return false;
             const previousWinnerTeamId = this.state.winnerTeamId;
             const previousAbilityActionIds = new Set(this.state.abilityActions.map((action) => action.id));
+            const previousBlackoutStates = new Map(this.state.blackoutStates.map((blackout) => [Number(blackout.teamId), { ...blackout }]));
             (snapshot.territories || []).forEach((dynamic) => {
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
@@ -2476,7 +2587,8 @@
                     missile: Number(dynamic.abilityCooldowns?.missile) || 0,
                     reinforcement: Number(dynamic.abilityCooldowns?.reinforcement) || 0,
                     paratrooper: Number(dynamic.abilityCooldowns?.paratrooper) || 0,
-                    nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0
+                    nuclear: Number(dynamic.abilityCooldowns?.nuclear) || 0,
+                    blackout: Number(dynamic.abilityCooldowns?.blackout) || 0
                 };
                 faction.constructedWonderId = C.getWonderType(dynamic.constructedWonderId)?.id || null;
                 faction.statistics = {
@@ -2500,6 +2612,27 @@
             this.state.abilityActions.forEach((action) => {
                 if (!previousAbilityActionIds.has(action.id)) this.notify({ type: "ABILITY_LAUNCHED", ...action });
             });
+            this.state.blackoutStates = (snapshot.blackoutStates || []).map((blackout) => ({
+                teamId: Number(blackout.teamId),
+                sourceFactionId: Number(blackout.sourceFactionId),
+                activeRemainingMs: Math.max(0, Number(blackout.activeRemainingMs) || 0),
+                immunityRemainingMs: Math.max(0, Number(blackout.immunityRemainingMs) || 0)
+            })).filter((blackout) => Number.isFinite(blackout.teamId) && blackout.immunityRemainingMs > 0);
+            this.state.blackoutStates.forEach((blackout) => {
+                const previous = previousBlackoutStates.get(blackout.teamId);
+                if (!previous) {
+                    this.notify({
+                        type: "BLACKOUT_STARTED",
+                        abilityId: "blackout",
+                        factionId: blackout.sourceFactionId,
+                        targetTeamId: blackout.teamId,
+                        durationMs: blackout.activeRemainingMs,
+                        immunityMs: Math.max(0, blackout.immunityRemainingMs - blackout.activeRemainingMs)
+                    });
+                } else if (previous.activeRemainingMs > 0 && blackout.activeRemainingMs === 0) {
+                    this.notify({ type: "BLACKOUT_ENDED", targetTeamId: blackout.teamId });
+                }
+            });
             this.state.events = snapshot.events || [];
             this.state.elapsedMs = Number(snapshot.elapsedMs) || 0;
             this.state.nextArmyId = Number(snapshot.nextArmyId) || 1;
@@ -2513,6 +2646,11 @@
             this.state.winnerTeamId = snapshot.winnerTeamId ?? null;
             this.state.victoryAtMs = snapshot.victoryAtMs ?? null;
             this.state.revision = Number(snapshot.revision) || 0;
+            this.state.teamSignals = (snapshot.teamSignals || []).map((signal) => ({ ...signal }));
+            this.state.nextTeamSignalId = Number(snapshot.nextTeamSignalId) || 1;
+            this.state.lastTeamSignalAtMs = { ...(snapshot.lastTeamSignalAtMs || {}) };
+            this.teamSignals.update();
+            this.teamSignals.announce(this.state.teamSignals);
             this.notify({ type: "NETWORK_SNAPSHOT_APPLIED", revision: this.state.revision });
             if (previousWinnerTeamId === null && this.state.winnerTeamId !== null) {
                 this.paused = true;
@@ -2528,11 +2666,17 @@
         updateRemotePresentation(deltaMs) {
             const safeDelta = Math.max(0, Math.min(Number(deltaMs) || 0, 250)) * this.timeScale;
             this.state.elapsedMs += safeDelta;
+            this.teamSignals.update();
             this.state.factions.forEach((faction) => {
                 Object.keys(C.ABILITY_DEFINITIONS).forEach((abilityId) => {
                     faction.abilityCooldowns[abilityId] = Math.max(0, (Number(faction.abilityCooldowns[abilityId]) || 0) - safeDelta);
                 });
             });
+            this.state.blackoutStates.forEach((blackout) => {
+                blackout.activeRemainingMs = Math.max(0, (Number(blackout.activeRemainingMs) || 0) - safeDelta);
+                blackout.immunityRemainingMs = Math.max(0, (Number(blackout.immunityRemainingMs) || 0) - safeDelta);
+            });
+            this.state.blackoutStates = this.state.blackoutStates.filter((blackout) => blackout.immunityRemainingMs > 0);
             this.state.armies.forEach((army) => {
                 army.elapsedMs = Math.min(army.durationMs, army.elapsedMs + safeDelta);
             });

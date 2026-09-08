@@ -17,6 +17,10 @@
             this.reinforcementRoutes = [];
             this.worldEvents = [];
             this.abilityActions = [];
+            this.blackoutStates = [];
+            this.teamSignals = [];
+            this.nextTeamSignalId = 1;
+            this.lastTeamSignalAtMs = {};
             this.events = [];
             this.elapsedMs = 0;
             this.nextArmyId = 1;
@@ -54,6 +58,9 @@
 
         toJSON() {
             return {
+                teamSignals: this.teamSignals.map((signal) => ({ ...signal })),
+                nextTeamSignalId: this.nextTeamSignalId,
+                lastTeamSignalAtMs: { ...this.lastTeamSignalAtMs },
                 seed: this.seed,
                 mapType: this.mapType,
                 mapSize: this.mapSize,
@@ -71,6 +78,7 @@
                     data: { ...worldEvent.data }
                 })),
                 abilityActions: this.abilityActions.map((action) => ({ ...action })),
+                blackoutStates: this.blackoutStates.map((blackout) => ({ ...blackout })),
                 events: this.events.slice(),
                 elapsedMs: this.elapsedMs,
                 nextArmyId: this.nextArmyId,

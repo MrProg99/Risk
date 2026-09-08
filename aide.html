@@ -62,6 +62,7 @@
                     <div><kbd>Échap</kbd><p>Annuler immédiatement la sélection, la cible ou une capacité en attente.</p></div>
                     <div><kbd>Entrée</kbd><p>Confirmer l’attaque ou le renfort affiché dans l’ordre tactique contextuel.</p></div>
                     <div><kbd>Shift</kbd> + <kbd>clic</kbd><p>Ajouter ou retirer vos territoires d’une sélection multiple.</p></div>
+                    <div><kbd>G</kbd> + <kbd>clic gauche</kbd><p>Ouvrir les signaux entre équipiers humains : attaquer, défendre ou demander des renforts. Le bouton Signal sur la carte offre le même menu.</p></div>
                     <div><kbd>Clic droit</kbd><p>Préparer un convoi vers un territoire allié, même s’il se trouve à plusieurs étapes.</p></div>
                     <div><kbd>Ctrl</kbd> + <kbd>glisser droit</kbd><p>Envoyer immédiatement 80 % des unités disponibles vers la destination alliée.</p></div>
                     <div><kbd>Alt</kbd> + <kbd>glisser droit</kbd><p>Créer un flux continu de renforts. Le geste fonctionne aussi avec une sélection multiple.</p></div>
@@ -137,8 +138,9 @@
                     <article><i>+</i><h3>Mobilisation</h3><p>Ajoute immédiatement 35 unités sur un territoire contrôlé, puis 50 au niveau II. Attention à la consommation alimentaire.</p></article>
                     <article><i>♢</i><h3>Parachutistes</h3><p>Largue 35 unités, puis 50 au niveau II, sur un territoire ennemi visible sans route terrestre.</p></article>
                     <article><i>☢</i><h3>Arme nucléaire</h3><p>Inflige 30 % au centre et 15 % autour; le niveau II passe à 40 % et 20 %. Le souffle touche aussi les alliés.</p></article>
+                    <article><i>▦</i><h3>Blackout</h3><p>Brouille une équipe ennemie pendant 18 secondes : vision hostile et nouvelles offensives coupées. Les renforts et armées déjà parties continuent.</p></article>
                 </div>
-                <p>Chaque capacité possède une longue recharge. L’IA recherche, améliore et utilise également toutes ces capacités.</p>
+                <p>Chaque capacité possède une longue recharge. Après un Blackout, l’équipe touchée résiste à tout nouveau brouillage pendant 60 secondes. L’IA recherche, améliore et utilise également toutes ces capacités.</p>
             </section>
 
             <section class="guide-section" id="merveilles">
@@ -183,9 +185,11 @@
                     <li>Dans le lobby, choisissez <strong>Créer en ligne</strong>, le format 1v1, 2v2 ou 3v3, puis transmettez le code du salon.</li>
                     <li>Les autres joueurs choisissent <strong>Rejoindre</strong> et saisissent ce code.</li>
                     <li>Chaque joueur contrôle sa faction et ses territoires. Les équipiers partagent leur vision et peuvent échanger des renforts.</li>
+                    <li>Avec <strong>G + clic gauche</strong>, ou le bouton <strong>Signal</strong>, indiquez « Attaquer ici », « Défendre ici » ou « Renforts ici ». Cliquez sur la notification reçue pour rejoindre la position.</li>
                     <li>Les convois traversent le territoire allié. Si un relais est perdu, le flux se met en pause jusqu’au retour d’un itinéraire sûr.</li>
                     <li>Une déconnexion conserve la place pendant 30 secondes; l’IA peut ensuite reprendre temporairement le commandement.</li>
                 </ol>
+                <p>Les signaux sont affichés uniquement à votre équipe et restent soumis à sa vision. Ils durent 15 secondes de jeu, avec trois signaux actifs au maximum par joueur et trois secondes entre deux envois. Le bouton apparaît lorsqu’un autre humain joue dans votre équipe. Pour cette première version, les IA ne réagissent pas aux signaux.</p>
                 <div class="callout"><strong>Conseil :</strong> le multijoueur doit être lancé avec Live Server ou un serveur web. L’ouverture directe du fichier reste adaptée aux parties solo.</div>
             </section>
 

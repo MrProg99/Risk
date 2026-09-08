@@ -112,6 +112,10 @@
 
             this.chooseResearch(faction);
 
+            if (this.game.isFactionBlackoutActive(faction.id)) {
+                return this.respondToBlackout(faction, owned);
+            }
+
             // Une victoire locale Ã©vidente ne doit pas attendre la crÃ©ation de
             // routes logistiques ni la fin d'un autre plan de rassemblement.
             if (this.launchDecisiveAttack(faction, owned)) return true;
@@ -135,11 +139,18 @@
             if (this.considerAlliedDefense(faction, owned)) return true;
 
             const plannedAction = this.advanceOffensivePlan(faction, owned);
-            if (plannedAction !== null) return plannedAction;
+            if (plannedAction === true) return true;
 
-            if (this.redistributeRearSurplus(faction, owned)) return true;
+            // Waiting for a convoy does not consume a decision. Keep the gathering
+            // force and its contributors out of unrelated logistics while it travels.
+            const pendingPlan = this.offensivePlans.get(faction.id);
+            const reservedSourceIds = new Set(pendingPlan
+                ? [pendingPlan.stagingTerritoryId, ...(pendingPlan.contributorIds || [])]
+                : []);
 
-            if (this.manageContinuousReinforcements(faction, owned)) return true;
+            if (this.redistributeRearSurplus(faction, owned, reservedSourceIds)) return true;
+
+            if (this.manageContinuousReinforcements(faction, owned, reservedSourceIds)) return true;
 
             // Les convois d'une ligne continue ne consomment pas les créneaux
             // d'ordres tactiques. Sans cette distinction, quelques unités de
@@ -149,12 +160,12 @@
             const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (movingArmies >= maximumArmies) return false;
 
-            const attack = this.findBestAttack(faction, owned);
+            const attack = this.findBestAttack(faction, owned.filter((territory) => !reservedSourceIds.has(territory.id)));
             if (attack && this.issueOrder(factionId, attack.source.id, attack.target.id, attack.units)) {
                 return true;
             }
 
-            const newPlan = this.findOffensivePlan(faction, owned);
+            const newPlan = pendingPlan ? null : this.findOffensivePlan(faction, owned);
             if (newPlan) {
                 this.offensivePlans.set(faction.id, newPlan);
                 this.offensivePlansCreated += 1;
@@ -164,11 +175,23 @@
                 return this.advanceOffensivePlan(faction, owned) ?? false;
             }
 
-            const reinforcement = this.findBestReinforcement(faction, owned);
+            const reinforcement = this.findBestReinforcement(faction, owned, reservedSourceIds);
             if (reinforcement) {
                 return this.issueOrder(factionId, reinforcement.source.id, reinforcement.target.id, reinforcement.units);
             }
             return false;
+        }
+
+        respondToBlackout(faction, owned) {
+            if (this.manageResearchAllocation(faction, owned)) return true;
+            if (this.manageFoodSupply(faction, owned)) return true;
+            if (this.considerAlliedDefense(faction, owned)) return true;
+            if (this.redistributeRearSurplus(faction, owned)) return true;
+            if (this.manageContinuousReinforcements(faction, owned)) return true;
+            const reinforcement = this.findBestReinforcement(faction, owned);
+            return reinforcement
+                ? this.issueOrder(faction.id, reinforcement.source.id, reinforcement.target.id, reinforcement.units)
+                : false;
         }
 
         launchDecisiveAttack(faction, owned) {
@@ -186,7 +209,7 @@
             return true;
         }
 
-        redistributeRearSurplus(faction, owned) {
+        redistributeRearSurplus(faction, owned, reservedSourceIds = new Set()) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
             const targets = this.rankLogisticsTargets(faction, owned);
@@ -199,7 +222,7 @@
             const activeSourceIds = new Set(activeRedistributions.map((army) => army.fromTerritoryId));
             const candidates = [];
             owned.forEach((source) => {
-                if (activeSourceIds.has(source.id)) return;
+                if (activeSourceIds.has(source.id) || reservedSourceIds.has(source.id)) return;
                 const hostileNeighbors = source.neighbors
                     .map((territoryId) => state.getTerritory(territoryId))
                     .filter((neighbor) => neighbor && !neighbor.isImpassable && !source.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
@@ -210,7 +233,7 @@
                     (source.installation ? 8 : 0) +
                     (source.rareSite ? 5 : 0) +
                     (source.wonderId || source.wonderConstruction ? 28 : 0);
-                const surplus = source.units - reserve;
+                const surplus = source.units - this.getDefensiveReserve(faction.id, source, reserve);
                 if (surplus < 12) return;
 
                 targets.slice(0, 4).forEach((targetEntry) => {
@@ -265,7 +288,7 @@
 
             const candidates = [];
             owned.forEach((source) => {
-                const available = source.units - profile.garrison;
+                const available = source.units - this.getDefensiveReserve(faction.id, source, profile.garrison);
                 if (available < 2) return;
                 source.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
@@ -467,7 +490,7 @@
                     .map((territory) => {
                         const hostileNeighbors = territory.neighbors
                             .map((id) => state.getTerritory(id))
-                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
                         const capacity = this.game.getPotentialTerritoryFoodCapacity(territory);
                         const strategicPenalty = (territory.isCapital ? 120 : 0) +
                             (territory.installation ? 70 : 0) +
@@ -502,7 +525,7 @@
                         if (food.demand > 0 && capacityAfterChange / food.demand < requiredSafety) return null;
                         const hostileNeighbors = territory.neighbors
                             .map((id) => state.getTerritory(id))
-                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
                         const militaryValue = this.game.getProductionMultiplier({ ...territory, productionMode: "units" });
                         return { territory, score: hostileNeighbors * 30 + militaryValue * 10 - contribution * 0.1 };
                     })
@@ -550,14 +573,14 @@
                 .map((territory) => {
                     const hostileNeighbors = territory.neighbors
                         .map((neighborId) => state.getTerritory(neighborId))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
                     if (hostileNeighbors > 0) return null;
                     const suspendedFood = this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory);
                     const constructionRatio = (food.capacity - suspendedFood) / food.demand;
                     if (constructionRatio < 0.95) return null;
                     const alliedNeighbors = territory.neighbors
                         .map((neighborId) => state.getTerritory(neighborId))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && this.game.areAllied(neighbor.ownerId, faction.id)).length;
                     return {
                         territory,
                         score: (territory.productionMode === "food" ? 80 : 0) + alliedNeighbors * 7 - territory.units * 0.15 - this.game.getProductionMultiplier(territory) * 5
@@ -594,7 +617,7 @@
                 hostilePower += hostiles.reduce((sum, territory) => sum + territory.units, 0);
             });
             const pressure = hostilePower / Math.max(1, borderPower);
-            const abilityLevels = ["missile", "reinforcement", "paratrooper", "nuclear"]
+            const abilityLevels = ["missile", "reinforcement", "paratrooper", "nuclear", "blackout"]
                 .reduce((sum, abilityId) => sum + C.getFactionAbilityLevel(faction, abilityId), 0);
             const profileId = Number(faction.definitionId ?? faction.id);
             const visibility = this.game.getTerritoryVisibilityMap(faction.id);
@@ -739,7 +762,7 @@
                     });
                     if (hostileNeighbor) return null;
                     const reserve = profile.garrison + (territory.isCapital ? 12 : 0) + (territory.wonderId ? 25 : 0);
-                    const surplus = territory.units - reserve;
+                    const surplus = territory.units - this.getDefensiveReserve(faction.id, territory, reserve);
                     return surplus >= 6 ? { territory, path, surplus, score: surplus - path.length * 2 } : null;
                 })
                 .filter(Boolean)
@@ -784,7 +807,7 @@
                     if (projectedRatio < 1.20) return null;
                     const alliedNeighbors = territory.neighbors
                         .map((neighborId) => state.getTerritory(neighborId))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && this.game.areAllied(neighbor.ownerId, faction.id));
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && this.game.areAllied(neighbor.ownerId, faction.id));
                     const railroadNeighbors = alliedNeighbors.filter((neighbor) => neighbor.railroad).length;
                     const connectedRoute = activeRouteSources.has(territory.id) ? 1 : 0;
                     const capitalValue = territory.isCapital ? 1 : 0;
@@ -829,9 +852,9 @@
             const donorEntries = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && neighbor.ownerId !== null && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
+                    .filter((neighbor) => neighbor && neighbor.ownerId !== null && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
                 const reserve = profile.garrison + hostileNeighbors * 3 + (territory.isCapital ? 5 : 0);
-                const surplus = Math.max(0, territory.units - reserve);
+                const surplus = Math.max(0, territory.units - this.getDefensiveReserve(faction.id, territory, reserve));
                 return { territory, surplus, hostileNeighbors };
             }).filter((entry) => entry.surplus >= 2);
             const totalSurplus = donorEntries.reduce((sum, entry) => sum + entry.surplus, 0);
@@ -909,7 +932,7 @@
                 const targets = owned.map((territory) => {
                     const hostileStrength = territory.neighbors
                         .map((id) => this.game.state.getTerritory(id))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id))
                         .reduce((sum, neighbor) => sum + neighbor.units, 0);
                     const danger = hostileStrength / Math.max(1, territory.units);
                     const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0) + (territory.wonderId || territory.wonderConstruction ? 55 : 0);
@@ -920,6 +943,50 @@
                 const emergency = best && best.territory.isCapital && best.danger >= 0.9;
                 if (best && best.danger >= 1.15 && (freeCapacity >= definition.units || emergency)) {
                     const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "reinforcement", targetTerritoryId: best.territory.id });
+                    if (result.ok) {
+                        this.abilitiesUsed += 1;
+                        this.ordersIssued += 1;
+                        return true;
+                    }
+                }
+            }
+
+            if (this.game.isFactionBlackoutActive(faction.id)) return false;
+
+            if (completed.includes(C.ABILITY_DEFINITIONS.blackout.technologyId) && (cooldowns.blackout || 0) <= 0) {
+                const profile = this.getProfile(faction.id);
+                const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
+                const activePlan = this.offensivePlans.get(faction.id);
+                const candidates = [];
+                owned.forEach((source) => {
+                    const available = Math.max(0, source.units - profile.garrison);
+                    if (available < 2) return;
+                    source.neighbors.forEach((territoryId) => {
+                        const target = this.game.state.getTerritory(territoryId);
+                        if (!target || target.ownerId === null || target.isImpassable || source.isPathBlocked(target.id) || this.game.areAllied(target.ownerId, faction.id)) return;
+                        const targetFaction = this.game.state.getFaction(target.ownerId);
+                        const blackout = targetFaction ? this.game.getTeamBlackoutState(targetFaction.teamId) : null;
+                        if (!targetFaction || (blackout?.immunityRemainingMs || 0) > 0) return;
+                        const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
+                        const powerRatio = available * attackMultiplier / defensePower;
+                        if (powerRatio < 0.92) return;
+                        const planBonus = activePlan?.targetTerritoryId === target.id ? 24 : 0;
+                        const strategicValue = (target.isCapital ? 14 : 0) +
+                            (target.installation ? 10 : 0) +
+                            (target.terrain === "airport" ? 9 : 0) +
+                            (target.rareSite ? 8 : 0) +
+                            (target.wonderId || target.wonderConstruction ? 35 : 0);
+                        candidates.push({ target, score: powerRatio * 28 + planBonus + strategicValue });
+                    });
+                });
+                candidates.sort((first, second) => second.score - first.score);
+                if (candidates[0]?.score >= 28) {
+                    const result = this.game.executeCommand({
+                        type: "USE_ABILITY",
+                        playerId: faction.id,
+                        abilityId: "blackout",
+                        targetTerritoryId: candidates[0].target.id
+                    });
                     if (result.ok) {
                         this.abilitiesUsed += 1;
                         this.ordersIssued += 1;
@@ -1023,6 +1090,7 @@
         }
 
         advanceOffensivePlan(faction, owned) {
+            // true: an order was sent; false: the plan is waiting; null: no active plan.
             const plan = this.offensivePlans.get(faction.id);
             if (!plan) return null;
 
@@ -1044,16 +1112,19 @@
 
             const requiredUnits = this.getCoordinatedAttackRequirement(faction, target);
             plan.requiredUnits = requiredUnits;
-            const availableAtFront = Math.max(0, staging.units - profile.garrison);
+            const availableAtFront = Math.max(0, staging.units - this.getDefensiveReserve(faction.id, staging, profile.garrison));
             const tacticalArmies = state.armies.filter((army) =>
                 army.ownerId === faction.id && !army.reinforcementRouteId);
             const attackAlreadyLaunched = tacticalArmies.some((army) =>
                 !army.isConvoy && army.toTerritoryId === target.id);
-            if (attackAlreadyLaunched) return true;
+            if (attackAlreadyLaunched) {
+                this.offensivePlans.delete(faction.id);
+                return null;
+            }
 
             const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (availableAtFront >= requiredUnits) {
-                if (tacticalArmies.length >= maximumArmies) return true;
+                if (tacticalArmies.length >= maximumArmies) return false;
                 const attackUnits = Math.min(
                     availableAtFront,
                     Math.max(requiredUnits, Math.floor(availableAtFront * 0.92))
@@ -1070,8 +1141,8 @@
             const incomingUnits = tacticalArmies
                 .filter((army) => army.finalTerritoryId === staging.id)
                 .reduce((sum, army) => sum + army.units, 0);
-            if (availableAtFront + incomingUnits >= requiredUnits) return true;
-            if (tacticalArmies.length >= maximumArmies) return true;
+            if (availableAtFront + incomingUnits >= requiredUnits) return false;
+            if (tacticalArmies.length >= maximumArmies) return false;
 
             const donors = this.rankOffensiveDonors(faction, owned, staging, plan.contributorIds);
             const donor = donors[0];
@@ -1113,7 +1184,7 @@
                         army.ownerId === faction.id && !army.isConvoy && army.toTerritoryId === target.id)) return;
 
                     const requiredUnits = this.getCoordinatedAttackRequirement(faction, target);
-                    const availableAtFront = Math.max(0, staging.units - profile.garrison);
+                    const availableAtFront = Math.max(0, staging.units - this.getDefensiveReserve(faction.id, staging, profile.garrison));
                     const donors = this.rankOffensiveDonors(faction, owned, staging).slice(0, 3);
                     const combinedUnits = availableAtFront + donors.reduce((sum, donor) => sum + donor.surplus, 0);
                     if (combinedUnits < requiredUnits) return;
@@ -1156,7 +1227,7 @@
                         !this.game.areAllied(neighbor.ownerId, faction.id) &&
                         !territory.isPathBlocked(neighbor.id));
                 const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3) + (territory.wonderId || territory.wonderConstruction ? 28 : 0);
-                const surplus = territory.units - reserve;
+                const surplus = territory.units - this.getDefensiveReserve(faction.id, territory, reserve);
                 if (surplus < 2) return null;
                 const preferred = preferredContributorIds.includes(territory.id) ? 12 : 0;
                 const score = surplus - (path.length - 1) * 4 - hostileNeighbors.length * 7 + preferred;
@@ -1172,7 +1243,7 @@
             return Math.ceil((defensePower / Math.max(attackMultiplier, 0.1)) * coordinationSafety) + 1;
         }
 
-        manageContinuousReinforcements(faction, owned) {
+        manageContinuousReinforcements(faction, owned, reservedSourceIds = new Set()) {
             if (owned.length < 3) return false;
             const state = this.game.state;
             const activeRoutes = state.reinforcementRoutes.filter((route) => route.active && route.ownerId === faction.id);
@@ -1199,6 +1270,7 @@
             const priorityTargets = targets.slice(0, priorityTargetCount);
             const priorityTargetIds = new Set(priorityTargets.map((entry) => entry.territory.id));
             const staleRoute = activeRoutes.find((route) =>
+                !reservedSourceIds.has(route.fromTerritoryId) &&
                 this.game.state.elapsedMs - route.createdAt >= 45000 && !priorityTargetIds.has(route.toTerritoryId));
             if (staleRoute) {
                 const source = state.getTerritory(staleRoute.fromTerritoryId);
@@ -1213,7 +1285,7 @@
             const targetUseCounts = new Map();
             activeRoutes.forEach((route) => targetUseCounts.set(route.toTerritoryId, (targetUseCounts.get(route.toTerritoryId) || 0) + 1));
             const candidates = [];
-            eligibleSources.filter((territory) => !usedSources.has(territory.id)).forEach((source) => {
+            eligibleSources.filter((territory) => !usedSources.has(territory.id) && !reservedSourceIds.has(territory.id)).forEach((source) => {
                 priorityTargets.forEach((targetEntry) => {
                     const target = targetEntry.territory;
                     if (source.id === target.id) return;
@@ -1279,7 +1351,7 @@
             const candidates = [];
 
             owned.forEach((source) => {
-                const available = source.units - profile.garrison;
+                const available = source.units - this.getDefensiveReserve(faction.id, source, profile.garrison);
                 if (available < 2) return;
 
                 source.neighbors.forEach((neighborId) => {
@@ -1306,7 +1378,7 @@
                     score += target.rareSite ? 18 : 0;
                     score += target.wonderId ? 95 : 0;
                     score += profile.preferredTerrains.includes(target.terrain) ? 5 : 0;
-                    score += target.neighbors.filter((id) => state.getTerritory(id).ownerId === faction.id).length * 1.5;
+                    score += target.neighbors.filter((id) => !target.isPathBlocked(id) && state.getTerritory(id).ownerId === faction.id).length * 1.5;
                     score += this.game.random() * 2.5;
 
                     const desired = Math.max(required, Math.round(available * profile.sendFraction));
@@ -1324,13 +1396,13 @@
             return candidates[0] || null;
         }
 
-        findBestReinforcement(faction, owned) {
+        findBestReinforcement(faction, owned, reservedSourceIds = new Set()) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
             const borderTerritories = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
-                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id));
+                    .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 return { territory, hostileNeighbors, hostileStrength };
             }).filter((entry) => entry.hostileNeighbors.length > 0);
@@ -1350,20 +1422,47 @@
                     .map((id) => state.getTerritory(id))
                     .filter((territory) => territory &&
                         territory.ownerId === faction.id &&
+                        !reservedSourceIds.has(territory.id) &&
                         !territory.isPathBlocked(target.id) &&
                         territory.units > profile.garrison + 3)
-                    .sort((a, b) => b.units - a.units);
+                    .map((territory) => ({
+                        territory,
+                        surplus: territory.units - this.getDefensiveReserve(faction.id, territory, profile.garrison)
+                    }))
+                    .filter((entry) => entry.surplus > 3)
+                    .sort((a, b) => b.surplus - a.surplus);
                 if (!sources.length) continue;
 
-                const source = sources[0];
-                const surplus = source.units - profile.garrison;
+                const { territory: source, surplus } = sources[0];
                 const units = Math.max(2, Math.floor(surplus * 0.48));
                 return { source, target, units };
             }
             return null;
         }
 
+        getDefensiveReserve(factionId, territory, minimumReserve = this.getProfile(factionId).garrison) {
+            // Incoming attacks are visible from our territory. Hostile convoys turn back;
+            // do not count them, distant destinations or anticipated friendly arrivals.
+            let incomingPower = 0;
+            this.game.state.armies.forEach((army) => {
+                if (army.isConvoy || army.toTerritoryId !== territory.id || army.units <= 0) return;
+                if (!army.isBarbarian && this.game.areAllied(army.ownerId, factionId)) return;
+                const attackMultiplier = army.isBarbarian
+                    ? C.BARBARIAN_FACTION.bonuses.attackMultiplier * C.BARBARIAN_FACTION.bonuses.combatMultiplier
+                    : this.game.getFactionAttackMultiplier(army.ownerId);
+                incomingPower += army.units * attackMultiplier;
+            });
+            if (incomingPower === 0) return minimumReserve;
+
+            // Combat rolls range from .88 to 1.12: 1.28 covers their ratio.
+            // Summing incoming forces also preserves a reserve for successive attacks.
+            const defense = Math.max(0.1, this.game.getDefenseMultiplier(territory));
+            return Math.max(minimumReserve, Math.ceil(incomingPower * 1.28 / defense) + 1);
+        }
+
         issueOrder(factionId, fromTerritoryId, toTerritoryId, units) {
+            const source = this.game.state.getTerritory(fromTerritoryId);
+            if (!source || source.units - units < this.getDefensiveReserve(factionId, source)) return false;
             const result = this.game.executeCommand({
                 type: "SEND_ARMY",
                 playerId: factionId,
@@ -1407,6 +1506,7 @@
                     (technology.branchId === "abilities" ? 10 : 0) +
                     (technology.id === "construction-railroad" ? 18 : 0) +
                     (technology.id === "construction-agriculture" ? 16 : 0) +
+                    (technology.id === "ability-blackout" ? 14 : 0) +
                     (technology.id === "attack-heavy-bomber" ? airportCount > 0 ? 24 + Math.min(airportCount, 3) * 6 : -16 : 0) +
                     (technology.effects?.unlockWonder === preferredWonder?.id ? 85 : technology.effects?.unlockWonder ? -12 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
@@ -1423,7 +1523,10 @@
         }
 
         getProfile(factionId) {
-            return PROFILES[factionId] || PROFILES[2];
+            const faction = this.game.state.getFaction(factionId);
+            // Runtime IDs identify lobby slots; definitionId identifies the chosen race.
+            const definitionId = faction?.definitionId ?? factionId;
+            return PROFILES[definitionId] || PROFILES[2];
         }
 
         randomBetween(min, max) {

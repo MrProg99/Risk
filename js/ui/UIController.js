@@ -63,6 +63,11 @@
                 abilityParatrooperStatus: byId("ability-paratrooper-status"),
                 abilityNuclear: byId("ability-nuclear"),
                 abilityNuclearStatus: byId("ability-nuclear-status"),
+                abilityBlackout: byId("ability-blackout"),
+                abilityBlackoutStatus: byId("ability-blackout-status"),
+                blackoutOverlay: byId("blackout-overlay"),
+                blackoutSource: byId("blackout-source"),
+                blackoutCountdown: byId("blackout-countdown"),
                 togglePause: byId("toggle-pause"),
                 pauseIcon: byId("pause-icon"),
                 pauseLabel: byId("pause-label"),
@@ -171,6 +176,7 @@
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
             this.elements.abilityParatrooper.addEventListener("click", () => this.toggleAbilityTargeting("paratrooper"));
             this.elements.abilityNuclear.addEventListener("click", () => this.toggleAbilityTargeting("nuclear"));
+            this.elements.abilityBlackout.addEventListener("click", () => this.toggleAbilityTargeting("blackout"));
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
             this.elements.modeResearch.addEventListener("click", () => this.setTerritoryMode("research"));
@@ -190,6 +196,17 @@
             document.addEventListener("keydown", (event) => {
                 this.handleGlobalKeydown(event);
             });
+            const repositionAttackPanel = () => {
+                if (this.elements.attackPanel.hidden || this.attackPanelPositionFrame) return;
+                this.attackPanelPositionFrame = requestAnimationFrame(() => {
+                    this.attackPanelPositionFrame = null;
+                    this.positionAttackPanel(this.game.state.getTerritory(this.targetTerritoryId));
+                });
+            };
+            window.addEventListener("scroll", repositionAttackPanel, { passive: true, capture: true });
+            window.addEventListener("resize", repositionAttackPanel, { passive: true });
+            window.visualViewport?.addEventListener("resize", repositionAttackPanel, { passive: true });
+            window.visualViewport?.addEventListener("scroll", repositionAttackPanel, { passive: true });
             document.addEventListener("pointerdown", (event) => {
                 if (this.elements.attackPanel.hidden || this.elements.attackPanel.contains(event.target) || event.target === this.input.canvas) return;
                 this.cancelAttackTarget();
@@ -246,6 +263,20 @@
             } else if (change.type === "AIRSTRIKE_RESOLVED") {
                 this.renderer.fireAirstrike?.(change.sourceTerritoryId, change.targetTerritoryId);
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#75baff");
+                this.refreshDynamic();
+            } else if (change.type === "BLACKOUT_STARTED") {
+                const player = this.game.state.getFaction(this.game.playerId);
+                const source = this.game.state.getFaction(change.factionId);
+                if (player?.teamId === Number(change.targetTeamId)) {
+                    this.clearSelection();
+                    this.showToast(`BLACKOUT : ${source?.name || "un adversaire"} coupe vos communications pendant ${Math.ceil((change.durationMs || 18000) / 1000)} secondes.`);
+                } else if (change.factionId === this.game.playerId) {
+                    this.showToast(`Blackout déclenché contre l’équipe ${change.targetTeamId}.`);
+                }
+                this.refreshDynamic();
+            } else if (change.type === "BLACKOUT_ENDED") {
+                const player = this.game.state.getFaction(this.game.playerId);
+                if (player?.teamId === Number(change.targetTeamId)) this.showToast("Communications rétablies. Les offensives sont de nouveau disponibles.");
                 this.refreshDynamic();
             } else if (change.type === "ABILITY_LAUNCHED") {
                 this.renderer.pulseTerritory(change.targetTerritoryId, "#b58cff");
@@ -949,6 +980,10 @@
                 return;
             }
             if ((faction.abilityCooldowns[abilityId] || 0) > 0) return;
+            if (abilityId !== "reinforcement" && this.game.isFactionBlackoutActive(this.game.playerId)) {
+                this.showToast("BLACKOUT : seules les opérations de renfort restent disponibles.");
+                return;
+            }
             const abilityStats = C.getFactionAbilityStats(faction, abilityId);
             this.targetingAbilityId = this.targetingAbilityId === abilityId ? null : abilityId;
             this.clearTerritorySelectionOnly();
@@ -959,6 +994,8 @@
                     ? `Choisissez un territoire ennemi visible pour larguer ${abilityStats.units} parachutistes.`
                 : abilityId === "nuclear"
                     ? "Choisissez une cible ennemie visible. Le souffle touchera aussi tous ses voisins."
+                : abilityId === "blackout"
+                    ? "Choisissez un territoire ennemi visible pour brouiller toute son équipe."
                     : "Cliquez sur un territoire ennemi visible.";
             this.showToast(this.targetingAbilityId ? targetingMessage : "Capacité annulée.");
         }
@@ -991,37 +1028,45 @@
         refreshAbilities() {
             const faction = this.game.state.getFaction(this.game.playerId);
             if (!faction) return;
-            ["missile", "reinforcement", "paratrooper", "nuclear"].forEach((abilityId) => {
+            ["missile", "reinforcement", "paratrooper", "nuclear", "blackout"].forEach((abilityId) => {
                 const definition = C.ABILITY_DEFINITIONS[abilityId];
-                const button = abilityId === "missile"
-                    ? this.elements.abilityMissile
-                    : abilityId === "reinforcement"
-                        ? this.elements.abilityReinforcement
-                        : abilityId === "paratrooper"
-                            ? this.elements.abilityParatrooper
-                            : this.elements.abilityNuclear;
-                const status = abilityId === "missile"
-                    ? this.elements.abilityMissileStatus
-                    : abilityId === "reinforcement"
-                        ? this.elements.abilityReinforcementStatus
-                        : abilityId === "paratrooper"
-                            ? this.elements.abilityParatrooperStatus
-                            : this.elements.abilityNuclearStatus;
+                const controls = {
+                    missile: [this.elements.abilityMissile, this.elements.abilityMissileStatus],
+                    reinforcement: [this.elements.abilityReinforcement, this.elements.abilityReinforcementStatus],
+                    paratrooper: [this.elements.abilityParatrooper, this.elements.abilityParatrooperStatus],
+                    nuclear: [this.elements.abilityNuclear, this.elements.abilityNuclearStatus],
+                    blackout: [this.elements.abilityBlackout, this.elements.abilityBlackoutStatus]
+                }[abilityId];
+                const [button, status] = controls;
                 const unlocked = faction.research.completedTechnologyIds.includes(definition.technologyId);
                 const abilityLevel = C.getFactionAbilityLevel(faction, abilityId);
                 const cooldown = Math.max(0, faction.abilityCooldowns?.[abilityId] || 0);
-                const ready = unlocked && cooldown <= 0;
+                const offensiveBlocked = abilityId !== "reinforcement" && this.game.isFactionBlackoutActive(faction.id);
+                const ready = unlocked && cooldown <= 0 && !offensiveBlocked;
                 button.disabled = !ready;
                 button.classList.toggle("ready", ready);
                 button.classList.toggle("armed", this.targetingAbilityId === abilityId);
                 status.textContent = !unlocked
                     ? "Verrouillé"
+                    : offensiveBlocked
+                        ? "Brouillé"
                     : cooldown > 0
                         ? `${this.formatDuration(cooldown)} · Niv. ${abilityLevel}`
                         : this.targetingAbilityId === abilityId
                             ? `Cible ? · Niv. ${abilityLevel}`
                             : `Prêt · Niv. ${abilityLevel}`;
             });
+        }
+
+        refreshBlackoutStatus() {
+            const blackout = this.game.getFactionBlackoutState(this.game.playerId);
+            const active = (blackout?.activeRemainingMs || 0) > 0;
+            this.elements.blackoutOverlay.hidden = !active;
+            document.body.classList.toggle("blackout-active", active);
+            if (!active) return;
+            const source = this.game.state.getFaction(blackout.sourceFactionId);
+            this.elements.blackoutSource.textContent = source ? `Brouillage de ${source.name}` : "Brouillage ennemi";
+            this.elements.blackoutCountdown.textContent = `${Math.ceil(blackout.activeRemainingMs / 1000)} S`;
         }
 
         syncSelection() {
@@ -1703,22 +1748,51 @@
             const anchor = this.renderer.worldToScreen(target.center.x, target.center.y);
             const padding = 12;
             const gap = 32;
+            const rect = container.getBoundingClientRect();
+            const originX = rect.left + container.clientLeft;
+            const originY = rect.top + container.clientTop;
+            const viewport = window.visualViewport;
+            const viewportLeft = viewport?.offsetLeft || 0;
+            const viewportTop = viewport?.offsetTop || 0;
+            const viewportRight = viewportLeft + (viewport?.width || window.innerWidth);
+            const viewportBottom = viewportTop + (viewport?.height || window.innerHeight);
+            const visibleLeft = Math.max(originX, viewportLeft);
+            const visibleRight = Math.min(originX + container.clientWidth, viewportRight);
+            let visibleTop = Math.max(originY, viewportTop);
+            const visibleBottom = Math.min(originY + container.clientHeight, viewportBottom);
+            const topbar = document.querySelector(".topbar")?.getBoundingClientRect();
+            if (topbar && topbar.right > visibleLeft && topbar.left < visibleRight &&
+                topbar.top < visibleBottom && topbar.bottom > visibleTop) {
+                visibleTop = topbar.bottom;
+            }
+            const availableWidth = visibleRight - visibleLeft - padding * 2;
+            const availableHeight = visibleBottom - visibleTop - padding * 2;
+            if (availableWidth <= 0 || availableHeight <= 0) {
+                panel.style.visibility = "hidden";
+                return;
+            }
+            panel.style.visibility = "";
+            // Measure after constraining the panel: a small viewport needs internal scrolling.
+            panel.style.maxWidth = `${availableWidth}px`;
+            panel.style.maxHeight = `${availableHeight}px`;
             const panelWidth = panel.offsetWidth || 310;
             const panelHeight = panel.offsetHeight || 210;
-            const containerWidth = Math.max(1, container.clientWidth);
-            const containerHeight = Math.max(1, container.clientHeight);
-            let left = anchor.x + gap;
+            const minimumLeft = visibleLeft - originX + padding;
+            const minimumTop = visibleTop - originY + padding;
+            const maximumLeft = Math.max(minimumLeft, visibleRight - originX - panelWidth - padding);
+            const maximumTop = Math.max(minimumTop, visibleBottom - originY - panelHeight - padding);
+            const anchorX = anchor.clientX - originX;
+            const anchorY = anchor.clientY - originY;
+            let left = anchorX + gap;
             let placement = "right";
 
-            if (left + panelWidth + padding > containerWidth) {
-                left = anchor.x - panelWidth - gap;
+            if (left > maximumLeft) {
+                left = anchorX - panelWidth - gap;
                 placement = "left";
             }
 
-            const maximumLeft = Math.max(padding, containerWidth - panelWidth - padding);
-            const maximumTop = Math.max(padding, containerHeight - panelHeight - padding);
-            panel.style.left = `${Math.round(C.Geometry.clamp(left, padding, maximumLeft))}px`;
-            panel.style.top = `${Math.round(C.Geometry.clamp(anchor.y - panelHeight / 2, padding, maximumTop))}px`;
+            panel.style.left = `${Math.round(C.Geometry.clamp(left, minimumLeft, maximumLeft))}px`;
+            panel.style.top = `${Math.round(C.Geometry.clamp(anchorY - panelHeight / 2, minimumTop, maximumTop))}px`;
             panel.dataset.placement = placement;
         }
 
@@ -1817,6 +1891,7 @@
             this.elements.productionRate.textContent = `+${this.formatNumber(stats.productionPerMinute)}/min`;
             this.refreshResearchStatus();
             this.refreshAbilities();
+            this.refreshBlackoutStatus();
             this.renderZoomLevel();
             if (this.selectedTerritoryId) this.renderTerritoryPanel();
         }

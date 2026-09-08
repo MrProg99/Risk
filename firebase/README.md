@@ -39,7 +39,11 @@ Le niveau choisi pour l’équipe adverse IA est conservé dans `meta.aiDifficul
 
 Les merveilles utilisent la commande ordinaire `BUILD_WONDER` et les champs dynamiques déjà permis dans `snapshot` (chantier, progression, constructeur, propriétaire, actions automatiques et délai de réactivation). Les tirs de la Grosse Bertha y sont inclus afin que chaque client joue une seule fois leur animation. Leur ajout ne change donc ni la structure du salon ni les autorisations : aucune nouvelle publication des règles Firebase n’est requise.
 
+La capacité **Blackout** utilise la commande ordinaire `USE_ABILITY`. L’hôte valide la cible et publie dans `snapshot` l’équipe brouillée, la durée active, l’immunité restante et la recharge du lanceur. Le nœud `snapshot` accepte déjà cet état dynamique sans validation de champs supplémentaires : aucune modification ni republication des règles Firebase n’est nécessaire.
+
 ## Modèle de données
+
+Les signaux entre humains utilisent `SEND_TEAM_SIGNAL`, avec `playerId`, `signalType` (`attack`, `defend`, `reinforce`) et `targetTerritoryId`. Comme pour les autres commandes, l’hôte remplace l’identité déclarée par le créneau lié à l’utilisateur Firebase authentifié, puis valide cible, équipe, vision et délai. Les champs `teamSignals`, `lastTeamSignalAtMs` et `nextTeamSignalId` voyagent dans l’instantané partagé; chaque client filtre leur affichage selon son équipe et sa vision. Ils n’ajoutent aucune entrée au journal global. Les règles actuelles des commandes et des instantanés les acceptent : aucune republication des règles Firebase n’est nécessaire.
 
 Chaque partie est stockée sous `frontieres/rooms/{CODE}`. L’hôte est le seul navigateur qui fait avancer la simulation et écrit `snapshot`. Chaque joueur ne peut modifier que son profil, réserver son créneau et écrire ses commandes. Une commande reçue est revalidée par le moteur de l’hôte avant d’être exécutée.
 

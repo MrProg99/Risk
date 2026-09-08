@@ -6,6 +6,8 @@
             this.canvas = canvas;
             this.renderer = renderer;
             this.clickListeners = new Set();
+            this.teamSignalListeners = new Set();
+            this.signalMode = false;
             this.rightClickListeners = new Set();
             this.quickTransferListeners = new Set();
             this.continuousTransferListeners = new Set();
@@ -94,6 +96,7 @@
                     lastX: event.clientX,
                     lastY: event.clientY,
                     moved: false,
+                    isSignal: this.signalMode,
                     pointerId: event.pointerId
                 };
                 this.capturePointer(event.pointerId);
@@ -119,11 +122,16 @@
                 if (event.button !== 0) return;
                 if (!this.lastPointerDown) return;
                 const moved = this.lastPointerDown.moved;
+                const isSignal = this.lastPointerDown.isSignal;
                 this.lastPointerDown = null;
                 this.releasePointer(event.pointerId);
                 this.canvas.style.cursor = "grab";
                 if (moved) return;
                 const territory = this.renderer.getTerritoryAt(event.clientX, event.clientY);
+                if (isSignal) {
+                    this.teamSignalListeners.forEach((listener) => listener(territory, event));
+                    return;
+                }
                 this.clickListeners.forEach((listener) => listener(territory, event));
             });
 
@@ -174,6 +182,11 @@
         onTerritoryClick(listener) {
             this.clickListeners.add(listener);
             return () => this.clickListeners.delete(listener);
+        }
+
+        onTeamSignal(listener) {
+            this.teamSignalListeners.add(listener);
+            return () => this.teamSignalListeners.delete(listener);
         }
 
         onTerritoryRightClick(listener) {

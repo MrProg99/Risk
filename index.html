@@ -232,6 +232,9 @@
                     <button class="ability-button nuclear" id="ability-nuclear" type="button" title="Bombe nucléaire">
                         <span>☢</span><span>Nucléaire<small id="ability-nuclear-status">Verrouillé</small></span>
                     </button>
+                    <button class="ability-button blackout" id="ability-blackout" type="button" title="Brouillage électronique d’une équipe ennemie">
+                        <span>▦</span><span>Blackout<small id="ability-blackout-status">Verrouillé</small></span>
+                    </button>
                 </div>
                 <button class="button button-secondary research-button" id="open-research" type="button">
                     <span class="button-icon">⌬</span>
@@ -250,6 +253,14 @@
         <main class="game-layout">
             <section class="map-card" aria-label="Carte stratégique">
                 <canvas id="game-canvas" aria-label="Carte des territoires générée aléatoirement"></canvas>
+
+                <div class="blackout-overlay" id="blackout-overlay" hidden aria-live="assertive">
+                    <div class="blackout-alert">
+                        <span>COMMUNICATIONS INTERROMPUES</span>
+                        <strong>BLACKOUT</strong>
+                        <small><span id="blackout-source">Brouillage ennemi</span> · <b id="blackout-countdown">18 S</b></small>
+                    </div>
+                </div>
 
                 <section class="attack-panel attack-popup" id="attack-panel" hidden role="dialog" aria-modal="false" aria-labelledby="attack-popup-title">
                     <header class="attack-popup-header">
@@ -481,14 +492,17 @@
     <script defer src="js/game/CombatSystem.js"></script>
     <script defer src="js/game/EventSystem.js"></script>
     <script defer src="js/game/AISystem.js"></script>
+    <script defer src="js/game/TeamSignalSystem.js"></script>
     <script defer src="js/game/Game.js"></script>
     <script defer src="js/audio/AudioManager.js"></script>
+    <script defer src="js/render/TeamSignalRenderer.js"></script>
     <script defer src="js/render/MapRenderer.js"></script>
     <script defer src="js/render/MiniMapRenderer.js"></script>
     <script defer src="js/input/InputManager.js"></script>
     <script defer src="js/ui/LobbyController.js"></script>
     <script defer src="js/network/FirebaseMultiplayer.js"></script>
     <script defer src="js/ui/UIController.js"></script>
+    <script defer src="js/ui/TeamSignalController.js"></script>
     <script defer src="js/main.js"></script>
 </body>
 </html>

@@ -369,6 +369,39 @@
         };
         const multiplayerSetups = C.FirebaseMultiplayer.buildFactionSetups(multiplayerRoom);
         check(multiplayerSetups[0].definitionId === multiplayerSetups[1].definitionId && multiplayerSetups[0].color !== multiplayerSetups[1].color, "deux joueurs peuvent choisir la même race tout en conservant des couleurs distinctes");
+        {
+        const tacticalRaceIds = [4, 3, 2, 1, 3, 4];
+        const tacticalRoom = { players: Object.fromEntries(tacticalRaceIds.map((raceId, index) => [
+            `tactical-${index}`, { uid: `tactical-${index}`, name: `IA ${index + 1}`, raceId, teamId: index + 1,
+                slot: index + 1, isAI: true, color: ["#f0b84d", "#43cde0", "#ef655f", "#8d78e8", "#83ce51", "#f080bc"][index] }
+        ])) };
+        const tacticalSetups = C.FirebaseMultiplayer.buildFactionSetups(tacticalRoom);
+        const tacticalGame = new C.Game({ playerId: 1, factionSetups: tacticalSetups, aiFactionIds: [1, 2, 3, 4, 5, 6], enableAI: false, enableWorldEvents: false });
+        tacticalGame.newGame(434343);
+        check(tacticalGame.state.factions.map((faction) => tacticalGame.aiSystem.getProfile(faction.id).name).join(",") === "mobile,agressif,analytique,militaire,agressif,mobile", "les six places du lobby utilisent le profil tactique de leur race, y compris au-delà de la quatrième place");
+        check(tacticalGame.aiSystem.getProfile(2) === tacticalGame.aiSystem.getProfile(5) && tacticalGame.state.getFaction(2).color !== tacticalGame.state.getFaction(5).color, "deux Hordes de couleurs et de places différentes partagent le même profil agressif");
+        tacticalGame.random = () => 0.5;
+        tacticalGame.aiSystem.enabled = true;
+        tacticalGame.aiSystem.factionIds.forEach((id) => tacticalGame.aiSystem.thinkTimers.set(id, 0));
+        tacticalGame.aiSystem.update(1);
+        check([1, 2, 3, 4, 5, 6].map((id) => tacticalGame.aiSystem.thinkTimers.get(id)).join(",") === "3200,2750,3850,3200,2750,3200", "la cadence réelle des décisions suit la race choisie plutôt que le numéro du joueur");
+        const tacticalOrders = tacticalGame.state.factions.map((faction) => {
+            const source = new C.Territory({ id: 1, name: "Origine", terrain: "plain", polygon: [], center: { x: 0, y: 0 } });
+            const target = new C.Territory({ id: 2, name: "Cible", terrain: "plain", polygon: [], center: { x: 100, y: 0 } });
+            source.ownerId = faction.id;
+            source.units = 100;
+            source.neighbors = [2];
+            target.units = 10;
+            target.neighbors = [1];
+            tacticalGame.state.territories = [source, target];
+            tacticalGame.state.armies = [];
+            return tacticalGame.aiSystem.findBestAttack(faction, [source])?.units;
+        });
+        check(tacticalOrders.join(",") === "65,74,59,67,74,65", "à situation identique, les soldats envoyés suivent les réserves et l’agressivité de la race sélectionnée");
+        const soloProfiles = new C.Game({ enableAI: false, enableWorldEvents: false });
+        soloProfiles.state.factions = C.FACTION_DEFINITIONS.map((definition) => new C.Faction(definition));
+        check(soloProfiles.state.factions.map((faction) => soloProfiles.aiSystem.getProfile(faction.id).name).join(",") === "militaire,analytique,agressif,mobile", "les profils des quatre factions classiques restent identiques en solo");
+        }
         check(/règles Frontières/.test(C.FirebaseMultiplayer.formatError({ code: "PERMISSION_DENIED" })), "le lobby explique clairement un refus des regles Firebase");
         check(/réservation de votre place/.test(C.FirebaseMultiplayer.formatError({ code: "PERMISSION_DENIED", frontieresOperation: "la réservation de votre place" })), "un refus Firebase indique précisément l’étape de connexion bloquée");
         check(C.FirebaseMultiplayer.claimEmptySlot(null, "guest") === "guest" && C.FirebaseMultiplayer.claimEmptySlot("host", "guest") === undefined, "la réservation Firebase ignore un créneau occupé au lieu de provoquer un refus de permission");
@@ -940,12 +973,13 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 28, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 29, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
         check(Object.keys(C.WONDER_TYPES).length === 5 && Object.values(C.WONDER_TYPES).every((definition) => definition.constructionDurationMs === 180000), "cinq merveilles de trois minutes sont définies dans un catalogue extensible");
         const bigBerthaDefinition = C.WONDER_TYPES["big-bertha"];
         check(bigBerthaDefinition.siteEffects.fireIntervalMs === 15000 && bigBerthaDefinition.siteEffects.rangeHops === 3 && bigBerthaDefinition.siteEffects.hitChance === 0.75 && bigBerthaDefinition.siteEffects.maximumDamage === 18, "la Grosse Bertha possède sa cadence, sa portée, sa précision et son plafond de dégâts");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "attack").technologyIds.includes("wonder-big-bertha") && C.TECHNOLOGIES["wonder-big-bertha"].prerequisiteId === "attack-4", "l’Artillerie super-lourde offre la Grosse Bertha comme choix final de l’axe Attaque");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "attack").technologyIds.includes("attack-heavy-bomber") && C.TECHNOLOGIES["attack-heavy-bomber"].prerequisiteId === "attack-3", "Bombardier lourd apparaît au quatrième palier de l’axe Attaque");
+        check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "abilities").technologyIds.includes("ability-blackout") && C.ABILITY_DEFINITIONS.blackout.durationMs === 18000 && C.ABILITY_DEFINITIONS.blackout.immunityMs === 60000, "Blackout apparaît dans les Capacités avec 18 secondes d’effet et 60 secondes d’immunité");
         check(new C.Game({ enableAI: false, enableWorldEvents: false }).wonderCaptureActivationDelayMs === 20000, "une merveille capturée attend 20 secondes avant de changer de camp opérationnel");
 
         const wonderGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1, wonderCaptureActivationDelayMs: 2000 });
@@ -1284,6 +1318,107 @@
         check(abilitySnapshot.armies.some((army) => army.logisticsPurpose === "paratrooper"), "le largage en cours est inclus dans l’instantané Firebase");
         for (let tick = 0; tick < 7; tick += 1) researchGame.update(1000);
         check(abilityTarget.ownerId === 1 && abilityTarget.units > 0 && !researchGame.state.armies.some((army) => army.logisticsPurpose === "paratrooper"), "les parachutistes combattent à l’arrivée et capturent une cible insuffisamment défendue");
+
+        const blackoutGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        blackoutGame.newGame(868686);
+        const blackoutCaster = blackoutGame.state.getFaction(1);
+        const blackoutVictim = blackoutGame.state.getFaction(2);
+        const blackoutVictimAlly = blackoutGame.state.getFaction(3);
+        blackoutVictimAlly.teamId = blackoutVictim.teamId;
+        blackoutCaster.research.completedTechnologyIds.push("ability-blackout");
+        blackoutVictim.research.completedTechnologyIds.push("ability-missile");
+        const blackoutSource = blackoutGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((territoryId) => {
+            const neighbor = blackoutGame.state.getTerritory(territoryId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+        }));
+        const blackoutEnemy = blackoutSource.neighbors
+            .map((territoryId) => blackoutGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !blackoutSource.isPathBlocked(territory.id));
+        blackoutSource.ownerId = 2;
+        blackoutSource.units = 40;
+        blackoutEnemy.ownerId = 1;
+        blackoutEnemy.units = 12;
+        const blackoutLaunch = blackoutGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "blackout", targetTerritoryId: blackoutSource.id });
+        check(blackoutLaunch.ok && blackoutGame.isFactionBlackoutActive(2) && blackoutGame.isFactionBlackoutActive(3), "Blackout brouille immédiatement toute l’équipe ennemie");
+        const victimVisibility = blackoutGame.getTerritoryVisibilityMap(2);
+        check(victimVisibility.has(blackoutSource.id) && !victimVisibility.has(blackoutEnemy.id), "l’équipe brouillée conserve ses territoires mais perd la vision des territoires ennemis");
+        const blockedAttack = blackoutGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: blackoutSource.id, toTerritoryId: blackoutEnemy.id, units: 5 });
+        const blockedMissile = blackoutGame.executeCommand({ type: "USE_ABILITY", playerId: 2, abilityId: "missile", targetTerritoryId: blackoutEnemy.id });
+        check(!blockedAttack.ok && !blockedMissile.ok, "une équipe sous Blackout ne peut lancer ni offensive terrestre ni capacité offensive");
+        blackoutGame.state.territories.forEach((territory) => {
+            territory.installation = null;
+            if (territory.id !== blackoutSource.id && territory.terrain === "airport") territory.airstrikeCooldownMs = 100000;
+        });
+        blackoutSource.terrain = "airport";
+        blackoutSource.airstrikeCooldownMs = 1;
+        blackoutSource.installation = { type: "cannon", name: "Canon", icon: "✹" };
+        blackoutSource.installationProgressMs = C.INSTALLATION_TYPES.cannon.fireIntervalMs;
+        blackoutSource.wonderId = "big-bertha";
+        blackoutSource.wonderActivationRemainingMs = 0;
+        blackoutSource.wonderActionProgressMs = C.WONDER_TYPES["big-bertha"].siteEffects.fireIntervalMs;
+        blackoutEnemy.units = 100;
+        blackoutGame.random = () => 0;
+        blackoutGame.updateAirports(1000);
+        blackoutGame.updateInstallations(1000);
+        blackoutGame.updateWonderWeapons(1000);
+        check(blackoutEnemy.units === 100, "les aéroports, canons et Grosses Bertha suspendent leurs tirs pendant le Blackout");
+        blackoutEnemy.ownerId = 2;
+        const allowedReinforcement = blackoutGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: blackoutSource.id, toTerritoryId: blackoutEnemy.id, units: 5 });
+        check(allowedReinforcement.ok, "les transferts de renforts alliés restent disponibles pendant un Blackout");
+        const blackoutSnapshot = blackoutGame.createNetworkSnapshot();
+        const remoteBlackoutGame = new C.Game({ playerId: 2, activeFactionIds: [1, 2, 3], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteBlackoutGame.newGame(868686);
+        let remoteBlackoutStarts = 0;
+        remoteBlackoutGame.subscribe((change) => {
+            if (change.type === "BLACKOUT_STARTED") remoteBlackoutStarts += 1;
+        });
+        remoteBlackoutGame.applyNetworkSnapshot(blackoutSnapshot);
+        remoteBlackoutGame.applyNetworkSnapshot(blackoutSnapshot);
+        check(remoteBlackoutGame.isFactionBlackoutActive(2) && remoteBlackoutGame.state.getFaction(1).abilityCooldowns.blackout > 0 && remoteBlackoutStarts === 1, "le Blackout et sa recharge sont inclus une seule fois dans l’instantané Firebase");
+        for (let tick = 0; tick < 18; tick += 1) blackoutGame.update(1000);
+        check(!blackoutGame.isFactionBlackoutActive(2) && blackoutGame.getTeamBlackoutImmunityRemainingMs(blackoutVictim.teamId) === 60000, "les communications reviennent après 18 secondes avec 60 secondes d’immunité");
+        blackoutCaster.abilityCooldowns.blackout = 0;
+        const immuneBlackout = blackoutGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "blackout", targetTerritoryId: blackoutSource.id });
+        check(!immuneBlackout.ok, "l’immunité empêche une équipe de subir des Blackouts en chaîne");
+        for (let tick = 0; tick < 60; tick += 1) blackoutGame.update(1000);
+        check(!blackoutGame.getTeamBlackoutState(blackoutVictim.teamId), "l’immunité au Blackout expire proprement après sa minute de protection");
+
+        const blackoutMovementGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        blackoutMovementGame.newGame(878787);
+        const movingSource = blackoutMovementGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((territoryId) => {
+            const neighbor = blackoutMovementGame.state.getTerritory(territoryId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+        }));
+        const movingTarget = movingSource.neighbors.map((territoryId) => blackoutMovementGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !movingSource.isPathBlocked(territory.id));
+        movingSource.ownerId = 2;
+        movingSource.units = 60;
+        movingTarget.ownerId = 1;
+        movingTarget.units = 1;
+        blackoutMovementGame.state.getFaction(1).research.completedTechnologyIds.push("ability-blackout");
+        const movingAttack = blackoutMovementGame.executeCommand({ type: "SEND_ARMY", playerId: 2, fromTerritoryId: movingSource.id, toTerritoryId: movingTarget.id, units: 30 });
+        blackoutMovementGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "blackout", targetTerritoryId: movingSource.id });
+        for (let tick = 0; tick < 10; tick += 1) blackoutMovementGame.update(1000);
+        check(movingAttack.ok && movingTarget.ownerId === 2, "une armée déjà partie poursuit son attaque malgré le Blackout de son équipe");
+
+        const blackoutAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        blackoutAiGame.newGame(888888);
+        const blackoutAiFaction = blackoutAiGame.state.getFaction(2);
+        blackoutAiFaction.research.completedTechnologyIds.push("ability-missile");
+        check(blackoutAiGame.aiSystem.chooseResearch(blackoutAiFaction) && blackoutAiFaction.research.activeTechnologyId === "ability-blackout", "l’IA sait prioriser la recherche Blackout après le Missile tactique");
+        blackoutAiFaction.research.activeTechnologyId = null;
+        blackoutAiFaction.research.completedTechnologyIds.push("ability-blackout");
+        const blackoutAiSource = blackoutAiGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((territoryId) => {
+            const neighbor = blackoutAiGame.state.getTerritory(territoryId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+        }));
+        const blackoutAiTarget = blackoutAiSource.neighbors.map((territoryId) => blackoutAiGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !blackoutAiSource.isPathBlocked(territory.id));
+        blackoutAiSource.ownerId = 2;
+        blackoutAiSource.units = 90;
+        blackoutAiTarget.ownerId = 1;
+        blackoutAiTarget.units = 20;
+        check(blackoutAiGame.aiSystem.considerAbilities(blackoutAiFaction, blackoutAiGame.state.getTerritoriesOwnedBy(2)) && blackoutAiGame.isFactionBlackoutActive(1), "l’IA déclenche Blackout lorsqu’une offensive contre une équipe ennemie est prête");
 
         const upgradedAbilityGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
         upgradedAbilityGame.newGame(818182);
@@ -1658,6 +1793,143 @@
         check(Boolean(decisiveDecision && decisiveArmy && decisiveArmy.units >= 68), "une garnison de 93 attaque immediatement une cible ennemie de 51 malgre un autre plan offensif actif");
         check(decisiveGame.aiSystem.decisiveAttacksLaunched === 1, "l'attaque locale decisive passe avant la nourriture, les capacites et la logistique");
 
+        // Reproduce a departure from a garrison of 200 while 180 enemies approach.
+        function createIncomingThreatScenario() {
+            const game = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+            game.random = () => 0.5;
+            game.state.factions = C.FACTION_DEFINITIONS.slice(0, 2).map((definition) => new C.Faction(definition));
+            game.state.elapsedMs = 120000;
+            game.state.territories = [[1, 2, 200], [2, 1, 10], [3, 1, 1], [4, 2, 50], [5, 2, 10], [6, 2, 10]]
+                .map(([id, ownerId, units]) => {
+                    const territory = new C.Territory({ id, name: `Défense ${id}`, terrain: "plain", polygon: [], center: { x: id * 100, y: 100 } });
+                    territory.ownerId = ownerId;
+                    territory.units = units;
+                    return territory;
+                });
+            [[1, 2], [1, 3], [1, 4], [4, 5], [5, 6]].forEach(([first, second]) => {
+                game.state.getTerritory(first).neighbors.push(second);
+                game.state.getTerritory(second).neighbors.push(first);
+            });
+            const incoming = new C.Army({ id: 1, ownerId: 1, fromTerritoryId: 3, toTerritoryId: 1, units: 180,
+                durationMs: 1000, start: { x: 300, y: 100 }, end: { x: 100, y: 100 } });
+            game.state.armies.push(incoming);
+            game.state.nextArmyId = 2;
+            return { game, incoming, source: game.state.getTerritory(1), faction: game.state.getFaction(2) };
+        }
+        const threatened = createIncomingThreatScenario();
+        const threatenedOwned = threatened.game.state.getTerritoriesOwnedBy(2);
+        threatened.game.aiSystem.think(2);
+        check(threatened.source.units === 200 && !threatened.game.state.armies.some((army) => army.ownerId === 2 && army.fromTerritoryId === 1), "l’IA conserve ses 200 défenseurs quand 180 ennemis approchent, malgré une cible facile à côté");
+        check(!threatened.game.aiSystem.issueOrder(2, 1, 4, 10), "une ville menacée ne donne pas sa réserve défensive à un autre territoire");
+        check(!threatened.game.aiSystem.rankOffensiveDonors(threatened.faction, threatenedOwned, threatened.game.state.getTerritory(4)).some((entry) => entry.territory.id === 1), "un rassemblement offensif ne prélève pas les soldats nécessaires à une défense imminente");
+        threatened.game.state.getTerritory(2).ownerId = null;
+        check(!threatened.game.aiSystem.launchOpportunisticNeutralExpansion(threatened.faction, threatenedOwned), "la conquête d’un territoire neutre respecte aussi la réserve contre les armées entrantes");
+        threatened.game.state.getTerritory(2).ownerId = 1;
+        threatened.game.state.armies = [];
+        check(threatened.game.aiSystem.launchDecisiveAttack(threatened.faction, threatenedOwned), "l’IA peut immédiatement repartir à l’attaque quand la menace entrante disparaît");
+
+        const surplusDefense = createIncomingThreatScenario();
+        surplusDefense.source.units = 600;
+        const requiredDefense = surplusDefense.game.aiSystem.getDefensiveReserve(2, surplusDefense.source);
+        check(surplusDefense.game.aiSystem.launchDecisiveAttack(surplusDefense.faction, surplusDefense.game.state.getTerritoriesOwnedBy(2)) && surplusDefense.source.units >= requiredDefense, "une grande garnison attaque avec son surplus tout en conservant la défense nécessaire");
+        surplusDefense.game.resolveArmyArrival(surplusDefense.incoming);
+        check(surplusDefense.source.ownerId === 2 && surplusDefense.source.units > 0, "la réserve conservée repousse réellement l’armée ennemie à son arrivée");
+
+        const reserveRules = createIncomingThreatScenario();
+        const plainReserve = reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source);
+        reserveRules.source.terrain = "fortress";
+        reserveRules.source.isCapital = true;
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) < plainReserve, "les bonus de forteresse et de capitale réduisent le nombre de défenseurs à conserver");
+        reserveRules.source.terrain = "plain";
+        reserveRules.source.isCapital = false;
+        reserveRules.game.state.armies.push(new C.Army({ ...reserveRules.incoming.toJSON(), id: 2, units: 90 }));
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) > plainReserve, "plusieurs armées entrantes cumulent leur menace dans la réserve défensive");
+        reserveRules.game.state.getFaction(1).teamId = reserveRules.faction.teamId;
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) === 5, "les convois d’un équipier ne sont pas pris pour une attaque");
+        reserveRules.game.state.getFaction(1).teamId = 1;
+        reserveRules.game.state.armies = [reserveRules.incoming];
+        reserveRules.incoming.toTerritoryId = 2;
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) === 5, "une destination finale lointaine ne crée pas une fausse menace sur le segment actuel");
+        reserveRules.incoming.toTerritoryId = 1;
+        reserveRules.incoming.isConvoy = true;
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) === 5, "un convoi ennemi qui doit faire demi-tour ne bloque pas les sorties de l’IA");
+        reserveRules.incoming.isConvoy = false;
+        reserveRules.incoming.isBarbarian = true;
+        const barbarianReserve = Math.ceil(180 * C.BARBARIAN_FACTION.bonuses.attackMultiplier * C.BARBARIAN_FACTION.bonuses.combatMultiplier * 1.28 / reserveRules.game.getDefenseMultiplier(reserveRules.source)) + 1;
+        check(reserveRules.game.aiSystem.getDefensiveReserve(2, reserveRules.source) === barbarianReserve, "les attaques barbares sont aussi prises en compte avec leur puissance propre");
+
+        const stagingDefense = createIncomingThreatScenario();
+        stagingDefense.game.aiSystem.offensivePlans.set(2, { stagingTerritoryId: 1, targetTerritoryId: 2, contributorIds: [4], expiresAt: 210000 });
+        stagingDefense.game.aiSystem.advanceOffensivePlan(stagingDefense.faction, stagingDefense.game.state.getTerritoriesOwnedBy(2));
+        check(!stagingDefense.game.state.armies.some((army) => army.ownerId === 2 && army.fromTerritoryId === 1), "un plan offensif déjà préparé ne vide pas son point de rassemblement attaqué");
+
+        function createMountainThreatScenario() {
+            const game = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+            game.random = () => 0.5;
+            game.state.factions = C.FACTION_DEFINITIONS.slice(0, 2).map((definition) => new C.Faction(definition));
+            game.state.elapsedMs = 120000;
+            game.state.territories = [[1, 2, 10], [2, 2, 100], [3, 1, 300], [4, 2, 10], [5, 1, 80], [6, 2, 1]]
+                .map(([id, ownerId, units]) => {
+                    const territory = new C.Territory({ id, name: `Montagne ${id}`, terrain: "plain", polygon: [], center: { x: id * 100, y: 100 } });
+                    territory.ownerId = ownerId;
+                    territory.units = units;
+                    return territory;
+                });
+            [[1, 2], [1, 3], [2, 4], [4, 5], [2, 6]].forEach(([first, second]) => {
+                game.state.getTerritory(first).neighbors.push(second);
+                game.state.getTerritory(second).neighbors.push(first);
+            });
+            game.state.getTerritory(1).blockedNeighbors = [3];
+            game.state.getTerritory(3).blockedNeighbors = [1];
+            game.state.getTerritory(2).isCapital = true;
+            game.state.getFaction(2).capitalTerritoryId = 2;
+            return game;
+        }
+        const mountainThreatGame = createMountainThreatScenario();
+        const mountainAi = mountainThreatGame.aiSystem;
+        const mountainFaction = mountainThreatGame.state.getFaction(2);
+        mountainThreatGame.state.getTerritory(5).ownerId = 2;
+        const mountainOwned = mountainThreatGame.state.getTerritoriesOwnedBy(2);
+        check(mountainAi.findBestReinforcement(mountainFaction, mountainOwned) === null, "300 ennemis derrière une montagne n’attirent aucun renfort terrestre");
+        mountainFaction.research.completedTechnologyIds.push(C.ABILITY_DEFINITIONS.reinforcement.technologyId);
+        check(!mountainAi.considerAbilities(mountainFaction, mountainOwned) && mountainFaction.abilityCooldowns.reinforcement === 0, "l’IA ne gaspille pas sa mobilisation face à une frontière infranchissable");
+        mountainThreatGame.state.getTerritory(3).ownerId = null;
+        check(mountainAi.findBestReinforcement(mountainFaction, mountainOwned) === null, "un territoire neutre derrière une montagne ne crée pas non plus de faux front");
+        mountainThreatGame.state.getTerritory(3).ownerId = 1;
+        mountainThreatGame.state.getTerritory(5).ownerId = 1;
+        const actualFrontOwned = mountainThreatGame.state.getTerritoriesOwnedBy(2);
+        const actualFrontReinforcement = mountainAi.findBestReinforcement(mountainFaction, actualFrontOwned);
+        check(actualFrontReinforcement?.source.id === 2 && actualFrontReinforcement.target.id === 4, "les renforts préfèrent les 80 ennemis accessibles aux 300 soldats derrière les montagnes");
+        check(mountainAi.manageContinuousReinforcements(mountainFaction, actualFrontOwned) && mountainThreatGame.state.reinforcementRoutes.every((route) => route.toTerritoryId === 4), "les flux continus alimentent eux aussi le véritable front franchissable");
+        check(mountainAi.considerAbilities(mountainFaction, actualFrontOwned) && mountainThreatGame.state.getTerritory(4).units > 10, "la mobilisation reste disponible sur une frontière réellement menacée");
+        mountainThreatGame.state.armies.push(new C.Army({ id: 999, ownerId: 1, fromTerritoryId: 3, toTerritoryId: 1, units: 40,
+            durationMs: 5000, start: { x: 300, y: 100 }, end: { x: 100, y: 100 }, logisticsPurpose: "paratrooper" }));
+        check(mountainAi.getDefensiveReserve(2, mountainThreatGame.state.getTerritory(1)) > 40, "des parachutistes déjà en approche restent une menace malgré la montagne");
+
+        const mountainFoodGame = createMountainThreatScenario();
+        mountainFoodGame.state.getTerritory(1).terrain = "agriculture";
+        mountainFoodGame.state.getTerritory(2).units = 260;
+        check(mountainFoodGame.aiSystem.manageFoodSupply(mountainFoodGame.state.getFaction(2), mountainFoodGame.state.getTerritoriesOwnedBy(2)) && mountainFoodGame.state.getTerritory(1).productionMode === "food", "l’IA exploite une agriculture protégée par les montagnes pour résoudre sa pénurie");
+        const mountainReturnGame = createMountainThreatScenario();
+        mountainReturnGame.state.getTerritory(1).productionMode = "food";
+        mountainReturnGame.state.getTerritory(4).productionMode = "food";
+        check(mountainReturnGame.aiSystem.manageFoodSupply(mountainReturnGame.state.getFaction(2), mountainReturnGame.state.getTerritoriesOwnedBy(2)) && mountainReturnGame.state.getTerritory(4).productionMode === "units" && mountainReturnGame.state.getTerritory(1).productionMode === "food", "en surplus alimentaire, l’IA remobilise le vrai front avant la ville protégée par les montagnes");
+
+        const mountainFarmGame = createMountainThreatScenario();
+        const mountainFarmFaction = mountainFarmGame.state.getFaction(2);
+        mountainFarmFaction.research.completedTechnologyIds.push("construction-agriculture");
+        mountainFarmGame.state.getTerritory(5).ownerId = 2;
+        const mountainFarmOwned = mountainFarmGame.state.getTerritoriesOwnedBy(2);
+        mountainFarmOwned.forEach((territory) => { if (territory.id !== 1) territory.terrain = "industry"; });
+        mountainFarmGame.state.getTerritory(2).units = 149;
+        const protectedFarm = mountainFarmGame.state.getTerritory(1);
+        protectedFarm.blockedNeighbors = [];
+        mountainFarmGame.state.getTerritory(3).blockedNeighbors = [];
+        check(!mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned), "l’IA évite un chantier agricole au contact terrestre direct d’un ennemi");
+        protectedFarm.blockedNeighbors = [3];
+        mountainFarmGame.state.getTerritory(3).blockedNeighbors = [1];
+        check(mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned) && protectedFarm.buildingConstruction?.buildingId === "farm", "une plaine protégée par une montagne peut accueillir une ferme malgré l’ennemi voisin");
+
         const abilityAiFaction = aiGame.state.getFaction(2);
         const abilityAiSource = aiGame.state.getTerritoriesOwnedBy(2)[0];
         const abilityAiTarget = abilityAiSource.neighbors.map((id) => aiGame.state.getTerritory(id)).find((territory) => territory && !territory.isImpassable);
@@ -1855,6 +2127,79 @@
         check(Boolean(coordinatedAttack && coordinatedAttack.units > concentrationTarget.units), "l’IA attend les renforts puis attaque les 150 unités avec sa force combinée");
         check(concentrationGame.aiSystem.coordinatedAttacksLaunched === 1 && !concentrationGame.aiSystem.offensivePlans.has(2), "le plan offensif se termine lorsque l’attaque coordonnée est lancée");
 
+        function createWaitingOffensiveScenario() {
+            const game = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, capitalFoodCapacity: 1000 });
+            game.random = () => 0.5;
+            game.state.factions = C.FACTION_DEFINITIONS.slice(0, 2).map((definition) => new C.Faction(definition));
+            game.state.elapsedMs = 10000;
+            game.state.territories = [[1, 2, 100], [2, 1, 150], [3, 2, 250], [4, 2, 5], [5, 2, 100], [6, 2, 5], [7, 1, 500]]
+                .map(([id, ownerId, units]) => {
+                    const territory = new C.Territory({ id, name: `Front ${id}`, terrain: "plain", polygon: [], center: { x: id * 100, y: 100 } });
+                    territory.ownerId = ownerId;
+                    territory.units = units;
+                    return territory;
+                });
+            [[1, 2], [1, 3], [3, 6], [6, 4], [6, 5], [4, 7]].forEach(([first, second]) => {
+                game.state.getTerritory(first).neighbors.push(second);
+                game.state.getTerritory(second).neighbors.push(first);
+            });
+            game.state.getTerritory(1).isCapital = true;
+            game.state.getFaction(2).capitalTerritoryId = 1;
+            const convoy = new C.Army({ id: 1, ownerId: 2, fromTerritoryId: 3, toTerritoryId: 1, finalTerritoryId: 1,
+                units: 100, isConvoy: true, durationMs: 20000, start: { x: 300, y: 100 }, end: { x: 100, y: 100 } });
+            game.state.armies.push(convoy);
+            game.state.nextArmyId = 2;
+            const plan = { stagingTerritoryId: 1, targetTerritoryId: 2, contributorIds: [3], createdAt: 10000, lastActionAt: 10000, expiresAt: 100000 };
+            game.aiSystem.offensivePlans.set(2, plan);
+            return { game, convoy, plan, faction: game.state.getFaction(2), owned: game.state.getTerritoriesOwnedBy(2) };
+        }
+        const waitingOffensive = createWaitingOffensiveScenario();
+        check(waitingOffensive.game.aiSystem.think(2) && waitingOffensive.game.state.armies.some((army) => army.logisticsPurpose === "rear-redistribution" && army.fromTerritoryId === 5 && army.finalTerritoryId === 4), "pendant un rassemblement en attente, l’IA redistribue une garnison arrière vers un autre front");
+        check(waitingOffensive.game.state.getTerritory(1).units === 100 && waitingOffensive.game.state.getTerritory(3).units === 250 && waitingOffensive.convoy.finalTerritoryId === 1, "la logistique parallèle conserve les forces réservées et la destination du convoi de rassemblement");
+        check(waitingOffensive.game.aiSystem.think(2) && waitingOffensive.game.state.reinforcementRoutes.some((route) => route.active && route.toTerritoryId === 4 && route.fromTerritoryId !== 3), "l’IA ouvre aussi un flux continu vers l’autre front avant l’arrivée du rassemblement");
+        check(waitingOffensive.game.aiSystem.offensivePlans.get(2) === waitingOffensive.plan && waitingOffensive.game.state.armies.every((army) => army.isConvoy), "le plan initial reste actif et son attaque attend toujours les renforts nécessaires");
+        waitingOffensive.game.resolveArmyArrival(waitingOffensive.convoy);
+        waitingOffensive.game.aiSystem.think(2);
+        check(waitingOffensive.game.aiSystem.coordinatedAttacksLaunched === 1 && !waitingOffensive.game.aiSystem.offensivePlans.has(2) && waitingOffensive.game.state.armies.some((army) => !army.isConvoy && army.toTerritoryId === 2), "l’offensive coordonnée part dès l’arrivée des renforts malgré l’activité sur l’autre front");
+        waitingOffensive.game.aiSystem.think(2);
+        check(waitingOffensive.game.state.getTerritory(3).units < 250, "les anciens donateurs redeviennent disponibles pour la logistique après le lancement de l’offensive");
+
+        const fullTacticalSlots = createWaitingOffensiveScenario();
+        fullTacticalSlots.game.state.getTerritory(1).units = 185;
+        fullTacticalSlots.game.state.getTerritory(5).units = 5;
+        fullTacticalSlots.game.state.armies.push(new C.Army({ id: 2, ownerId: 2, fromTerritoryId: 6, toTerritoryId: 4,
+            units: 1, isConvoy: true, durationMs: 20000, start: { x: 600, y: 100 }, end: { x: 400, y: 100 } }));
+        fullTacticalSlots.game.state.nextArmyId = 3;
+        check(fullTacticalSlots.game.aiSystem.think(2) && fullTacticalSlots.game.state.reinforcementRoutes.length === 1 && fullTacticalSlots.game.state.armies.length === 2 && fullTacticalSlots.game.aiSystem.offensivePlans.get(2) === fullTacticalSlots.plan, "des créneaux tactiques occupés retardent l’attaque mais pas la création d’un flux continu");
+
+        const reservedLogistics = createWaitingOffensiveScenario();
+        const reservedIds = new Set([1, 3]);
+        const donorRoute = reservedLogistics.game.executeCommand({ type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE", playerId: 2, fromTerritoryId: 3, toTerritoryId: 1 });
+        check(donorRoute.ok, "le donateur peut déjà posséder un flux vers le point de rassemblement");
+        const protectedRoute = reservedLogistics.game.state.reinforcementRoutes.find((route) => route.fromTerritoryId === 3);
+        protectedRoute.createdAt = -60000;
+        reservedLogistics.game.aiSystem.manageContinuousReinforcements(reservedLogistics.faction, reservedLogistics.owned, reservedIds);
+        check(protectedRoute.active && protectedRoute.toTerritoryId === 1, "une ancienne ligne d’un donateur réservé n’est pas redirigée vers une autre frontière");
+        reservedLogistics.game.state.getTerritory(6).units = 1;
+        const spareReinforcement = reservedLogistics.game.aiSystem.findBestReinforcement(reservedLogistics.faction, reservedLogistics.owned, reservedIds);
+        check(spareReinforcement === null, "un renfort ponctuel ne prélève pas la garnison du rassemblement ni celle de ses donateurs");
+
+        const preservedPlan = createWaitingOffensiveScenario();
+        preservedPlan.game.state.getTerritory(5).units = 1;
+        preservedPlan.game.state.getTerritory(6).units = 1;
+        preservedPlan.game.state.getTerritory(5).productionMode = "food";
+        preservedPlan.game.state.getTerritory(6).productionMode = "food";
+        preservedPlan.game.aiSystem.think(2);
+        check(preservedPlan.game.aiSystem.offensivePlans.get(2) === preservedPlan.plan && preservedPlan.game.state.armies.length === 1, "sans autre action utile, l’IA garde son plan en attente sans en créer un concurrent");
+        preservedPlan.plan.expiresAt = preservedPlan.game.state.elapsedMs;
+        preservedPlan.game.aiSystem.think(2);
+        check(!preservedPlan.game.aiSystem.offensivePlans.has(2) && preservedPlan.game.state.getTerritory(3).units < 250, "l’expiration du plan libère ses donateurs et relance leur redistribution");
+
+        const alreadyLaunched = createWaitingOffensiveScenario();
+        alreadyLaunched.game.state.armies.push(new C.Army({ id: 2, ownerId: 2, fromTerritoryId: 1, toTerritoryId: 2,
+            units: 180, durationMs: 5000, start: { x: 100, y: 100 }, end: { x: 200, y: 100 } }));
+        check(alreadyLaunched.game.aiSystem.advanceOffensivePlan(alreadyLaunched.faction, alreadyLaunched.owned) === null && !alreadyLaunched.game.aiSystem.offensivePlans.has(2), "une attaque déjà lancée clôt le plan au lieu de prolonger inutilement l’attente");
+
         check(typeof C.InputManager.prototype.onTerritoryRightClick === "function", "l’interface expose la sélection de destination au clic droit");
         check(typeof C.InputManager.prototype.onQuickTransfer === "function", "l’interface expose le transfert rapide par glisser droit");
         check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
@@ -1866,8 +2211,10 @@
         check(typeof C.MapRenderer.prototype.fireBigBertha === "function", "le rendu expose une trajectoire lourde dédiée à la Grosse Bertha");
         check(typeof C.MapRenderer.prototype.drawNuclearImpact === "function", "le rendu expose une animation d’impact nucléaire dédiée");
         check(typeof C.MapRenderer.prototype.createWaterTexturePattern === "function", "le rendu prépare une texture d’eau répétable sans couture dure");
+        check(typeof C.MapRenderer.prototype.createGrassTexturePattern === "function" && typeof C.MapRenderer.prototype.drawPlainTexture === "function", "les plaines utilisent une texture d’herbe désaturée sans masquer la couleur du propriétaire");
         check(typeof C.UIController.prototype.positionAttackPanel === "function" && typeof C.UIController.prototype.cancelAttackTarget === "function", "l’ordre tactique peut être positionné près de sa cible et annulé sans modifier la simulation");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
+        check(typeof C.UIController.prototype.refreshBlackoutStatus === "function" && typeof C.Game.prototype.isFactionBlackoutActive === "function", "l’interface possède un état visuel dédié au Blackout d’équipe");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");
         check(typeof C.MiniMapRenderer === "function", "la mini-carte possède un moteur de rendu indépendant de la simulation");
 
@@ -2299,6 +2646,8 @@
         check(aiRailroadTerritory.ownerId === 1 && !aiRailroadTerritory.railroadConstructionActive && !aiRailroadTerritory.railroad, "la capture d’un chantier inachevé annule proprement les travaux");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "construction").technologyIds.includes("construction-railroad"), "la recherche Réseau ferroviaire apparaît dans l’arbre Construction");
 
+        C.runTeamSignalTests(check);
+        C.runPopupPositionTests(check);
         document.getElementById("result").textContent = `PASS — ${results.length} tests\n${results.join("\n")}`;
         document.body.dataset.status = "pass";
     } catch (error) {

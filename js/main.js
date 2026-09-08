@@ -30,6 +30,7 @@
         );
         const input = new C.InputManager(canvas, renderer);
         const ui = new C.UIController(game, renderer, input, audio);
+        const signals = new C.TeamSignalController(game, renderer, input, ui, audio);
         game.newGame(configuration.seed);
         lobby.close();
 
@@ -92,13 +93,14 @@
             miniMap.render(now);
             if (now - lastUiRefresh >= 200) {
                 ui.refreshDynamic();
+                signals.refresh();
                 lastUiRefresh = now;
             }
             requestAnimationFrame(frame);
         }
         requestAnimationFrame(frame);
 
-        window.frontieres = { game, renderer, miniMap, input, ui, audio, lobby, configuration };
+        window.frontieres = { game, renderer, miniMap, input, ui, audio, signals, lobby, configuration };
     }
 
     function start() {

@@ -133,6 +133,19 @@
             }, durationMs);
         }
 
+        playTeamSignal() {
+            const context = this.getContext();
+            if (!context || context.state === "closed") return false;
+            const play = () => {
+                if (context.state === "suspended") return;
+                this.playChimeNote(context, 660, context.currentTime + 0.01, 0.14, 0.16, "sine");
+                this.playChimeNote(context, 880, context.currentTime + 0.10, 0.18, 0.12, "sine");
+            };
+            if (context.state === "suspended") context.resume().then(play).catch(() => {});
+            else play();
+            return true;
+        }
+
         playResearchComplete() {
             const context = this.getContext();
             if (!context || context.state === "closed") return false;

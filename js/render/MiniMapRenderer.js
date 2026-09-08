@@ -119,6 +119,10 @@
             ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             ctx.drawImage(this.cacheCanvas, 0, 0);
             this.drawViewport(ctx);
+            C.drawTeamSignals?.(ctx, this.game, (territory) => ({
+                x: this.offsetX + territory.center.x * this.scale,
+                y: this.offsetY + territory.center.y * this.scale
+            }), now, this.pixelRatio, true);
         }
 
         drawBase(visibilityMap) {

@@ -36,7 +36,8 @@
                 "ability-missile", "ability-missile-2",
                 "ability-reinforcement", "ability-reinforcement-2",
                 "ability-paratrooper", "ability-paratrooper-2",
-                "ability-nuclear", "ability-nuclear-2", "wonder-orbital-station"
+                "ability-nuclear", "ability-nuclear-2",
+                "ability-blackout", "wonder-orbital-station"
             ]
         }
     ];
@@ -339,6 +340,17 @@
             effects: { upgradeAbility: "nuclear" },
             effectLabel: "Dégâts : 40 % au centre · 20 % autour"
         },
+        "ability-blackout": {
+            id: "ability-blackout",
+            branchId: "abilities",
+            tier: 3,
+            name: "Blackout",
+            description: "Une offensive électronique prive temporairement une équipe ennemie de renseignements et bloque ses ordres offensifs.",
+            durationMs: 270000,
+            prerequisiteId: "ability-missile",
+            effects: { unlockAbility: "blackout" },
+            effectLabel: "Brouillage 18 s · immunité 60 s · recharge 5 min"
+        },
         "wonder-orbital-station": {
             id: "wonder-orbital-station",
             branchId: "abilities",
@@ -390,6 +402,14 @@
             centerDamageRatio: 0.30,
             adjacentDamageRatio: 0.15,
             level2: { centerDamageRatio: 0.40, adjacentDamageRatio: 0.20 }
+        },
+        blackout: {
+            id: "blackout",
+            name: "Blackout",
+            technologyId: "ability-blackout",
+            cooldownMs: 300000,
+            durationMs: 18000,
+            immunityMs: 60000
         }
     };
 
