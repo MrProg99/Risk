@@ -45,9 +45,9 @@ body.lobby-open { overflow: hidden; }
     padding: 20px;
     overflow-y: auto;
     background:
-        radial-gradient(circle at 15% 18%, rgba(78, 215, 208, .11), transparent 24rem),
-        radial-gradient(circle at 86% 78%, rgba(216, 255, 104, .08), transparent 28rem),
-        rgba(3, 9, 13, .94);
+        linear-gradient(180deg, rgba(3, 9, 13, .2), rgba(3, 9, 13, .48)),
+        url("../Image/lobby-command.png") center / cover no-repeat,
+        #03090d;
     isolation: isolate;
 }
 
@@ -56,6 +56,7 @@ body.lobby-open { overflow: hidden; }
     position: fixed;
     inset: 0;
     z-index: -2;
+    pointer-events: none;
     opacity: .2;
     background-image:
         linear-gradient(rgba(126, 175, 184, .09) 1px, transparent 1px),
@@ -63,19 +64,6 @@ body.lobby-open { overflow: hidden; }
     background-size: 46px 46px;
     mask-image: radial-gradient(circle at center, #000, transparent 78%);
 }
-
-.lobby-orbit {
-    position: fixed;
-    z-index: -1;
-    border: 1px solid rgba(78, 215, 208, .12);
-    border-radius: 50%;
-    pointer-events: none;
-}
-.lobby-orbit::before, .lobby-orbit::after { content: ""; position: absolute; border-radius: 50%; }
-.lobby-orbit::before { inset: 12%; border: 1px dashed rgba(216, 255, 104, .1); }
-.lobby-orbit::after { width: 7px; height: 7px; left: 50%; top: -4px; background: var(--accent); box-shadow: 0 0 18px var(--accent); }
-.lobby-orbit-one { width: 560px; height: 560px; left: -250px; bottom: -280px; animation: radar 38s linear infinite; }
-.lobby-orbit-two { width: 420px; height: 420px; right: -190px; top: -210px; animation: radar 31s linear infinite reverse; }
 
 .lobby-panel {
     width: min(1040px, 100%);
@@ -91,12 +79,20 @@ body.lobby-open { overflow: hidden; }
     scrollbar-color: #28424b transparent;
 }
 
-.lobby-header { padding: 27px 31px 22px; border-bottom: 1px solid var(--line); text-align: center; }
+.lobby-header {
+    padding: 27px 31px 22px;
+    border-bottom: 1px solid rgba(215, 183, 112, .28);
+    text-align: center;
+    background:
+        linear-gradient(180deg, rgba(3, 9, 13, .25), rgba(6, 16, 22, .88)),
+        url("../Image/lobby-command.png") center 24% / cover no-repeat;
+    text-shadow: 0 2px 12px #03090d;
+}
 .lobby-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 20px; text-align: left; }
 .lobby-brand > div:last-child > span { display: block; margin-top: 3px; font-size: .91rem; font-weight: 750; letter-spacing: .22em; }
 .lobby-kicker { margin: 0 0 7px; color: var(--cyan); font: 700 .65rem var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 .lobby-header h1 { margin: 0; font-size: clamp(1.65rem, 4vw, 2.55rem); letter-spacing: -.035em; }
-.lobby-intro { max-width: 620px; margin: 10px auto 0; color: #8ca2aa; font-size: .88rem; line-height: 1.55; }
+.lobby-intro { max-width: 620px; margin: 10px auto 0; color: #bfced0; font-size: .88rem; line-height: 1.55; }
 .lobby-form { padding: 22px 31px 28px; }
 .lobby-mode-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2, 10, 14, .55); }
 .lobby-mode-choices label { cursor: pointer; }
