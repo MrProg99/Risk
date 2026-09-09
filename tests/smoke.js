@@ -1544,7 +1544,11 @@
         musicListeners.ended();
         check(fakeMusic.src === "Musique/Music6.mp3" && musicAudioManager.musicTrackIndex === 5, "Music6.mp3 suit automatiquement Music5.mp3");
         musicListeners.ended();
-        check(fakeMusic.src === "Musique/Music1.mp3" && musicAudioManager.musicTrackIndex === 0 && musicPlayCount === 7, "la playlist recommence après Music6.mp3");
+        check(fakeMusic.src === "Musique/Music7.mp3" && musicAudioManager.musicTrackIndex === 6, "Music7.mp3 suit automatiquement Music6.mp3");
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music8.mp3" && musicAudioManager.musicTrackIndex === 7, "Music8.mp3 suit automatiquement Music7.mp3");
+        musicListeners.ended();
+        check(fakeMusic.src === "Musique/Music1.mp3" && musicAudioManager.musicTrackIndex === 0 && musicPlayCount === 9, "la playlist recommence après Music8.mp3");
         musicAudioManager.duckBackgroundMusic();
         check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
         clearTimeout(musicAudioManager.musicRestoreTimer);
