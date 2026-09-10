@@ -96,6 +96,8 @@ Le raccourci direct consiste à maintenir **Alt**, appuyer avec le **bouton droi
 
 Il reste également possible de préparer un trajet au clic droit, d’activer **Flux continu**, puis de cliquer sur **Activer le flux continu**. Dans les deux cas, chaque unité produite ensuite par le territoire d’origine part automatiquement vers la destination. La garnison déjà présente n’est pas prélevée.
 
+Un **clic milieu** sur l’un de vos territoires ouvre le menu de convergence logistique. La commande **Faire converger les nouveaux renforts** crée ou redirige en une seule opération les flux de tous vos territoires actuellement affectés au recrutement et reliés à la destination par un chemin allié. Elle ne déplace jamais les garnisons déjà présentes et désactive le mode Hub des anciennes lignes redirigées. Les sources en nourriture, recherche ou construction ainsi que celles séparées par un obstacle sont ignorées. L’ordre compact `CONVERGE_CONTINUOUS_REINFORCEMENTS` est exécuté par l’hôte en multijoueur et ne nécessite aucune modification des règles Firebase.
+
 La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lors de l’activation, toute sa garnison disponible est expédiée en laissant une unité sur place. Ensuite, sa production et tous les renforts alliés qui y arrivent repartent automatiquement vers la destination. Les convois mémorisent les territoires déjà traversés afin d’interrompre une éventuelle boucle entre plusieurs hubs.
 
 La fiche **Flux logistique actif** permet de suivre les expéditions et les livraisons, puis d’arrêter la ligne. Choisir une nouvelle destination depuis la même origine redirige les productions futures. Une ligne coupée par la perte d’un relais se met en pause et reprend automatiquement si un itinéraire allié redevient disponible.
@@ -206,9 +208,13 @@ Un événement mondial survient toutes les **60 à 120 secondes** de simulation,
 
 Le calendrier, les effets actifs et les armées barbares sont conservés dans `GameState` afin qu’un futur serveur puisse imposer les mêmes événements à tous les joueurs.
 
-Les Technocrates, la Horde et les Nomades sont contrôlés par l’ordinateur. Chaque faction évalue périodiquement ses frontières, conquiert les cibles accessibles et renforce ses territoires menacés en utilisant les mêmes commandes que le joueur. À partir de trois territoires, elle peut aussi ouvrir des lignes de renfort continues entre ses régions productives et ses fronts. Le nombre de lignes augmente avec la taille de la faction, jusqu’à trois, et les destinations sont réévaluées lorsque la situation militaire change.
+Les Technocrates, la Horde et les Nomades sont contrôlés par l’ordinateur. Chaque faction évalue périodiquement ses frontières, conquiert les cibles accessibles et renforce ses territoires menacés en utilisant les mêmes commandes que le joueur. À partir de trois territoires, elle peut aussi ouvrir des lignes de renfort continues entre ses régions productives et ses fronts. Jusqu’à dix-huit sources productives peuvent être reliées, et leurs destinations sont réévaluées lorsque la situation militaire change.
+
+L’expansion neutre de l’IA est parallèle et adaptative : un petit empire ouvre jusqu’à deux axes, un empire établi en ouvre trois sur la carte actuelle et quatre sur une grande carte. Dès qu’une frontière ennemie apparaît, cette capacité retombe à deux afin de préserver l’effort militaire. L’ouverture Archipel conserve toutefois un seul axe jusqu’au premier débarquement. Après deux recherches sans capacité, chaque profil donne également la priorité à un premier outil stratégique : Missile pour l’Empire et les Technocrates, Mobilisation pour la Horde et les Nomades.
 
 Lorsqu’une cible est trop forte pour être attaquée depuis un seul territoire, l’IA peut désormais préparer une offensive coordonnée. Elle choisit un territoire frontalier, y rassemble les surplus de plusieurs territoires alliés, attend l’arrivée réelle des convois, puis attaque lorsque la force combinée atteint le seuil calculé. Les garnisons de sécurité sont conservées et aucune unité n’est créée artificiellement pendant le rassemblement.
+
+Une enclave ennemie presque encerclée par au moins trois territoires de l’IA est maintenant traitée comme une urgence locale. L’IA peut interrompre un plan secondaire, concentrer les surplus sur son meilleur point d’assaut et utiliser un créneau tactique d’urgence supplémentaire. Cette réaction passe avant les changements de production alimentaire ou de recherche, afin qu’une crise de ravitaillement ne laisse pas immobiles des forces déjà très supérieures autour d’une poche ennemie.
 
 ## Architecture
 

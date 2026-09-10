@@ -31,6 +31,7 @@
         const input = new C.InputManager(canvas, renderer);
         const ui = new C.UIController(game, renderer, input, audio);
         const signals = new C.TeamSignalController(game, renderer, input, ui, audio);
+        const logistics = new C.LogisticsMenuController(game, renderer, input, ui, signals);
         game.newGame(configuration.seed);
         lobby.close();
 
@@ -100,7 +101,7 @@
         }
         requestAnimationFrame(frame);
 
-        window.frontieres = { game, renderer, miniMap, input, ui, audio, signals, lobby, configuration };
+        window.frontieres = { game, renderer, miniMap, input, ui, audio, signals, logistics, lobby, configuration };
     }
 
     function start() {

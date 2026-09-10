@@ -461,6 +461,62 @@
             toTerritoryId: groupDestination.id
         });
         check(batchContinuous.ok && batchContinuous.createdCount === 3 && batchContinuous.skippedCount === 1 && groupSources.every((source) => groupGame.state.reinforcementRoutes.some((route) => route.active && route.fromTerritoryId === source.id && route.toTerritoryId === groupDestination.id)), "Alt peut créer un flux continu depuis chaque territoire du groupe");
+
+        const convergenceFoodSource = groupTerritories[5];
+        const convergenceHubSource = groupTerritories[6];
+        const convergenceDiversion = groupTerritories[7];
+        convergenceFoodSource.productionMode = "food";
+        groupGame.executeCommand({
+            type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+            playerId: 1,
+            fromTerritoryId: convergenceHubSource.id,
+            toTerritoryId: convergenceDiversion.id,
+            relayAllReinforcements: true
+        });
+        convergenceHubSource.units = 23;
+        const convergenceSources = groupGame.getContinuousConvergenceSources(1, groupDestination.id);
+        const convergenceResult = groupGame.executeCommand({
+            type: "CONVERGE_CONTINUOUS_REINFORCEMENTS",
+            playerId: 1,
+            toTerritoryId: groupDestination.id
+        });
+        check(convergenceSources.length > 80 && !convergenceSources.includes(convergenceFoodSource), "la convergence générale trouve tous les producteurs accessibles et ignore les territoires alimentaires");
+        check(convergenceResult.ok && convergenceResult.connectedCount === convergenceSources.length && convergenceResult.unchangedCount >= 3,
+            "une commande compacte crée ou conserve tous les flux de production vers le point choisi");
+        check(convergenceHubSource.units === 23 && groupGame.state.reinforcementRoutes.some((route) =>
+            route.active && route.fromTerritoryId === convergenceHubSource.id && route.toTerritoryId === groupDestination.id && !route.relayAllReinforcements),
+        "rediriger un ancien Hub vers la convergence ne déplace pas sa garnison et désactive le relais intégral");
+        check(!groupGame.state.reinforcementRoutes.some((route) => route.active && route.fromTerritoryId === convergenceFoodSource.id),
+            "un territoire qui ne recrute pas ne reçoit aucune ligne de convergence");
+
+        const logisticsCard = document.createElement("section");
+        logisticsCard.className = "map-card";
+        const logisticsCanvas = document.createElement("canvas");
+        logisticsCard.append(logisticsCanvas);
+        document.body.append(logisticsCard);
+        let logisticsMiddleHandler = null;
+        let logisticsSelectionCleared = 0;
+        let logisticsToast = "";
+        let signalMenuClosed = 0;
+        const logisticsController = new C.LogisticsMenuController(groupGame, { worldToScreen: () => ({ clientX: 0, clientY: 0 }) }, {
+            canvas: logisticsCanvas,
+            onTerritoryMiddleClick: (listener) => { logisticsMiddleHandler = listener; },
+            onViewChange: () => {}
+        }, {
+            cancelAttackTarget: () => {},
+            clearSelection: () => { logisticsSelectionCleared += 1; },
+            showToast: (message) => { logisticsToast = message; }
+        }, {
+            close: () => { signalMenuClosed += 1; }
+        });
+        logisticsMiddleHandler(groupDestination, { clientX: 20, clientY: 20 });
+        check(!logisticsController.menu.hidden && !logisticsController.convergeButton.disabled && signalMenuClosed === 1 && /territoires? en recrutement/.test(logisticsController.description.textContent),
+            "le clic milieu ouvre un sous-menu qui annonce les sources capables de converger");
+        logisticsController.convergeButton.click();
+        check(logisticsController.menu.hidden && logisticsSelectionCleared === 1 && /flux de nouveaux renforts convergent/.test(logisticsToast),
+            "le choix du sous-menu exécute la convergence puis désélectionne la carte");
+        logisticsCard.remove();
+
         const hostileGroupTarget = groupTerritories[4];
         hostileGroupTarget.ownerId = 2;
         check(!groupGame.executeCommand({ type: "BATCH_SEND_REINFORCEMENTS", playerId: 1, fromTerritoryIds: groupSources.map((territory) => territory.id), toTerritoryId: hostileGroupTarget.id }).ok, "un ordre groupé ne peut pas transformer un renfort en attaque accidentelle");
@@ -625,6 +681,34 @@
             formatDuration: C.UIController.prototype.formatDuration
         });
         check(victoryElements.victoryTitle.textContent === "VICTOIRE" && victoryElements.victoryStandings.children.length === 2 && /IA/.test(victoryElements.victoryStandings.textContent), "l’écran de victoire affiche une fiche statistique pour chaque humain et chaque IA");
+
+        const defeatElements = {
+            ...victoryElements,
+            victoryScreen: document.createElement("section"),
+            matchSummary: document.createElement("button"),
+            victoryObserve: document.createElement("button")
+        };
+        defeatElements.victoryScreen.hidden = true;
+        victoryGame.state.winnerTeamId = 2;
+        const defeatUi = {
+            game: victoryGame,
+            elements: defeatElements,
+            victoryScreenPresented: false,
+            closeResearchScreen: () => {},
+            formatDuration: C.UIController.prototype.formatDuration,
+            renderVictoryScreen: C.UIController.prototype.renderVictoryScreen,
+            showVictoryScreen: C.UIController.prototype.showVictoryScreen
+        };
+        C.UIController.prototype.ensureVictoryScreen.call(defeatUi);
+        check(defeatUi.victoryScreenPresented && !defeatElements.victoryScreen.hidden &&
+            defeatElements.victoryTitle.textContent === "DÉFAITE" && /IA/.test(defeatElements.victoryStandings.textContent),
+        "le bilan s’ouvre automatiquement lorsque l’IA gagne même si l’événement final a été manqué");
+        C.UIController.prototype.hideVictoryScreen.call(defeatUi);
+        C.UIController.prototype.ensureVictoryScreen.call(defeatUi);
+        check(defeatElements.victoryScreen.hidden && !defeatElements.matchSummary.hidden,
+            "Voir la carte garde le bilan fermé et laisse son bouton de rappel visible");
+        document.body.classList.remove("victory-open");
+        victoryGame.state.winnerTeamId = 1;
 
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
         const playerTerritoryIds = state.getTerritoriesOwnedBy(game.playerId).map((territory) => territory.id);
@@ -1723,8 +1807,48 @@
         check(aiGame.aiSystem.ordersIssued > 0, "les factions contrôlées par l’ordinateur prennent des décisions");
         check(aiGame.aiSystem.getMaximumTacticalArmies(6) === 2 && aiGame.aiSystem.getMaximumTacticalArmies(15) === 5 && aiGame.aiSystem.getMaximumTacticalArmies(30) === 8, "la capacité tactique de l’IA progresse avec son empire jusqu’à huit armées simultanées");
         check(aiGame.aiSystem.getMaximumRearRedistributions(6) === 2 && aiGame.aiSystem.getMaximumRearRedistributions(24) === 3 && aiGame.aiSystem.getMaximumRearRedistributions(48) === 5, "la capacité de redistribution arrière de l’IA augmente avec son empire jusqu’à cinq convois simultanés");
+        check(aiGame.aiSystem.getMaximumNeutralExpansions(1) === 1 &&
+            aiGame.aiSystem.getMaximumNeutralExpansions(6) === 2 &&
+            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 110 }) === 3 &&
+            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170 }) === 4 &&
+            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170, hasEnemyBorder: true }) === 2,
+        "les axes d’expansion neutre augmentent avec l’empire et la carte, puis diminuent au contact de l’ennemi");
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
+
+        const openingAbilityGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+        openingAbilityGame.newGame(717170);
+        openingAbilityGame.random = () => 0.5;
+        const openingAbilityFaction = openingAbilityGame.state.getFaction(2);
+        openingAbilityFaction.research.completedTechnologyIds.push("construction-1", "construction-2");
+        check(openingAbilityGame.aiSystem.chooseResearch(openingAbilityFaction) && openingAbilityFaction.research.activeTechnologyId === "ability-missile", "après deux recherches économiques, l’IA technocrate obtient une première capacité offensive");
+
+        const parallelExpansionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false });
+        parallelExpansionGame.newGame(717169);
+        parallelExpansionGame.random = () => 0.5;
+        const parallelExpansionState = parallelExpansionGame.state;
+        const parallelHomes = Array.from({ length: 15 }, (_, index) => {
+            const territory = new C.Territory({ id: index + 1, name: `Base ${index + 1}`, terrain: "plain", polygon: [], center: { x: 100 + index * 30, y: 100 } });
+            territory.ownerId = 2;
+            territory.units = 50;
+            return territory;
+        });
+        const parallelTargets = Array.from({ length: 3 }, (_, index) => {
+            const territory = new C.Territory({ id: 101 + index, name: `Neutre ${index + 1}`, terrain: "plain", polygon: [], center: { x: 100 + index * 30, y: 220 } });
+            territory.units = 5;
+            parallelHomes[index].neighbors.push(territory.id);
+            territory.neighbors.push(parallelHomes[index].id);
+            return territory;
+        });
+        parallelExpansionState.territories = [...parallelHomes, ...parallelTargets];
+        parallelExpansionState.armies = [];
+        parallelExpansionState.nextArmyId = 1;
+        parallelExpansionState.getFaction(2).capitalTerritoryId = parallelHomes[0].id;
+        const parallelExpansionFaction = parallelExpansionState.getFaction(2);
+        const parallelOrders = [0, 1, 2].map(() => parallelExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(parallelExpansionFaction, parallelHomes));
+        check(parallelOrders.every(Boolean) && parallelExpansionState.armies.length === 3 &&
+            !parallelExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(parallelExpansionFaction, parallelHomes),
+        "un empire établi peut lancer trois conquêtes neutres simultanées sur la carte actuelle");
 
         const expansionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
         expansionGame.newGame(717171);
@@ -2265,6 +2389,82 @@
         check(Boolean(coordinatedAttack && coordinatedAttack.units > concentrationTarget.units), "l’IA attend les renforts puis attaque les 150 unités avec sa force combinée");
         check(concentrationGame.aiSystem.coordinatedAttacksLaunched === 1 && !concentrationGame.aiSystem.offensivePlans.has(2), "le plan offensif se termine lorsque l’attaque coordonnée est lancée");
 
+        const pocketGame = new C.Game({
+            playerId: 1,
+            activeFactionIds: [1, 3],
+            enableAI: false,
+            enableWorldEvents: false,
+            capitalFoodCapacity: 0,
+            territoryBaseFoodCapacity: 0
+        });
+        pocketGame.newGame(919191);
+        pocketGame.random = () => 0.5;
+        const pocketState = pocketGame.state;
+        const pocketUnits = [173, 73, 61, 44, 28, 21];
+        const pocketTarget = new C.Territory({ id: 1, name: "Enclave", terrain: "fortress", polygon: [], center: { x: 300, y: 300 } });
+        pocketTarget.ownerId = 1;
+        pocketTarget.units = 106;
+        pocketTarget.isCapital = true;
+        const pocketSources = pocketUnits.map((units, index) => {
+            const angle = Math.PI * 2 * index / pocketUnits.length;
+            const territory = new C.Territory({
+                id: index + 2,
+                name: `Anneau ${index + 1}`,
+                terrain: "plain",
+                polygon: [],
+                center: { x: 300 + Math.cos(angle) * 120, y: 300 + Math.sin(angle) * 120 }
+            });
+            territory.ownerId = 3;
+            territory.units = units;
+            territory.productionModeChangedAtMs = 0;
+            return territory;
+        });
+        const distantTarget = new C.Territory({ id: 8, name: "Front lointain", terrain: "fortress", polygon: [], center: { x: 540, y: 300 } });
+        distantTarget.ownerId = 1;
+        distantTarget.units = 500;
+        pocketState.territories = [pocketTarget, ...pocketSources, distantTarget];
+        pocketSources.forEach((source, index) => {
+            const next = pocketSources[(index + 1) % pocketSources.length];
+            source.neighbors.push(pocketTarget.id, next.id);
+            pocketTarget.neighbors.push(source.id);
+            if (!next.neighbors.includes(source.id)) next.neighbors.push(source.id);
+        });
+        pocketSources[0].neighbors.push(distantTarget.id);
+        distantTarget.neighbors.push(pocketSources[0].id);
+        pocketState.getFaction(1).capitalTerritoryId = pocketTarget.id;
+        pocketState.getFaction(3).capitalTerritoryId = pocketSources[0].id;
+        pocketState.elapsedMs = 100000;
+        pocketState.armies = [
+            new C.Army({ id: 1, ownerId: 3, fromTerritoryId: pocketSources[2].id, toTerritoryId: pocketSources[3].id,
+                finalTerritoryId: pocketSources[3].id, units: 1, isConvoy: true, durationMs: 20000,
+                start: pocketSources[2].center, end: pocketSources[3].center }),
+            new C.Army({ id: 2, ownerId: 3, fromTerritoryId: pocketSources[4].id, toTerritoryId: pocketSources[5].id,
+                finalTerritoryId: pocketSources[5].id, units: 1, isConvoy: true, durationMs: 20000,
+                start: pocketSources[4].center, end: pocketSources[5].center })
+        ];
+        pocketState.reinforcementRoutes = [];
+        pocketState.nextArmyId = 3;
+        pocketGame.aiSystem.offensivePlans.set(3, {
+            stagingTerritoryId: pocketSources[0].id,
+            targetTerritoryId: distantTarget.id,
+            contributorIds: [],
+            createdAt: 10000,
+            lastActionAt: 10000,
+            expiresAt: 180000,
+            score: 1
+        });
+        pocketGame.aiSystem.think(3);
+        const pocketPlan = pocketGame.aiSystem.offensivePlans.get(3);
+        const pocketGathering = pocketState.armies.find((army) =>
+            army.ownerId === 3 && army.isConvoy && army.finalTerritoryId === pocketPlan?.stagingTerritoryId);
+        check(Boolean(pocketPlan?.encirclementPriority && pocketPlan.targetTerritoryId === pocketTarget.id && pocketGathering), "l’IA abandonne un plan secondaire et dépasse d’un cran sa limite tactique pour concentrer immédiatement les forces autour d’une enclave encerclée");
+        check(pocketSources.every((territory) => territory.productionMode === "units"), "une offensive d’encerclement évidente passe avant les conversions alimentaires de crise");
+        for (let tick = 0; tick < 90 && pocketState.armies.some((army) => army.id === pocketGathering.id); tick += 1) {
+            pocketGame.update(1000);
+        }
+        pocketGame.aiSystem.think(3);
+        check(pocketState.armies.some((army) => !army.isConvoy && army.ownerId === 3 && army.toTerritoryId === pocketTarget.id), "l’IA attaque l’enclave dès que la concentration locale est suffisante");
+
         function createWaitingOffensiveScenario() {
             const game = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, capitalFoodCapacity: 1000 });
             game.random = () => 0.5;
@@ -2341,6 +2541,7 @@
         check(typeof C.InputManager.prototype.onTerritoryRightClick === "function", "l’interface expose la sélection de destination au clic droit");
         check(typeof C.InputManager.prototype.onQuickTransfer === "function", "l’interface expose le transfert rapide par glisser droit");
         check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
+        check(typeof C.InputManager.prototype.onTerritoryMiddleClick === "function" && typeof C.LogisticsMenuController === "function", "l’interface expose le menu de convergence au clic milieu");
         check(typeof C.InputManager.prototype.onViewChange === "function", "l’interface signale un déplacement de caméra afin de fermer un ordre contextuel devenu obsolète");
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
@@ -2383,13 +2584,18 @@
         let quickGesture = null;
         let continuousGesture = null;
         let regularRightClicks = 0;
+        let middleClickTerritoryId = null;
         let viewChanges = 0;
         gestureInput.onQuickTransfer((source, target) => { quickGesture = [source.id, target.id]; });
         gestureInput.onContinuousTransfer((source, target) => { continuousGesture = [source.id, target.id]; });
         gestureInput.onTerritoryRightClick(() => { regularRightClicks += 1; });
+        gestureInput.onTerritoryMiddleClick((territory) => { middleClickTerritoryId = territory?.id ?? null; });
         gestureInput.onViewChange(() => { viewChanges += 1; });
         gestureCanvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 80, clientX: 20, clientY: 20 }));
         check(viewChanges === 1, "zoomer la carte ferme le panneau tactique contextuel");
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 1, clientX: 10, clientY: 10, pointerId: 40 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 1, clientX: 10, clientY: 10, pointerId: 40 }));
+        check(middleClickTerritoryId === 1, "le bouton central identifie le territoire visé sans déclencher un clic gauche");
         gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, ctrlKey: true, clientX: 10, clientY: 10, pointerId: 41 }));
         gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));
         gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, ctrlKey: true, clientX: 90, clientY: 10, pointerId: 41 }));

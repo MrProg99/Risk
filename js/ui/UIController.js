@@ -17,6 +17,7 @@
             this.lastLostTerritoryId = null;
             this.toastTimer = null;
             this.researchTreeKey = null;
+            this.victoryScreenPresented = false;
             this.elements = this.collectElements();
             this.bindEvents();
             this.unsubscribe = game.subscribe((change) => this.handleGameChange(change));
@@ -379,14 +380,22 @@
             this.renderVictoryScreen();
             this.elements.victoryScreen.hidden = false;
             this.elements.matchSummary.hidden = true;
+            this.victoryScreenPresented = true;
             document.body.classList.add("victory-open");
             this.elements.victoryObserve.focus();
+        }
+
+        ensureVictoryScreen() {
+            if (this.game.state.winnerTeamId !== null && !this.victoryScreenPresented) {
+                this.showVictoryScreen();
+            }
         }
 
         hideVictoryScreen(reset = false) {
             if (!this.elements.victoryScreen) return;
             this.elements.victoryScreen.hidden = true;
             document.body.classList.remove("victory-open");
+            if (reset) this.victoryScreenPresented = false;
             this.elements.matchSummary.hidden = reset || this.game.state.winnerTeamId === null;
             if (!reset && !this.elements.matchSummary.hidden) this.elements.matchSummary.focus();
         }
@@ -1180,7 +1189,7 @@
             const ownerColor = faction ? faction.color : "#66777d";
             this.elements.emptySelection.hidden = true;
             this.elements.territoryDetails.hidden = false;
-            this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Recliquer sur l’origine ou la cible désélectionne. Ctrl + glisser droit transfère ; Alt crée un flux.";
+            this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Recliquer désélectionne. Clic milieu fait converger la production ; Ctrl transfère et Alt crée un flux.";
             this.elements.territoryName.textContent = territory.name;
             this.elements.territoryId.textContent = `T-${String(territory.id).padStart(2, "0")}`;
             this.elements.ownerName.textContent = territory.isImpassable ? "Zone infranchissable" : faction ? faction.name : "Forces neutres";
@@ -1876,6 +1885,7 @@
 
         refreshDynamic() {
             if (!this.game.state.factions.length) return;
+            this.ensureVictoryScreen();
             const stats = this.game.getFactionStats(this.game.playerId);
             this.elements.territoryCount.textContent = stats.territoryCount;
             this.elements.totalUnits.textContent = stats.totalUnits;

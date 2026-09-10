@@ -819,6 +819,7 @@
             if (command.type === "BATCH_SET_TERRITORY_MODE") return this.setTerritoryProductionModeBatch(command);
             if (command.type === "BATCH_SEND_REINFORCEMENTS") return this.sendBatchReinforcements(command);
             if (command.type === "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES") return this.createContinuousReinforcementRoutesBatch(command);
+            if (command.type === "CONVERGE_CONTINUOUS_REINFORCEMENTS") return this.convergeContinuousReinforcements(command);
             if (command.type === "BUILD_RAILROAD") return this.buildRailroad(command);
             if (command.type === "BUILD_TERRITORY_BUILDING") return this.buildTerritoryBuilding(command);
             if (command.type === "BUILD_WONDER") return this.buildWonder(command);
@@ -1605,44 +1606,90 @@
             if (!destination || destination.isImpassable || !this.areAllied(destination.ownerId, playerId)) {
                 return { ok: false, error: "La destination groupée doit être un territoire allié." };
             }
+            const newProductionOnly = command.newProductionOnly === true;
+            if (newProductionOnly && destination.ownerId !== playerId) {
+                return { ok: false, error: "La convergence générale doit viser l’un de vos territoires." };
+            }
             const sourceIds = [...new Set((Array.isArray(command.fromTerritoryIds) ? command.fromTerritoryIds : [])
-                .slice(0, 120).map(Number))];
+                .slice(0, 240).map(Number))];
             if (!sourceIds.length) return { ok: false, error: "Aucun territoire source sélectionné." };
             const candidates = sourceIds.map((sourceId) => this.state.getTerritory(sourceId))
-                .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable)
+                .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable &&
+                    (!newProductionOnly || source.productionMode === "units"))
                 .map((source) => ({ source, path: this.findAlliedPath(playerId, source.id, destination.id) }))
                 .filter((candidate) => candidate.path && candidate.path.length > 1);
             if (!candidates.length) {
                 return { ok: false, error: "Aucune source sélectionnée ne possède un itinéraire allié valide." };
             }
             const routes = [];
+            const unchangedRoutes = [];
             candidates.forEach((candidate) => {
                 const previousRoute = this.state.reinforcementRoutes.find((route) =>
                     route.active && route.ownerId === playerId && route.fromTerritoryId === candidate.source.id);
+                if (newProductionOnly && previousRoute?.toTerritoryId === destination.id && !previousRoute.relayAllReinforcements) {
+                    unchangedRoutes.push(previousRoute);
+                    return;
+                }
                 const result = this.createContinuousReinforcementRoute({
                     type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
                     playerId,
                     fromTerritoryId: candidate.source.id,
                     toTerritoryId: destination.id,
-                    relayAllReinforcements: Boolean(previousRoute?.relayAllReinforcements),
+                    relayAllReinforcements: newProductionOnly ? false : Boolean(previousRoute?.relayAllReinforcements),
                     silentLog: true
                 });
                 if (result.ok) routes.push(result.route);
             });
             const faction = this.state.getFaction(playerId);
-            this.addLogisticsEvent(`${faction.name} dirige ${routes.length} flux continus vers ${destination.name}.`, playerId);
+            const connectedRoutes = routes.concat(unchangedRoutes);
+            const message = newProductionOnly
+                ? `${faction.name} fait converger ${connectedRoutes.length} flux de production vers ${destination.name}.`
+                : `${faction.name} dirige ${connectedRoutes.length} flux continus vers ${destination.name}.`;
+            this.addLogisticsEvent(message, playerId);
             this.notify({
                 type: "CONTINUOUS_REINFORCEMENT_ROUTES_BATCH_CREATED",
                 playerId,
-                routeIds: routes.map((route) => route.id),
+                routeIds: connectedRoutes.map((route) => route.id),
                 toTerritoryId: destination.id
             });
             return {
                 ok: true,
-                routes,
+                routes: connectedRoutes,
                 createdCount: routes.length,
-                skippedCount: sourceIds.length - routes.length
+                unchangedCount: unchangedRoutes.length,
+                connectedCount: connectedRoutes.length,
+                skippedCount: sourceIds.length - connectedRoutes.length
             };
+        }
+
+        getContinuousConvergenceSources(playerId, toTerritoryId) {
+            const normalizedPlayerId = Number(playerId);
+            const destination = this.state.getTerritory(toTerritoryId);
+            if (!destination || destination.isImpassable || destination.ownerId !== normalizedPlayerId) return [];
+            return this.state.getTerritoriesOwnedBy(normalizedPlayerId).filter((source) =>
+                source.id !== destination.id &&
+                !source.isImpassable &&
+                source.productionMode === "units" &&
+                Boolean(this.findAlliedPath(normalizedPlayerId, source.id, destination.id)));
+        }
+
+        convergeContinuousReinforcements(command) {
+            const playerId = Number(command.playerId);
+            const destination = this.state.getTerritory(command.toTerritoryId);
+            if (!this.state.getFaction(playerId) || !destination || destination.ownerId !== playerId || destination.isImpassable) {
+                return { ok: false, error: "Choisissez l’un de vos territoires comme point de convergence." };
+            }
+            const sources = this.getContinuousConvergenceSources(playerId, destination.id);
+            if (!sources.length) {
+                return { ok: false, error: "Aucun territoire en recrutement ne peut rejoindre cette destination." };
+            }
+            return this.createContinuousReinforcementRoutesBatch({
+                type: "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES",
+                playerId,
+                fromTerritoryIds: sources.map((source) => source.id),
+                toTerritoryId: destination.id,
+                newProductionOnly: true
+            });
         }
 
         cancelContinuousReinforcementRoute(command) {

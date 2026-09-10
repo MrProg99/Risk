@@ -120,6 +120,10 @@
             // routes logistiques ni la fin d'un autre plan de rassemblement.
             if (this.launchDecisiveAttack(faction, owned)) return true;
 
+            // Une enclave ennemie presque encerclée est une urgence locale. Elle doit
+            // être réduite avant les changements de production et la logistique de fond.
+            if (this.prioritizeEncircledEnemy(faction, owned) === true) return true;
+
             if (this.manageResearchAllocation(faction, owned)) return true;
 
             if (this.manageFoodSupply(faction, owned)) return true;
@@ -224,6 +228,42 @@
             return true;
         }
 
+        prioritizeEncircledEnemy(faction, owned) {
+            // An encircled hostile pocket must not wait behind food/research chores or
+            // an unrelated long-distance offensive. Keep advancing an urgent pocket
+            // plan first, even after its first donor has already left.
+            const activePlan = this.offensivePlans.get(faction.id);
+            if (activePlan?.encirclementPriority) {
+                const action = this.advanceOffensivePlan(faction, owned);
+                if (action !== null) return action;
+            }
+
+            const urgentPlan = this.findOffensivePlan(faction, owned, { encirclementOnly: true });
+            if (!urgentPlan) return null;
+
+            const currentPlan = this.offensivePlans.get(faction.id);
+            if (currentPlan?.targetTerritoryId === urgentPlan.targetTerritoryId) {
+                currentPlan.encirclementPriority = true;
+                currentPlan.encirclementScore = urgentPlan.encirclementScore;
+                return this.advanceOffensivePlan(faction, owned);
+            }
+
+            // A nearly closed pocket with overwhelming local superiority may replace
+            // a normal plan elsewhere. Another urgent pocket is only replaced by a
+            // clearly stronger encirclement, which prevents oscillation every think.
+            if (currentPlan?.encirclementPriority &&
+                (currentPlan.encirclementScore || currentPlan.score || 0) >= urgentPlan.encirclementScore - 8) {
+                return this.advanceOffensivePlan(faction, owned);
+            }
+
+            urgentPlan.encirclementPriority = true;
+            this.offensivePlans.set(faction.id, urgentPlan);
+            this.offensivePlansCreated += 1;
+            const target = this.game.state.getTerritory(urgentPlan.targetTerritoryId);
+            this.game.addLogisticsEvent(`${faction.name} resserre l'encerclement de ${target.name}.`, faction.id, "combat");
+            return this.advanceOffensivePlan(faction, owned);
+        }
+
         redistributeRearSurplus(faction, owned, reservedSourceIds = new Set()) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
@@ -293,24 +333,37 @@
             const mapMiddleX = state.mapWidth / 2;
             const capitalSide = capital ? Math.sign(capital.center.x - mapMiddleX) : 0;
 
-            // Ce créneau d'expansion est indépendant de la limite habituelle des
-            // armées tactiques, mais une seule conquête neutre peut l'utiliser.
+            // Ces créneaux d'expansion sont indépendants de la limite habituelle des
+            // armées tactiques. Leur nombre suit la taille de la carte et de l'empire.
             const activeExpansions = state.armies.filter((army) => {
                 if (army.ownerId !== faction.id || army.isConvoy || army.reinforcementRouteId) return false;
                 const destination = state.getTerritory(army.finalTerritoryId ?? army.toTerritoryId);
                 return destination?.ownerId === null;
             });
-            // Avant le premier débarquement, toutes les forces suivent le même
-            // axe de sortie. Une fois la nouvelle île atteinte, deux conquêtes
-            // parallèles permettent d'y déployer rapidement la tête de pont.
+            // Avant le premier débarquement, toutes les forces suivent le même axe de
+            // sortie. Ensuite, plusieurs conquêtes peuvent déployer la tête de pont.
             const controlledIslandIds = new Set(owned
                 .map((territory) => territory.archipelagoIslandId)
                 .filter((islandId) => islandId !== null && islandId !== undefined));
             const hasArchipelagoLanding = controlledIslandIds.size > 1;
             const archipelagoOpening = state.mapType === "archipelago" && !hasArchipelagoLanding;
-            const maximumExpansions = state.mapType === "archipelago" && hasArchipelagoLanding ? 2 : 1;
+            const hasEnemyBorder = owned.some((territory) => territory.neighbors.some((neighborId) => {
+                const neighbor = state.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && neighbor.ownerId !== null &&
+                    !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id);
+            }));
+            // L'ouverture de l'Archipel reste concentrée; après le débarquement,
+            // l'expansion neutre suit les mêmes limites dynamiques que les autres cartes.
+            const maximumExpansions = archipelagoOpening
+                ? 1
+                : this.getMaximumNeutralExpansions(owned.length, { hasEnemyBorder });
             if (activeExpansions.length >= maximumExpansions) return false;
             const activeTargetIds = new Set(activeExpansions.map((army) => army.finalTerritoryId ?? army.toTerritoryId));
+            const activeSourceUseCounts = new Map();
+            activeExpansions.forEach((army) => activeSourceUseCounts.set(
+                army.fromTerritoryId,
+                (activeSourceUseCounts.get(army.fromTerritoryId) || 0) + 1
+            ));
 
             const candidates = [];
             owned.forEach((source) => {
@@ -355,7 +408,8 @@
                             (target.rareSite ? 20 : 0) +
                             (target.wonderId ? 90 : 0) +
                             projectedPower / defensePower * 5 -
-                            target.units * .12
+                            target.units * .12 -
+                            (activeSourceUseCounts.get(source.id) || 0) * 10
                     });
                 });
             });
@@ -1233,7 +1287,9 @@
                 return null;
             }
 
-            const maximumArmies = this.getMaximumTacticalArmies(owned.length);
+            // A closed pocket receives one emergency tactical slot. Otherwise a few
+            // unrelated convoys can leave an overwhelming encirclement idle.
+            const maximumArmies = this.getMaximumTacticalArmies(owned.length) + (plan.encirclementPriority ? 1 : 0);
             if (availableAtFront >= requiredUnits) {
                 if (capacityArmies.length >= maximumArmies) return false;
                 const attackUnits = Math.min(
@@ -1282,10 +1338,12 @@
             return true;
         }
 
-        findOffensivePlan(faction, owned) {
+        findOffensivePlan(faction, owned, options = {}) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
             const archipelagoOpening = this.isArchipelagoOpening(faction.id);
+            const encirclementOnly = options.encirclementOnly === true;
+            const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
             const candidates = [];
 
             owned.forEach((staging) => {
@@ -1297,11 +1355,24 @@
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id && !army.isConvoy && army.toTerritoryId === target.id)) return;
 
+                    const openTargetNeighbors = target.neighbors
+                        .map((territoryId) => state.getTerritory(territoryId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !target.isPathBlocked(neighbor.id));
+                    const encirclingSources = openTargetNeighbors
+                        .filter((neighbor) => neighbor.ownerId === faction.id);
+                    const encirclementRatio = encirclingSources.length / Math.max(1, openTargetNeighbors.length);
+                    if (encirclementOnly &&
+                        (target.ownerId === null || encirclingSources.length < 3 || encirclementRatio < 0.5)) return;
+
                     const requiredUnits = this.getCoordinatedAttackRequirement(faction, target);
                     const availableAtFront = Math.max(0, staging.units - this.getDefensiveReserve(faction.id, staging, profile.garrison));
                     const donors = this.rankOffensiveDonors(faction, owned, staging).slice(0, 3);
                     const combinedUnits = availableAtFront + donors.reduce((sum, donor) => sum + donor.surplus, 0);
                     if (combinedUnits < requiredUnits) return;
+
+                    const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
+                    const localPowerRatio = combinedUnits * attackMultiplier / defensePower;
+                    if (encirclementOnly && localPowerRatio < 1.25) return;
 
                     const type = C.TERRITORY_TYPES[target.terrain];
                     const strategicValue = (type.productionMultiplier - 1) * 12 +
@@ -1311,6 +1382,9 @@
                         (target.ownerId === null ? 1 : 5);
                     const pathCost = donors.reduce((sum, donor) => sum + donor.path.length - 1, 0);
                     const concentrationRatio = combinedUnits / Math.max(1, requiredUnits);
+                    const encirclementScore = target.ownerId !== null && encirclingSources.length >= 2
+                        ? encirclingSources.length * 10 + encirclementRatio * 35 + localPowerRatio * 6
+                        : 0;
                     candidates.push({
                         stagingTerritoryId: staging.id,
                         targetTerritoryId: target.id,
@@ -1319,7 +1393,8 @@
                         createdAt: state.elapsedMs,
                         lastActionAt: state.elapsedMs,
                         expiresAt: state.elapsedMs + 90000,
-                        score: strategicValue + concentrationRatio * 9 - pathCost * 0.8 - requiredUnits * 0.012
+                        encirclementScore,
+                        score: strategicValue + concentrationRatio * 9 + encirclementScore * 0.35 - pathCost * 0.8 - requiredUnits * 0.012
                     });
                 });
             });
@@ -1623,6 +1698,19 @@
             return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 8), 2, 5);
         }
 
+        getMaximumNeutralExpansions(territoryCount, options = {}) {
+            const ownedCount = Math.max(0, Number(territoryCount) || 0);
+            const totalLandCount = Math.max(0, Number(options.totalLandCount) ||
+                this.game.state.territories.filter((territory) => !territory.isImpassable).length);
+            if (ownedCount <= 1) return 1;
+
+            // Deux axes apparaissent rapidement. Un empire mûr en obtient un troisième
+            // sur la carte actuelle et un quatrième seulement sur la grande carte.
+            let maximum = ownedCount < 12 ? 2 : totalLandCount >= 150 ? 4 : 3;
+            if (options.hasEnemyBorder) maximum = Math.min(maximum, 2);
+            return C.Geometry.clamp(maximum, 1, 4);
+        }
+
         chooseResearch(faction) {
             if (faction.research.activeTechnologyId) return false;
             const completed = faction.research.completedTechnologyIds;
@@ -1639,6 +1727,12 @@
                 3: "attack",
                 4: "defense"
             }[profileId] || "construction";
+            const hasUnlockedAbility = completed.some((technologyId) =>
+                Boolean(C.TECHNOLOGIES[technologyId]?.effects?.unlockAbility));
+            const needsOpeningAbility = !hasUnlockedAbility && completed.length >= 2;
+            const preferredOpeningAbility = [1, 2].includes(profileId)
+                ? "ability-missile"
+                : "ability-reinforcement";
             const airportCount = this.game.state.getTerritoriesOwnedBy(faction.id)
                 .filter((territory) => territory.terrain === "airport").length;
             const availableWonderDefinitions = available
@@ -1649,10 +1743,13 @@
                 const score = (technology) =>
                     (technology.branchId === preferredBranch ? 20 : 0) +
                     (technology.branchId === "abilities" ? 10 : 0) +
+                    (needsOpeningAbility && technology.effects?.unlockAbility
+                        ? 34 + (technology.id === preferredOpeningAbility ? 8 : 0)
+                        : 0) +
                     (technology.id === "construction-railroad" ? 18 : 0) +
                     (technology.id === "construction-agriculture" ? 16 : 0) +
                     (technology.id === "ability-blackout" ? 14 : 0) +
-                    (technology.id === "attack-heavy-bomber" ? airportCount > 0 ? 24 + Math.min(airportCount, 3) * 6 : -16 : 0) +
+                    (technology.id === "attack-heavy-bomber" ? airportCount > 0 ? 42 + Math.min(airportCount, 3) * 6 : -16 : 0) +
                     (technology.effects?.unlockWonder === preferredWonder?.id ? 85 : technology.effects?.unlockWonder ? -12 : 0) +
                     technology.tier * 3 + this.randomBetween(0, 2);
                 return score(b) - score(a);

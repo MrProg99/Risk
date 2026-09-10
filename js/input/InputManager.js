@@ -9,10 +9,12 @@
             this.teamSignalListeners = new Set();
             this.signalMode = false;
             this.rightClickListeners = new Set();
+            this.middleClickListeners = new Set();
             this.quickTransferListeners = new Set();
             this.continuousTransferListeners = new Set();
             this.viewChangeListeners = new Set();
             this.lastPointerDown = null;
+            this.middlePointerDown = null;
             this.rightDrag = null;
             this.suppressContextMenuUntil = 0;
             this.bindEvents();
@@ -35,6 +37,12 @@
                         drag.sourceTerritoryIds
                     );
                     this.canvas.style.cursor = drag.moved ? "alias" : "crosshair";
+                    return;
+                }
+
+                if (this.middlePointerDown) {
+                    const drag = this.middlePointerDown;
+                    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) drag.moved = true;
                     return;
                 }
 
@@ -62,6 +70,17 @@
             });
 
             this.canvas.addEventListener("pointerdown", (event) => {
+                if (event.button === 1) {
+                    event.preventDefault();
+                    this.middlePointerDown = {
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        moved: false,
+                        pointerId: event.pointerId
+                    };
+                    this.capturePointer(event.pointerId);
+                    return;
+                }
                 if (event.button === 2 && (event.ctrlKey || event.altKey)) {
                     event.preventDefault();
                     this.suppressContextMenuUntil = performance.now() + 1000;
@@ -103,6 +122,15 @@
             });
 
             this.canvas.addEventListener("pointerup", (event) => {
+                if (event.button === 1) {
+                    const click = this.middlePointerDown;
+                    this.middlePointerDown = null;
+                    this.releasePointer(event.pointerId);
+                    if (!click || click.moved) return;
+                    const territory = this.renderer.getTerritoryAt(event.clientX, event.clientY);
+                    this.middleClickListeners.forEach((listener) => listener(territory, event));
+                    return;
+                }
                 if (event.button === 2 && this.rightDrag) {
                     const drag = this.rightDrag;
                     const target = this.renderer.getTerritoryAt(event.clientX, event.clientY);
@@ -137,6 +165,7 @@
 
             this.canvas.addEventListener("pointercancel", (event) => {
                 this.lastPointerDown = null;
+                this.middlePointerDown = null;
                 this.rightDrag = null;
                 this.renderer.clearTransferPreview();
                 this.releasePointer(event.pointerId);
@@ -158,6 +187,10 @@
                 }
                 const territory = this.renderer.getTerritoryAt(event.clientX, event.clientY);
                 this.rightClickListeners.forEach((listener) => listener(territory, event));
+            });
+
+            this.canvas.addEventListener("auxclick", (event) => {
+                if (event.button === 1) event.preventDefault();
             });
         }
 
@@ -192,6 +225,11 @@
         onTerritoryRightClick(listener) {
             this.rightClickListeners.add(listener);
             return () => this.rightClickListeners.delete(listener);
+        }
+
+        onTerritoryMiddleClick(listener) {
+            this.middleClickListeners.add(listener);
+            return () => this.middleClickListeners.delete(listener);
         }
 
         onQuickTransfer(listener) {
