@@ -1722,6 +1722,7 @@
         for (let tick = 0; tick < 24; tick += 1) aiGame.update(1000);
         check(aiGame.aiSystem.ordersIssued > 0, "les factions contrôlées par l’ordinateur prennent des décisions");
         check(aiGame.aiSystem.getMaximumTacticalArmies(6) === 2 && aiGame.aiSystem.getMaximumTacticalArmies(15) === 5 && aiGame.aiSystem.getMaximumTacticalArmies(30) === 8, "la capacité tactique de l’IA progresse avec son empire jusqu’à huit armées simultanées");
+        check(aiGame.aiSystem.getMaximumRearRedistributions(6) === 2 && aiGame.aiSystem.getMaximumRearRedistributions(24) === 3 && aiGame.aiSystem.getMaximumRearRedistributions(48) === 5, "la capacité de redistribution arrière de l’IA augmente avec son empire jusqu’à cinq convois simultanés");
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
@@ -1760,6 +1761,139 @@
         const neutralExpansionArmy = expansionGame.state.armies.find((army) => army.ownerId === 2 && army.toTerritoryId === expansionTarget.id);
         check(opportunisticExpansion && neutralExpansionArmy && expansionSource.units < 55, "l’IA attaque immédiatement un territoire neutre de 10 unités depuis une garnison de 55");
         check(expansionGame.state.armies.length === 5 && expansionGame.aiSystem.opportunisticExpansionsLaunched === 1, "la conquête opportuniste possède son propre créneau malgré quatre armées et un plan offensif actifs");
+
+        const islandExpansionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "archipelago", enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        islandExpansionGame.newGame(424246);
+        const islandExpansionState = islandExpansionGame.state;
+        islandExpansionState.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 1;
+            territory.units = 80;
+            territory.isCapital = false;
+        });
+        const islandSource = islandExpansionState.territories.find((territory) => {
+            if (territory.isImpassable) return false;
+            return territory.neighbors.filter((neighborId) => {
+                const neighbor = islandExpansionState.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+            }).length >= 2;
+        });
+        const islandTargets = islandSource.neighbors
+            .map((neighborId) => islandExpansionState.getTerritory(neighborId))
+            .filter((territory) => territory && !territory.isImpassable && !islandSource.isPathBlocked(territory.id))
+            .slice(0, 2);
+        const islandGateway = islandTargets[0];
+        const islandDiversion = islandTargets[1];
+        islandSource.ownerId = 2;
+        islandSource.units = 90;
+        islandSource.isCapital = true;
+        islandExpansionState.getFaction(2).capitalTerritoryId = islandSource.id;
+        islandGateway.ownerId = null;
+        islandGateway.units = 5;
+        islandGateway.terrain = "plain";
+        islandGateway.isArchipelagoPassage = true;
+        islandGateway.archipelagoIslandId = null;
+        islandDiversion.ownerId = null;
+        islandDiversion.units = 5;
+        islandDiversion.terrain = "industry";
+        islandDiversion.isArchipelagoPassage = false;
+        islandDiversion.archipelagoIslandId = islandSource.archipelagoIslandId;
+        const islandFaction = islandExpansionState.getFaction(2);
+        check(islandExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(islandFaction, [islandSource]) &&
+            islandExpansionState.armies[0]?.toTerritoryId === islandGateway.id,
+        "sur un Archipel, l’IA privilégie le passage interinsulaire à une ressource intérieure");
+        const islandSupport = islandExpansionState.territories.find((territory) =>
+            !territory.isImpassable && ![islandSource.id, islandGateway.id, islandDiversion.id].includes(territory.id));
+        islandSupport.ownerId = 2;
+        islandSupport.units = 5;
+        islandSupport.isArchipelagoPassage = false;
+        islandSupport.archipelagoIslandId = `${islandSource.archipelagoIslandId}-foothold`;
+        islandSource.units = 90;
+        check(islandExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(islandFaction, [islandSource, islandSupport]) &&
+            islandExpansionState.armies.filter((army) => army.ownerId === 2 && !army.isConvoy).length === 2 &&
+            islandExpansionState.armies.some((army) => army.toTerritoryId === islandDiversion.id),
+        "l’IA peut mener deux conquêtes neutres prudentes en parallèle pour sortir plus vite de son île");
+
+        const islandRaceGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "archipelago", enableAI: true, enableWorldEvents: false, timeScale: 1 });
+        islandRaceGame.newGame(424246);
+        islandRaceGame.random = () => 0.5;
+        const islandRaceCapital = islandRaceGame.state.getTerritory(islandRaceGame.state.getFaction(2).capitalTerritoryId);
+        const islandRaceStart = islandRaceCapital.archipelagoIslandId;
+        const initialGatewayDistance = islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceCapital, 100);
+        let islandRaceElapsed = 0;
+        let islandRaceLanding = null;
+        let islandRacePassageAt = null;
+        const islandRaceMilestones = [`${initialGatewayDistance}@0`];
+        let islandRaceLastDistance = initialGatewayDistance;
+        while (islandRaceElapsed < 300000 && !islandRaceLanding) {
+            islandRaceGame.update(250);
+            islandRaceElapsed += 250;
+            const currentGatewayDistance = Math.min(...islandRaceGame.state.getTerritoriesOwnedBy(2).map((territory) =>
+                islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100)));
+            if (currentGatewayDistance < islandRaceLastDistance) {
+                const advancingUnits = islandRaceGame.state.getTerritoriesOwnedBy(2)
+                    .filter((territory) => islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100) === currentGatewayDistance)
+                    .map((territory) => territory.units)
+                    .join("/");
+                islandRaceMilestones.push(`${currentGatewayDistance}@${islandRaceElapsed}:${advancingUnits}`);
+                islandRaceLastDistance = currentGatewayDistance;
+            }
+            if (islandRacePassageAt === null && islandRaceGame.state.getTerritoriesOwnedBy(2).some((territory) => territory.isArchipelagoPassage)) {
+                islandRacePassageAt = islandRaceElapsed;
+            }
+            islandRaceLanding = islandRaceGame.state.getTerritoriesOwnedBy(2).find((territory) =>
+                territory.archipelagoIslandId !== null && territory.archipelagoIslandId !== islandRaceStart);
+        }
+        const islandRaceOwned = islandRaceGame.state.getTerritoriesOwnedBy(2);
+        const islandRacePassages = islandRaceOwned.filter((territory) => territory.isArchipelagoPassage).length;
+        const islandRaceGatewayDistance = Math.min(...islandRaceOwned.map((territory) =>
+            islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100)));
+        const islandRaceFront = islandRaceOwned.filter((territory) =>
+            islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100) === islandRaceGatewayDistance);
+        const islandRaceRouteDistances = islandRaceGame.state.reinforcementRoutes
+            .filter((route) => route.ownerId === 2)
+            .map((route) => `${islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceGame.state.getTerritory(route.fromTerritoryId), 100)}>${islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceGame.state.getTerritory(route.toTerritoryId), 100)}`);
+        const islandRaceArmyTargets = islandRaceGame.state.armies.filter((army) => army.ownerId === 2)
+            .map((army) => `${army.units}:${islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceGame.state.getTerritory(army.finalTerritoryId ?? army.toTerritoryId), 100)}`);
+        const islandRacePlan = islandRaceGame.aiSystem.offensivePlans.get(2);
+        const islandRacePlanDescription = islandRacePlan
+            ? `${islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceGame.state.getTerritory(islandRacePlan.stagingTerritoryId), 100)}>${islandRaceGame.aiSystem.getArchipelagoGatewayDistance(2, islandRaceGame.state.getTerritory(islandRacePlan.targetTerritoryId), 100)}`
+            : "aucun";
+        check(Boolean(islandRaceLanding) && islandRaceElapsed <= 180000, `en situation réelle 1 contre 1, l’IA atteint une autre île en moins de 180 secondes (progression ${islandRaceMilestones.join(",")}, passage ${islandRacePassageAt} ms, arrivée ${islandRaceElapsed} ms, passage initial à ${initialGatewayDistance}, front à ${islandRaceGatewayDistance} avec ${islandRaceFront.map((territory) => `${territory.units}-${territory.productionMode}`).join("/")} unités, ${islandRaceOwned.length} territoires, ${islandRacePassages} passages, armées ${islandRaceArmyTargets.join("/")}, routes ${islandRaceRouteDistances.join("/")}, plan ${islandRacePlanDescription})`);
+        const islandExitSamples = [11111, 22222, 33333, 44444].map((seed) => {
+            const sampleGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "archipelago", enableAI: true, enableWorldEvents: false, timeScale: 1 });
+            sampleGame.newGame(seed);
+            sampleGame.random = () => 0.5;
+            const sampleCapital = sampleGame.state.getTerritory(sampleGame.state.getFaction(2).capitalTerritoryId);
+            const startIslandId = sampleCapital.archipelagoIslandId;
+            const gatewayDistance = sampleGame.aiSystem.getArchipelagoGatewayDistance(2, sampleCapital, 100);
+            let elapsed = 0;
+            let passageAt = null;
+            let lastDistance = gatewayDistance;
+            const milestones = [`${gatewayDistance}@0`];
+            while (elapsed < 300000 && !sampleGame.state.getTerritoriesOwnedBy(2).some((territory) =>
+                territory.archipelagoIslandId !== null && territory.archipelagoIslandId !== startIslandId)) {
+                sampleGame.update(250);
+                elapsed += 250;
+                const currentDistance = Math.min(...sampleGame.state.getTerritoriesOwnedBy(2).map((territory) =>
+                    sampleGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100)));
+                if (currentDistance < lastDistance) {
+                    const front = sampleGame.state.getTerritoriesOwnedBy(2)
+                        .filter((territory) => sampleGame.aiSystem.getArchipelagoGatewayDistance(2, territory, 100) === currentDistance)
+                        .map((territory) => `${territory.units}-${territory.terrain}`)
+                        .join("/");
+                    milestones.push(`${currentDistance}@${elapsed}:${front}`);
+                    lastDistance = currentDistance;
+                }
+                if (passageAt === null && sampleGame.state.getTerritoriesOwnedBy(2).some((territory) => territory.isArchipelagoPassage)) {
+                    passageAt = elapsed;
+                }
+            }
+            const escaped = sampleGame.state.getTerritoriesOwnedBy(2).some((territory) =>
+                territory.archipelagoIslandId !== null && territory.archipelagoIslandId !== startIslandId);
+            return { seed, elapsed: escaped ? elapsed : Infinity, gatewayDistance, passageAt, milestones };
+        });
+        check(islandExitSamples.every((sample) => sample.elapsed <= 180000),
+            `l’IA quitte aussi son île sur plusieurs cartes Archipel (${islandExitSamples.map((sample) => `${sample.seed}:${sample.elapsed}/d${sample.gatewayDistance}/p${sample.passageAt}[${sample.milestones.join("|")}]`).join(", ")})`);
 
         const decisiveGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
         decisiveGame.newGame(727272);

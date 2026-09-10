@@ -143,7 +143,20 @@
 
             // Waiting for a convoy does not consume a decision. Keep the gathering
             // force and its contributors out of unrelated logistics while it travels.
-            const pendingPlan = this.offensivePlans.get(faction.id);
+            let pendingPlan = this.offensivePlans.get(faction.id);
+            if (!pendingPlan && state.mapType === "archipelago") {
+                const breakoutPlan = this.findOffensivePlan(faction, owned);
+                const breakoutTarget = breakoutPlan && state.getTerritory(breakoutPlan.targetTerritoryId);
+                if (breakoutPlan && this.getArchipelagoExpansionScore(faction.id, breakoutTarget) > 0) {
+                    this.offensivePlans.set(faction.id, breakoutPlan);
+                    this.offensivePlansCreated += 1;
+                    const staging = state.getTerritory(breakoutPlan.stagingTerritoryId);
+                    this.game.addLogisticsEvent(`${faction.name} ouvre la route des îles vers ${breakoutTarget.name} et rassemble ses forces à ${staging.name}.`, faction.id, "combat");
+                    const breakoutAction = this.advanceOffensivePlan(faction, owned);
+                    if (breakoutAction === true) return true;
+                    pendingPlan = this.offensivePlans.get(faction.id) || null;
+                }
+            }
             const reservedSourceIds = new Set(pendingPlan
                 ? [pendingPlan.stagingTerritoryId, ...(pendingPlan.contributorIds || [])]
                 : []);
@@ -156,7 +169,8 @@
             // d'ordres tactiques. Sans cette distinction, quelques unités de
             // production en transit suffisent à bloquer toutes les offensives.
             const movingArmies = state.armies.filter((army) =>
-                army.ownerId === factionId && !army.reinforcementRouteId).length;
+                army.ownerId === factionId && !army.reinforcementRouteId &&
+                army.logisticsPurpose !== "rear-redistribution").length;
             const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (movingArmies >= maximumArmies) return false;
 
@@ -197,7 +211,8 @@
         launchDecisiveAttack(faction, owned) {
             const state = this.game.state;
             const movingArmies = state.armies.filter((army) =>
-                army.ownerId === faction.id && !army.reinforcementRouteId).length;
+                army.ownerId === faction.id && !army.reinforcementRouteId &&
+                army.logisticsPurpose !== "rear-redistribution").length;
             if (movingArmies >= this.getMaximumTacticalArmies(owned.length)) return false;
 
             const attack = this.findBestAttack(faction, owned, {
@@ -217,7 +232,8 @@
 
             const activeRedistributions = state.armies.filter((army) =>
                 army.ownerId === faction.id && army.isConvoy && !army.reinforcementRouteId && army.logisticsPurpose === "rear-redistribution");
-            if (activeRedistributions.length >= 2) return false;
+            const maximumRedistributions = this.getMaximumRearRedistributions(owned.length);
+            if (activeRedistributions.length >= maximumRedistributions) return false;
 
             const activeSourceIds = new Set(activeRedistributions.map((army) => army.fromTerritoryId));
             const candidates = [];
@@ -234,7 +250,7 @@
                     (source.rareSite ? 5 : 0) +
                     (source.wonderId || source.wonderConstruction ? 28 : 0);
                 const surplus = source.units - this.getDefensiveReserve(faction.id, source, reserve);
-                if (surplus < 12) return;
+                if (surplus < 8) return;
 
                 targets.slice(0, 4).forEach((targetEntry) => {
                     const target = targetEntry.territory;
@@ -254,7 +270,7 @@
             candidates.sort((first, second) => second.score - first.score);
             const best = candidates[0];
             if (!best) return false;
-            const units = Math.max(8, Math.floor(best.surplus * .7));
+            const units = Math.max(6, Math.floor(best.surplus * .85));
             const result = this.game.executeCommand({
                 type: "SEND_REINFORCEMENT_ROUTE",
                 playerId: faction.id,
@@ -279,34 +295,62 @@
 
             // Ce créneau d'expansion est indépendant de la limite habituelle des
             // armées tactiques, mais une seule conquête neutre peut l'utiliser.
-            const expansionAlreadyMoving = state.armies.some((army) => {
+            const activeExpansions = state.armies.filter((army) => {
                 if (army.ownerId !== faction.id || army.isConvoy || army.reinforcementRouteId) return false;
                 const destination = state.getTerritory(army.finalTerritoryId ?? army.toTerritoryId);
                 return destination?.ownerId === null;
             });
-            if (expansionAlreadyMoving) return false;
+            // Avant le premier débarquement, toutes les forces suivent le même
+            // axe de sortie. Une fois la nouvelle île atteinte, deux conquêtes
+            // parallèles permettent d'y déployer rapidement la tête de pont.
+            const controlledIslandIds = new Set(owned
+                .map((territory) => territory.archipelagoIslandId)
+                .filter((islandId) => islandId !== null && islandId !== undefined));
+            const hasArchipelagoLanding = controlledIslandIds.size > 1;
+            const archipelagoOpening = state.mapType === "archipelago" && !hasArchipelagoLanding;
+            const maximumExpansions = state.mapType === "archipelago" && hasArchipelagoLanding ? 2 : 1;
+            if (activeExpansions.length >= maximumExpansions) return false;
+            const activeTargetIds = new Set(activeExpansions.map((army) => army.finalTerritoryId ?? army.toTerritoryId));
 
             const candidates = [];
             owned.forEach((source) => {
-                const available = source.units - this.getDefensiveReserve(faction.id, source, profile.garrison);
-                if (available < 2) return;
+                const defensiveReserve = this.getDefensiveReserve(faction.id, source, profile.garrison);
+                const touchesEnemy = source.neighbors.some((neighborId) => {
+                    const neighbor = state.getTerritory(neighborId);
+                    return neighbor && !neighbor.isImpassable && neighbor.ownerId !== null &&
+                        !this.game.areAllied(neighbor.ownerId, faction.id) && !source.isPathBlocked(neighbor.id);
+                });
                 source.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
                     if (!target || target.isImpassable || target.ownerId !== null || source.isPathBlocked(target.id)) return;
+                    if (activeTargetIds.has(target.id)) return;
+                    // Tant que l'IA n'a pas atteint la première liaison, une petite
+                    // conquête latérale ne doit pas détourner toute l'expédition.
+                    if (archipelagoOpening && !this.isArchipelagoGatewayAdvance(faction.id, source, target)) return;
+                    const archipelagoScore = this.getArchipelagoExpansionScore(faction.id, target);
+                    const safeExpeditionPush = state.mapType === "archipelago" && !hasArchipelagoLanding &&
+                        archipelagoScore > 0 && !touchesEnemy && defensiveReserve <= profile.garrison;
+                    const available = source.units - (safeExpeditionPush ? 1 : defensiveReserve);
+                    if (available < 2) return;
                     const defensePower = Math.max(1, target.units * this.game.getDefenseMultiplier(target));
-                    const required = Math.ceil((defensePower / Math.max(attackMultiplier, .1)) * profile.safety) + 1;
+                    const expansionSafety = archipelagoScore > 0 ? Math.min(profile.safety, 1.08) : profile.safety;
+                    const required = Math.ceil((defensePower / Math.max(attackMultiplier, .1)) * expansionSafety) + 1;
                     const projectedPower = available * attackMultiplier;
-                    if (available < required || projectedPower < defensePower * 1.5) return;
+                    const minimumPowerRatio = archipelagoScore > 0 ? 1.12 : 1.5;
+                    if (available < required || projectedPower < defensePower * minimumPowerRatio) return;
 
                     const targetSide = Math.sign(target.center.x - mapMiddleX);
                     const sameHourglassSide = state.mapType === "hourglass" && capitalSide !== 0 && targetSide === capitalSide;
                     const type = C.TERRITORY_TYPES[target.terrain];
-                    const decisiveUnits = Math.ceil((defensePower * 1.65) / Math.max(attackMultiplier, .1));
+                    const decisiveRatio = archipelagoScore > 0 ? 1.28 : 1.65;
+                    const decisiveUnits = Math.ceil((defensePower * decisiveRatio) / Math.max(attackMultiplier, .1));
+                    const expeditionUnits = archipelagoScore > 0 ? available : 0;
                     candidates.push({
                         source,
                         target,
-                        units: C.Geometry.clamp(Math.max(required, decisiveUnits), 1, available),
+                        units: C.Geometry.clamp(Math.max(required, decisiveUnits, expeditionUnits), 1, available),
                         score: (sameHourglassSide ? 100 : 0) +
+                            archipelagoScore +
                             (type.productionMultiplier - 1) * 18 +
                             (target.rareSite ? 20 : 0) +
                             (target.wonderId ? 90 : 0) +
@@ -330,6 +374,71 @@
             this.ordersIssued += 1;
             this.opportunisticExpansionsLaunched += 1;
             return true;
+        }
+
+        getArchipelagoExpansionScore(factionId, target) {
+            const state = this.game.state;
+            if (state.mapType !== "archipelago" || !target) return 0;
+            const ownedIslandIds = new Set(state.getTerritoriesOwnedBy(factionId)
+                .map((territory) => territory.archipelagoIslandId)
+                .filter((islandId) => islandId !== null && islandId !== undefined));
+            // Une liaison ou une tête de pont sur une nouvelle île doit passer
+            // avant une ressource ordinaire située au fond de l'île actuelle.
+            if (target.isArchipelagoPassage && !this.game.areAllied(target.ownerId, factionId)) return 320;
+            if (target.archipelagoIslandId !== null && target.archipelagoIslandId !== undefined &&
+                !ownedIslandIds.has(target.archipelagoIslandId)) return 380;
+
+            const gatewayDistance = this.getArchipelagoGatewayDistance(factionId, target, 12);
+            return Number.isFinite(gatewayDistance) ? Math.max(0, 13 - gatewayDistance) * 18 : 0;
+        }
+
+        isArchipelagoOpening(factionId) {
+            const state = this.game.state;
+            if (state.mapType !== "archipelago") return false;
+            const owned = state.getTerritoriesOwnedBy(factionId);
+            const controlledIslandIds = new Set(owned
+                .map((territory) => territory.archipelagoIslandId)
+                .filter((islandId) => islandId !== null && islandId !== undefined));
+            return controlledIslandIds.size <= 1;
+        }
+
+        isArchipelagoGatewayAdvance(factionId, source, target) {
+            if (!source || !target || this.game.state.mapType !== "archipelago") return false;
+            if (target.isArchipelagoPassage && !this.game.areAllied(target.ownerId, factionId)) return true;
+
+            const ownedIslandIds = new Set(this.game.state.getTerritoriesOwnedBy(factionId)
+                .map((territory) => territory.archipelagoIslandId)
+                .filter((islandId) => islandId !== null && islandId !== undefined));
+            if (target.archipelagoIslandId !== null && target.archipelagoIslandId !== undefined &&
+                !ownedIslandIds.has(target.archipelagoIslandId)) return true;
+
+            const sourceDistance = this.getArchipelagoGatewayDistance(factionId, source, 12);
+            const targetDistance = this.getArchipelagoGatewayDistance(factionId, target, 12);
+            return Number.isFinite(targetDistance) && targetDistance < sourceDistance;
+        }
+
+        getArchipelagoGatewayDistance(factionId, origin, maximumDistance = 12) {
+            if (this.game.state.mapType !== "archipelago" || !origin) return Infinity;
+            const ownedIslandIds = new Set(this.game.state.getTerritoriesOwnedBy(factionId)
+                .map((territory) => territory.archipelagoIslandId)
+                .filter((islandId) => islandId !== null && islandId !== undefined));
+            const visited = new Set([origin.id]);
+            let frontier = [origin];
+            for (let distance = 0; distance <= maximumDistance && frontier.length; distance += 1) {
+                if (frontier.some((territory) =>
+                    (territory.isArchipelagoPassage && !this.game.areAllied(territory.ownerId, factionId)) ||
+                    (territory.archipelagoIslandId !== null && territory.archipelagoIslandId !== undefined &&
+                        !ownedIslandIds.has(territory.archipelagoIslandId)))) return distance;
+                const next = [];
+                frontier.forEach((territory) => territory.neighbors.forEach((neighborId) => {
+                    if (visited.has(neighborId) || territory.isPathBlocked(neighborId)) return;
+                    visited.add(neighborId);
+                    const neighbor = this.game.state.getTerritory(neighborId);
+                    if (neighbor && !neighbor.isImpassable) next.push(neighbor);
+                }));
+                frontier = next;
+            }
+            return Infinity;
         }
 
         getFoodTerritoryLimit(territoryCount, foodRatio) {
@@ -1115,6 +1224,8 @@
             const availableAtFront = Math.max(0, staging.units - this.getDefensiveReserve(faction.id, staging, profile.garrison));
             const tacticalArmies = state.armies.filter((army) =>
                 army.ownerId === faction.id && !army.reinforcementRouteId);
+            const capacityArmies = tacticalArmies.filter((army) =>
+                army.logisticsPurpose !== "rear-redistribution");
             const attackAlreadyLaunched = tacticalArmies.some((army) =>
                 !army.isConvoy && army.toTerritoryId === target.id);
             if (attackAlreadyLaunched) {
@@ -1124,7 +1235,7 @@
 
             const maximumArmies = this.getMaximumTacticalArmies(owned.length);
             if (availableAtFront >= requiredUnits) {
-                if (tacticalArmies.length >= maximumArmies) return false;
+                if (capacityArmies.length >= maximumArmies) return false;
                 const attackUnits = Math.min(
                     availableAtFront,
                     Math.max(requiredUnits, Math.floor(availableAtFront * 0.92))
@@ -1142,7 +1253,7 @@
                 .filter((army) => army.finalTerritoryId === staging.id)
                 .reduce((sum, army) => sum + army.units, 0);
             if (availableAtFront + incomingUnits >= requiredUnits) return false;
-            if (tacticalArmies.length >= maximumArmies) return false;
+            if (capacityArmies.length >= maximumArmies) return false;
 
             const donors = this.rankOffensiveDonors(faction, owned, staging, plan.contributorIds);
             const donor = donors[0];
@@ -1174,12 +1285,15 @@
         findOffensivePlan(faction, owned) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
+            const archipelagoOpening = this.isArchipelagoOpening(faction.id);
             const candidates = [];
 
             owned.forEach((staging) => {
                 staging.neighbors.forEach((neighborId) => {
                     const target = state.getTerritory(neighborId);
                     if (!target || target.isImpassable || this.game.areAllied(target.ownerId, faction.id) || staging.isPathBlocked(target.id)) return;
+                    if (archipelagoOpening && target.ownerId === null &&
+                        !this.isArchipelagoGatewayAdvance(faction.id, staging, target)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id && !army.isConvoy && army.toTerritoryId === target.id)) return;
 
@@ -1191,6 +1305,7 @@
 
                     const type = C.TERRITORY_TYPES[target.terrain];
                     const strategicValue = (type.productionMultiplier - 1) * 12 +
+                        this.getArchipelagoExpansionScore(faction.id, target) +
                         (target.rareSite ? 12 : 0) +
                         (target.wonderId ? 85 : 0) +
                         (target.ownerId === null ? 1 : 5);
@@ -1216,6 +1331,7 @@
         rankOffensiveDonors(faction, owned, staging, preferredContributorIds = []) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
+            const archipelagoOpening = this.isArchipelagoOpening(faction.id);
             return owned.map((territory) => {
                 if (territory.id === staging.id) return null;
                 const path = this.game.findOwnedPath(faction.id, territory.id, staging.id);
@@ -1226,7 +1342,9 @@
                         !neighbor.isImpassable &&
                         !this.game.areAllied(neighbor.ownerId, faction.id) &&
                         !territory.isPathBlocked(neighbor.id));
-                const reserve = profile.garrison + Math.min(8, hostileNeighbors.length * 3) + (territory.wonderId || territory.wonderConstruction ? 28 : 0);
+                const reserve = archipelagoOpening && hostileNeighbors.length === 0
+                    ? 1
+                    : profile.garrison + Math.min(8, hostileNeighbors.length * 3) + (territory.wonderId || territory.wonderConstruction ? 28 : 0);
                 const surplus = territory.units - this.getDefensiveReserve(faction.id, territory, reserve);
                 if (surplus < 2) return null;
                 const preferred = preferredContributorIds.includes(territory.id) ? 12 : 0;
@@ -1315,15 +1433,25 @@
 
         rankLogisticsTargets(faction, owned) {
             const state = this.game.state;
+            const archipelagoOpening = this.isArchipelagoOpening(faction.id);
+            const minimumGatewayDistance = archipelagoOpening
+                ? Math.min(...owned.map((territory) => this.getArchipelagoGatewayDistance(faction.id, territory, 12)))
+                : Infinity;
             return owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
                     .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id));
                 if (!hostileNeighbors.length) return null;
+                const hasActualEnemy = hostileNeighbors.some((neighbor) => neighbor.ownerId !== null);
+                if (archipelagoOpening && !hasActualEnemy &&
+                    this.getArchipelagoGatewayDistance(faction.id, territory, 12) > minimumGatewayDistance) return null;
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 const danger = hostileStrength / Math.max(1, territory.units);
                 const preferred = this.getProfile(faction.id).preferredTerrains.includes(territory.terrain) ? 1.5 : 0;
-                const score = danger * 9 + hostileNeighbors.length * 2.5 + (territory.rareSite ? 4 : 0) + (territory.wonderId || territory.wonderConstruction ? 22 : 0) + preferred;
+                const archipelagoPriority = hostileNeighbors.reduce((maximum, neighbor) =>
+                    Math.max(maximum, this.getArchipelagoExpansionScore(faction.id, neighbor)), 0);
+                const score = danger * 9 + hostileNeighbors.length * 2.5 + archipelagoPriority * 0.12 +
+                    (territory.rareSite ? 4 : 0) + (territory.wonderId || territory.wonderConstruction ? 22 : 0) + preferred;
                 return { territory, score };
             }).filter(Boolean).sort((a, b) => b.score - a.score);
         }
@@ -1346,6 +1474,7 @@
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
             const enemyOnly = options.enemyOnly === true;
+            const archipelagoOpening = this.isArchipelagoOpening(faction.id);
             const minimumPowerRatio = Math.max(0, Number(options.minimumPowerRatio) || 0);
             const attackMultiplier = this.game.getFactionAttackMultiplier(faction.id);
             const candidates = [];
@@ -1358,6 +1487,8 @@
                     const target = state.getTerritory(neighborId);
                     if (!target || target.isImpassable || this.game.areAllied(target.ownerId, faction.id)) return;
                     if (enemyOnly && target.ownerId === null) return;
+                    if (archipelagoOpening && target.ownerId === null &&
+                        !this.isArchipelagoGatewayAdvance(faction.id, source, target)) return;
                     if (source.isPathBlocked(target.id)) return;
                     if (state.armies.some((army) =>
                         army.ownerId === faction.id &&
@@ -1374,6 +1505,7 @@
                     if (powerRatio < minimumPowerRatio) return;
                     let score = powerRatio * 7 - required * 0.08;
                     score += target.ownerId === null ? 6 : 2;
+                    score += this.getArchipelagoExpansionScore(faction.id, target);
                     score += (type.productionMultiplier - 1) * 18;
                     score += target.rareSite ? 18 : 0;
                     score += target.wonderId ? 95 : 0;
@@ -1399,13 +1531,22 @@
         findBestReinforcement(faction, owned, reservedSourceIds = new Set()) {
             const state = this.game.state;
             const profile = this.getProfile(faction.id);
+            const archipelagoOpening = this.isArchipelagoOpening(faction.id);
+            const minimumGatewayDistance = archipelagoOpening
+                ? Math.min(...owned.map((territory) => this.getArchipelagoGatewayDistance(faction.id, territory, 12)))
+                : Infinity;
             const borderTerritories = owned.map((territory) => {
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
                     .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
                 const hostileStrength = hostileNeighbors.reduce((sum, neighbor) => sum + neighbor.units, 0);
                 return { territory, hostileNeighbors, hostileStrength };
-            }).filter((entry) => entry.hostileNeighbors.length > 0);
+            }).filter((entry) => {
+                if (!entry.hostileNeighbors.length) return false;
+                const hasActualEnemy = entry.hostileNeighbors.some((neighbor) => neighbor.ownerId !== null);
+                return !archipelagoOpening || hasActualEnemy ||
+                    this.getArchipelagoGatewayDistance(faction.id, entry.territory, 12) <= minimumGatewayDistance;
+            });
 
             borderTerritories.sort((a, b) => {
                 const dangerA = a.hostileStrength / Math.max(1, a.territory.units);
@@ -1476,6 +1617,10 @@
 
         getMaximumTacticalArmies(territoryCount) {
             return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 3), 1, 8);
+        }
+
+        getMaximumRearRedistributions(territoryCount) {
+            return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 8), 2, 5);
         }
 
         chooseResearch(faction) {
