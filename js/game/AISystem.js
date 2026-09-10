@@ -347,16 +347,30 @@
                 .filter((islandId) => islandId !== null && islandId !== undefined));
             const hasArchipelagoLanding = controlledIslandIds.size > 1;
             const archipelagoOpening = state.mapType === "archipelago" && !hasArchipelagoLanding;
-            const hasEnemyBorder = owned.some((territory) => territory.neighbors.some((neighborId) => {
-                const neighbor = state.getTerritory(neighborId);
-                return neighbor && !neighbor.isImpassable && neighbor.ownerId !== null &&
-                    !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id);
-            }));
+            const enemyBorderIds = new Set();
+            const ownBorderTerritories = [];
+            owned.forEach((territory) => {
+                let touchesEnemy = false;
+                territory.neighbors.forEach((neighborId) => {
+                    const neighbor = state.getTerritory(neighborId);
+                    if (!neighbor || neighbor.isImpassable || neighbor.ownerId === null ||
+                        this.game.areAllied(neighbor.ownerId, faction.id) || territory.isPathBlocked(neighbor.id)) return;
+                    enemyBorderIds.add(neighbor.id);
+                    touchesEnemy = true;
+                });
+                if (touchesEnemy) ownBorderTerritories.push(territory);
+            });
+            const hasEnemyBorder = enemyBorderIds.size > 0;
+            const hostileBorderPower = [...enemyBorderIds]
+                .reduce((sum, territoryId) => sum + state.getTerritory(territoryId).units, 0);
+            const ownBorderPower = ownBorderTerritories
+                .reduce((sum, territory) => sum + territory.units * this.game.getDefenseMultiplier(territory), 0);
+            const underEnemyPressure = hasEnemyBorder && hostileBorderPower > ownBorderPower * 1.10;
             // L'ouverture de l'Archipel reste concentrée; après le débarquement,
             // l'expansion neutre suit les mêmes limites dynamiques que les autres cartes.
             const maximumExpansions = archipelagoOpening
                 ? 1
-                : this.getMaximumNeutralExpansions(owned.length, { hasEnemyBorder });
+                : this.getMaximumNeutralExpansions(owned.length, { hasEnemyBorder, underEnemyPressure });
             if (activeExpansions.length >= maximumExpansions) return false;
             const activeTargetIds = new Set(activeExpansions.map((army) => army.finalTerritoryId ?? army.toTerritoryId));
             const activeSourceUseCounts = new Map();
@@ -427,6 +441,11 @@
             if (!result.ok) return false;
             this.ordersIssued += 1;
             this.opportunisticExpansionsLaunched += 1;
+            // Fill the remaining strategic axes in the same decision. Previously the
+            // capacity was larger, but only one order left every several seconds.
+            if (activeExpansions.length + 1 < maximumExpansions) {
+                this.launchOpportunisticNeutralExpansion(faction, owned);
+            }
             return true;
         }
 
@@ -1707,7 +1726,8 @@
             // Deux axes apparaissent rapidement. Un empire mûr en obtient un troisième
             // sur la carte actuelle et un quatrième seulement sur la grande carte.
             let maximum = ownedCount < 12 ? 2 : totalLandCount >= 150 ? 4 : 3;
-            if (options.hasEnemyBorder) maximum = Math.min(maximum, 2);
+            if (options.underEnemyPressure) maximum = Math.min(maximum, 2);
+            else if (options.hasEnemyBorder) maximum = Math.min(maximum, 3);
             return C.Geometry.clamp(maximum, 1, 4);
         }
 

@@ -1811,8 +1811,9 @@
             aiGame.aiSystem.getMaximumNeutralExpansions(6) === 2 &&
             aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 110 }) === 3 &&
             aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170 }) === 4 &&
-            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170, hasEnemyBorder: true }) === 2,
-        "les axes d’expansion neutre augmentent avec l’empire et la carte, puis diminuent au contact de l’ennemi");
+            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170, hasEnemyBorder: true }) === 3 &&
+            aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 170, hasEnemyBorder: true, underEnemyPressure: true }) === 2,
+        "les axes d’expansion augmentent avec l’empire et ne retombent à deux que sous une véritable pression ennemie");
         check(aiGame.aiSystem.researchChoicesMade > 0 && aiGame.state.factions.filter((faction) => faction.id !== 1).every((faction) => faction.research.activeTechnologyId || faction.research.completedTechnologyIds.length), "chaque IA choisit et fait progresser sa propre recherche");
         check(aiGame.state.events.some((event) => /Technocrates|Horde|Nomades/.test(event.message) && /attaque|renforce/.test(event.message)), "les ordres de l’ordinateur apparaissent dans le journal tactique");
 
@@ -1845,10 +1846,10 @@
         parallelExpansionState.nextArmyId = 1;
         parallelExpansionState.getFaction(2).capitalTerritoryId = parallelHomes[0].id;
         const parallelExpansionFaction = parallelExpansionState.getFaction(2);
-        const parallelOrders = [0, 1, 2].map(() => parallelExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(parallelExpansionFaction, parallelHomes));
-        check(parallelOrders.every(Boolean) && parallelExpansionState.armies.length === 3 &&
+        const parallelExpansionWave = parallelExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(parallelExpansionFaction, parallelHomes);
+        check(parallelExpansionWave && parallelExpansionState.armies.length === 3 &&
             !parallelExpansionGame.aiSystem.launchOpportunisticNeutralExpansion(parallelExpansionFaction, parallelHomes),
-        "un empire établi peut lancer trois conquêtes neutres simultanées sur la carte actuelle");
+        "une seule décision d’un empire établi lance une vague de trois conquêtes neutres sur la carte actuelle");
 
         const expansionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
         expansionGame.newGame(717171);
