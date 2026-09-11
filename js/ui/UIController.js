@@ -19,6 +19,9 @@
             this.researchTreeKey = null;
             this.victoryScreenPresented = false;
             this.elements = this.collectElements();
+            this.replay = this.elements.replayCanvas && C.VictoryReplayController
+                ? new C.VictoryReplayController(game, this.elements)
+                : null;
             this.bindEvents();
             this.unsubscribe = game.subscribe((change) => this.handleGameChange(change));
         }
@@ -56,6 +59,14 @@
                 victoryObserve: byId("victory-observe"),
                 victoryRestart: byId("victory-restart"),
                 matchSummary: byId("match-summary"),
+                replayCanvas: byId("victory-replay-canvas"),
+                replayEvent: byId("victory-replay-event"),
+                replayTime: byId("victory-replay-time"),
+                replayLegend: byId("victory-replay-legend"),
+                replayStart: byId("victory-replay-start"),
+                replayPlay: byId("victory-replay-play"),
+                replayRange: byId("victory-replay-range"),
+                replaySpeeds: [...document.querySelectorAll("[data-replay-speed]")],
                 abilityMissile: byId("ability-missile"),
                 abilityMissileStatus: byId("ability-missile-status"),
                 abilityReinforcement: byId("ability-reinforcement"),
@@ -382,6 +393,7 @@
             this.elements.matchSummary.hidden = true;
             this.victoryScreenPresented = true;
             document.body.classList.add("victory-open");
+            this.replay?.open();
             this.elements.victoryObserve.focus();
         }
 
@@ -395,6 +407,7 @@
             if (!this.elements.victoryScreen) return;
             this.elements.victoryScreen.hidden = true;
             document.body.classList.remove("victory-open");
+            this.replay?.close(reset);
             if (reset) this.victoryScreenPresented = false;
             this.elements.matchSummary.hidden = reset || this.game.state.winnerTeamId === null;
             if (!reset && !this.elements.matchSummary.hidden) this.elements.matchSummary.focus();

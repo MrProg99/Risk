@@ -86,6 +86,7 @@
             });
             this.assignRareSites();
             this.assignInstallations();
+            state.matchTimeline.reset(state.territories);
             this.aiSystem.reset();
             this.eventSystem.reset();
             const playerFaction = state.getFaction(this.playerId);
@@ -820,6 +821,7 @@
             if (command.type === "BATCH_SEND_REINFORCEMENTS") return this.sendBatchReinforcements(command);
             if (command.type === "BATCH_CREATE_CONTINUOUS_REINFORCEMENT_ROUTES") return this.createContinuousReinforcementRoutesBatch(command);
             if (command.type === "CONVERGE_CONTINUOUS_REINFORCEMENTS") return this.convergeContinuousReinforcements(command);
+            if (command.type === "STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY") return this.stopContinuousReinforcementsToTerritory(command);
             if (command.type === "BUILD_RAILROAD") return this.buildRailroad(command);
             if (command.type === "BUILD_TERRITORY_BUILDING") return this.buildTerritoryBuilding(command);
             if (command.type === "BUILD_WONDER") return this.buildWonder(command);
@@ -1692,6 +1694,44 @@
             });
         }
 
+        getContinuousRoutesToTerritory(playerId, toTerritoryId) {
+            const normalizedPlayerId = Number(playerId);
+            const normalizedTerritoryId = Number(toTerritoryId);
+            return this.state.reinforcementRoutes.filter((route) =>
+                route.active &&
+                route.ownerId === normalizedPlayerId &&
+                route.toTerritoryId === normalizedTerritoryId);
+        }
+
+        stopContinuousReinforcementsToTerritory(command) {
+            const playerId = Number(command.playerId);
+            const destination = this.state.getTerritory(command.toTerritoryId);
+            if (!this.state.getFaction(playerId) || !destination || destination.isImpassable || destination.ownerId !== playerId) {
+                return { ok: false, error: "Choisissez l’un de vos territoires comme destination à libérer." };
+            }
+
+            const routes = this.getContinuousRoutesToTerritory(playerId, destination.id);
+            if (!routes.length) {
+                return { ok: false, error: "Aucun de vos flux continus n’arrive actuellement sur ce territoire." };
+            }
+
+            routes.forEach((route) => {
+                route.active = false;
+                route.isPaused = false;
+                route.pauseReason = null;
+            });
+            this.state.touch();
+            const faction = this.state.getFaction(playerId);
+            this.addLogisticsEvent(`${faction.name} ferme ${routes.length} flux continu${routes.length > 1 ? "s" : ""} vers ${destination.name}.`, playerId);
+            this.notify({
+                type: "CONTINUOUS_REINFORCEMENTS_TO_TERRITORY_STOPPED",
+                playerId,
+                routeIds: routes.map((route) => route.id),
+                toTerritoryId: destination.id
+            });
+            return { ok: true, routes, stoppedCount: routes.length };
+        }
+
         cancelContinuousReinforcementRoute(command) {
             const route = this.state.getReinforcementRoute(command.routeId);
             const playerId = Number(command.playerId);
@@ -1976,6 +2016,12 @@
                     target.airstrikeCooldownMs = 0;
                     target.airstrikeLastAction = null;
                     this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, null);
+                    this.state.matchTimeline.recordCapture({
+                        timeMs: this.state.elapsedMs,
+                        territoryId: target.id,
+                        previousOwnerId: previousOwner?.id ?? null,
+                        ownerId: null
+                    });
                     const defeated = previousOwner ? previousOwner.name : "les forces locales";
                     this.addEvent(`Les Barbares mettent ${target.name} à sac face à ${defeated} — le territoire redevient neutre.`, "world");
                     if (wasCapital && previousOwner) {
@@ -2008,6 +2054,12 @@
                 target.airstrikeCooldownMs = target.terrain === "airport" ? this.airstrikeCooldownMs : 0;
                 target.airstrikeLastAction = null;
                 this.handleWonderOwnershipChange(target, previousOwner?.id ?? null, attacker.id);
+                this.state.matchTimeline.recordCapture({
+                    timeMs: this.state.elapsedMs,
+                    territoryId: target.id,
+                    previousOwnerId: previousOwner?.id ?? null,
+                    ownerId: attacker.id
+                });
                 attacker.statistics.peakTerritories = Math.max(
                     attacker.statistics.peakTerritories,
                     this.state.getTerritoriesOwnedBy(attacker.id).length
@@ -2469,7 +2521,10 @@
                 })),
                 abilityActions: this.state.abilityActions.map((action) => ({ ...action })),
                 blackoutStates: this.state.blackoutStates.map((blackout) => ({ ...blackout })),
-                events: this.state.events.slice(-60)
+                events: this.state.events.slice(-60),
+                ...(this.state.winnerTeamId !== null
+                    ? { matchTimeline: this.state.matchTimeline.toJSON() }
+                    : {})
             };
         }
 
@@ -2690,6 +2745,9 @@
             this.state.scheduledWorldEventType = snapshot.scheduledWorldEventType || null;
             this.state.worldEventWarningIssued = Boolean(snapshot.worldEventWarningIssued);
             this.state.lastWorldEventType = snapshot.lastWorldEventType || null;
+            if (snapshot.matchTimeline) {
+                this.state.matchTimeline = C.MatchTimeline.fromJSON(snapshot.matchTimeline);
+            }
             this.state.winnerTeamId = snapshot.winnerTeamId ?? null;
             this.state.victoryAtMs = snapshot.victoryAtMs ?? null;
             this.state.revision = Number(snapshot.revision) || 0;

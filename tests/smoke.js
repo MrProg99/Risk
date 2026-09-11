@@ -489,6 +489,28 @@
         check(!groupGame.state.reinforcementRoutes.some((route) => route.active && route.fromTerritoryId === convergenceFoodSource.id),
             "un territoire qui ne recrute pas ne reçoit aucune ligne de convergence");
 
+        const incomingRoutesBeforeStop = groupGame.getContinuousRoutesToTerritory(1, groupDestination.id).length;
+        const movingArmiesBeforeStop = groupGame.state.armies.length;
+        const compactStopResult = groupGame.executeCommand({
+            type: "STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY",
+            playerId: 1,
+            toTerritoryId: groupDestination.id
+        });
+        check(compactStopResult.ok && compactStopResult.stoppedCount === incomingRoutesBeforeStop &&
+            groupGame.getContinuousRoutesToTerritory(1, groupDestination.id).length === 0,
+        "une commande compacte ferme tous les flux continus du joueur vers un territoire");
+        check(groupGame.state.armies.length === movingArmiesBeforeStop,
+            "arrêter les futurs transferts ne supprime aucune armée déjà en déplacement");
+        check(!groupGame.executeCommand({ type: "STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY", playerId: 1, toTerritoryId: groupDestination.id }).ok,
+            "arrêter une destination sans flux actif renvoie une erreur claire");
+        const restoredConvergence = groupGame.executeCommand({
+            type: "CONVERGE_CONTINUOUS_REINFORCEMENTS",
+            playerId: 1,
+            toTerritoryId: groupDestination.id
+        });
+        check(restoredConvergence.ok && groupGame.getContinuousRoutesToTerritory(1, groupDestination.id).length === convergenceSources.length,
+            "les flux peuvent être recréés normalement après un arrêt général");
+
         const logisticsCard = document.createElement("section");
         logisticsCard.className = "map-card";
         const logisticsCanvas = document.createElement("canvas");
@@ -510,11 +532,18 @@
             close: () => { signalMenuClosed += 1; }
         });
         logisticsMiddleHandler(groupDestination, { clientX: 20, clientY: 20 });
-        check(!logisticsController.menu.hidden && !logisticsController.convergeButton.disabled && signalMenuClosed === 1 && /territoires? en recrutement/.test(logisticsController.description.textContent),
-            "le clic milieu ouvre un sous-menu qui annonce les sources capables de converger");
+        check(!logisticsController.menu.hidden && !logisticsController.convergeButton.disabled && !logisticsController.stopButton.disabled && signalMenuClosed === 1 && /territoires? en recrutement/.test(logisticsController.description.textContent),
+            "le clic milieu ouvre un sous-menu qui annonce la convergence et les transferts pouvant être arrêtés");
         logisticsController.convergeButton.click();
         check(logisticsController.menu.hidden && logisticsSelectionCleared === 1 && /flux de nouveaux renforts convergent/.test(logisticsToast),
             "le choix du sous-menu exécute la convergence puis désélectionne la carte");
+        logisticsMiddleHandler(groupDestination, { clientX: 20, clientY: 20 });
+        const movingArmiesBeforeMenuStop = groupGame.state.armies.length;
+        logisticsController.stopButton.click();
+        check(logisticsController.menu.hidden && logisticsSelectionCleared === 2 && /flux vers .*arrêtés/.test(logisticsToast) &&
+            groupGame.getContinuousRoutesToTerritory(1, groupDestination.id).length === 0 &&
+            groupGame.state.armies.length === movingArmiesBeforeMenuStop,
+        "le second choix du menu arrête tous les transferts futurs, conserve les convois partis et désélectionne la carte");
         logisticsCard.remove();
 
         const hostileGroupTarget = groupTerritories[4];
@@ -608,6 +637,19 @@
         remoteTeamGame.newGame(313131);
         check(remoteTeamGame.applyNetworkSnapshot(networkSnapshot) && remoteTeamGame.state.getTerritory(teamDestination.id).units === teamDestination.units, "un instantané réseau léger reproduit l’état dynamique chez un autre joueur");
         check(remoteTeamGame.state.getTerritory(teamSource.id).productionMode === "food", "le mode alimentaire est synchronisé dans les instantanés multijoueurs");
+        check(!Object.prototype.hasOwnProperty.call(networkSnapshot, "matchTimeline"), "la chronologie complète n’alourdit pas les instantanés Firebase pendant une partie active");
+
+        const timelineUnit = new C.MatchTimeline().reset([
+            { id: 1, ownerId: 1 },
+            { id: 2, ownerId: null }
+        ]);
+        timelineUnit.recordCapture({ timeMs: 5000, territoryId: 2, previousOwnerId: null, ownerId: 1 });
+        timelineUnit.recordCapture({ timeMs: 9000, territoryId: 1, previousOwnerId: 1, ownerId: 2 });
+        const restoredTimelineUnit = C.MatchTimeline.fromJSON(timelineUnit.toJSON());
+        check(restoredTimelineUnit.getOwnershipAt(4999).get(2) === null && restoredTimelineUnit.getOwnershipAt(5000).get(2) === 1,
+            "la chronologie reconstruit exactement la propriété avant et après une conquête");
+        check(restoredTimelineUnit.getCaptureCountAt(7000) === 1 && restoredTimelineUnit.getLatestCaptureAt(10000).ownerId === 2,
+            "la chronologie compacte conserve l’ordre et le temps des conquêtes");
 
         const victoryGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, aiFactionIds: [2], enableWorldEvents: false, timeScale: 1 });
         victoryGame.newGame(323232);
@@ -654,6 +696,9 @@
         check(victorStats.attacksLaunched === 1 && victorStats.territoriesCaptured === 1 && victorStats.battlesWon === 1 && victorStats.enemyUnitsDestroyed === 1, "l’offensive finale comptabilise attaque, capture, victoire et défenseurs détruits");
         check(defeatedStats.territoriesLost === 1 && defeatedStats.unitsLost === 1, "le joueur éliminé conserve ses pertes dans le bilan final");
         check(victoryGame.state.winnerTeamId === 1 && victoryGame.paused && victoryGame.state.victoryAtMs !== null && gameOverNotice?.winnerTeamId === 1, "la domination de la dernière équipe termine et fige immédiatement la partie");
+        const finalCaptureEvent = victoryGame.state.matchTimeline.getLatestCaptureAt(victoryGame.state.victoryAtMs);
+        check(finalCaptureEvent?.territoryId === victoryTarget.id && finalCaptureEvent.ownerId === 1 && finalCaptureEvent.previousOwnerId === 2,
+            "la conquête décisive est enregistrée dans le replay avant la fin de partie");
         check(victoryGame.setPaused(false) === false && victoryGame.paused, "une partie terminée ne peut pas être relancée depuis le bouton de pause");
         const finalStandings = victoryGame.getFinalStandings();
         check(finalStandings.length === 2 && finalStandings[0].factionId === 1 && finalStandings[1].isAI, "le classement final place les vainqueurs en tête et inclut les joueurs IA");
@@ -665,6 +710,47 @@
             if (change.type === "GAME_OVER") remoteGameOverNotice = change;
         });
         check(remoteVictoryGame.applyNetworkSnapshot(victorySnapshot) && remoteGameOverNotice?.winnerTeamId === 1 && remoteVictoryGame.state.getFaction(1).statistics.territoriesCaptured === 1, "la victoire et toutes les statistiques sont synchronisées vers les joueurs multijoueurs");
+        check(victorySnapshot.matchTimeline?.captures.length === 1 && remoteVictoryGame.state.matchTimeline.getLatestCaptureAt(Infinity)?.territoryId === victoryTarget.id,
+            "l’instantané final transmet le replay officiel complet aux autres joueurs");
+
+        const replayContainer = document.createElement("section");
+        const replayCanvas = document.createElement("canvas");
+        const replayEvent = document.createElement("p");
+        const replayTime = document.createElement("output");
+        const replayLegend = document.createElement("div");
+        const replayStart = document.createElement("button");
+        const replayPlay = document.createElement("button");
+        const replayRange = document.createElement("input");
+        replayRange.type = "range";
+        const replaySpeeds = [1, 2, 4].map((speed) => {
+            const button = document.createElement("button");
+            button.dataset.replaySpeed = speed;
+            return button;
+        });
+        replayContainer.append(replayCanvas, replayEvent, replayTime, replayLegend, replayStart, replayPlay, replayRange, ...replaySpeeds);
+        document.body.append(replayContainer);
+        const replayController = new C.VictoryReplayController(victoryGame, {
+            replayCanvas,
+            replayEvent,
+            replayTime,
+            replayLegend,
+            replayStart,
+            replayPlay,
+            replayRange,
+            replaySpeeds
+        });
+        replayController.open();
+        check(replayController.currentTimeMs === victoryGame.state.victoryAtMs && replayController.owners.get(victoryTarget.id) === 1 && /Fin de la campagne/.test(replayEvent.textContent),
+            "le lecteur de fin de partie s’ouvre sur la carte finale et le bon nombre de conquêtes");
+        replayStart.click();
+        check(replayController.currentTimeMs === 0 && /Déploiement initial/.test(replayEvent.textContent),
+            "le bouton Début restitue le déploiement initial sans modifier la partie terminée");
+        replayController.setTime(finalCaptureEvent.timeMs, true);
+        replayController.setSpeed(4);
+        check(replayController.owners.get(victoryTarget.id) === 1 && replayController.activeCapture?.territoryId === victoryTarget.id && replaySpeeds[2].classList.contains("active"),
+            "le curseur et les vitesses du replay reconstruisent puis signalent la conquête choisie");
+        replayController.close(true);
+        replayContainer.remove();
 
         const victoryElements = {
             victoryOutcome: document.createElement("p"),

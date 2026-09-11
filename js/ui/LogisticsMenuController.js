@@ -21,13 +21,21 @@
             this.convergeButton.textContent = "⇥ Faire converger les nouveaux renforts";
             this.convergeButton.addEventListener("click", () => this.converge());
 
+            this.stopDescription = document.createElement("small");
+            this.stopDescription.className = "logistics-stop-description";
+            this.stopButton = document.createElement("button");
+            this.stopButton.type = "button";
+            this.stopButton.className = "logistics-stop";
+            this.stopButton.textContent = "⊘ Arrêter tous les transferts vers ce territoire";
+            this.stopButton.addEventListener("click", () => this.stopTransfers());
+
             this.cancelButton = document.createElement("button");
             this.cancelButton.type = "button";
             this.cancelButton.className = "logistics-cancel";
             this.cancelButton.textContent = "Annuler · Échap";
             this.cancelButton.addEventListener("click", () => this.close());
 
-            this.menu.append(this.heading, this.description, this.convergeButton, this.cancelButton);
+            this.menu.append(this.heading, this.description, this.convergeButton, this.stopDescription, this.stopButton, this.cancelButton);
             this.card.append(this.menu);
 
             input.onTerritoryMiddleClick((territory, event) => this.open(territory, event));
@@ -45,6 +53,10 @@
                     "TERRITORY_CAPTURED",
                     "TERRITORY_MODE_CHANGED",
                     "TERRITORY_MODE_BATCH_CHANGED",
+                    "REINFORCEMENT_ROUTE_CREATED",
+                    "REINFORCEMENT_ROUTE_CANCELLED",
+                    "CONTINUOUS_REINFORCEMENT_ROUTES_BATCH_CREATED",
+                    "CONTINUOUS_REINFORCEMENTS_TO_TERRITORY_STOPPED",
                     "RAILROAD_CONSTRUCTION_STARTED",
                     "BUILDING_CONSTRUCTION_STARTED",
                     "WONDER_CONSTRUCTION_STARTED"
@@ -58,6 +70,10 @@
 
         getSources(target = this.getTarget()) {
             return target ? this.game.getContinuousConvergenceSources(this.game.playerId, target.id) : [];
+        }
+
+        getIncomingRoutes(target = this.getTarget()) {
+            return target ? this.game.getContinuousRoutesToTerritory(this.game.playerId, target.id) : [];
         }
 
         open(territory, event) {
@@ -75,7 +91,10 @@
             this.refreshMenu();
             this.menu.hidden = false;
             this.position(event?.clientX, event?.clientY, territory);
-            (this.convergeButton.disabled ? this.cancelButton : this.convergeButton).focus();
+            const focusTarget = !this.convergeButton.disabled
+                ? this.convergeButton
+                : !this.stopButton.disabled ? this.stopButton : this.cancelButton;
+            focusTarget.focus();
         }
 
         refreshMenu() {
@@ -89,6 +108,15 @@
             this.convergeButton.title = count
                 ? `Créer ou rediriger ${count} flux continus vers ${target.name}`
                 : "Aucune source disponible";
+
+            const incomingCount = this.getIncomingRoutes(target).length;
+            this.stopDescription.textContent = incomingCount
+                ? `${incomingCount} de vos flux continu${incomingCount > 1 ? "s" : ""} arrive${incomingCount > 1 ? "nt" : ""} ici. Les convois déjà partis termineront leur trajet.`
+                : "Aucun de vos flux continus n’a actuellement ce territoire comme destination.";
+            this.stopButton.disabled = incomingCount === 0;
+            this.stopButton.title = incomingCount
+                ? `Fermer ${incomingCount} flux vers ${target.name}`
+                : "Aucun transfert continu à arrêter";
         }
 
         position(clientX, clientY, territory) {
@@ -129,6 +157,30 @@
             const unchanged = result.unchangedCount || 0;
             const detail = unchanged ? ` · ${unchanged} déjà en place` : "";
             this.ui.showToast(`${count} flux de nouveaux renforts convergent vers ${target.name}${detail}.`);
+        }
+
+        stopTransfers() {
+            const target = this.getTarget();
+            const incomingCount = target ? this.getIncomingRoutes(target).length : 0;
+            if (!target || !incomingCount) {
+                this.refreshMenu();
+                return;
+            }
+            const result = this.game.executeCommand({
+                type: "STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY",
+                playerId: this.game.playerId,
+                toTerritoryId: target.id
+            });
+            if (!result.ok) return this.ui.showToast(result.error);
+
+            this.close();
+            this.ui.clearSelection();
+            if (result.pending) {
+                this.ui.showToast(`Arrêt des transferts vers ${target.name} transmis à l’hôte.`);
+                return;
+            }
+            const count = result.stoppedCount ?? incomingCount;
+            this.ui.showToast(`${count} flux vers ${target.name} arrêté${count > 1 ? "s" : ""}. Les convois déjà partis poursuivent leur trajet.`);
         }
 
         close() {

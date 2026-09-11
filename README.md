@@ -41,7 +41,9 @@ La partie se termine par **domination** dès qu’une seule équipe possède enc
 
 Chaque commandant, humain comme IA, possède une fiche statistique : territoires et armée finale, production finale, pic territorial, captures, territoires perdus, unités mobilisées, pertes, ennemis détruits, attaques lancées, combats gagnés, recherches et capacités utilisées. Le bouton **Voir la carte** masque le bilan sans reprendre la simulation; le bouton **Bilan** permet ensuite de le rouvrir. **Nouvelle campagne** retourne au lobby.
 
-En multijoueur, le résultat, l’heure de victoire et les statistiques sont inclus dans l’instantané autoritaire de l’hôte. Les règles Firebase existantes n’ont pas besoin d’être modifiées pour ces champs.
+Le bilan contient aussi une **chronologie territoriale** sans brouillard de guerre. Elle s’ouvre sur la carte finale; **Rejouer**, **Début**, le curseur et les vitesses ×1, ×2 ou ×4 permettent de revoir chaque changement de propriétaire. La conquête courante est mise en évidence, son événement est décrit et les compteurs de territoires de toutes les factions évoluent avec la carte. Il s’agit d’un état historique séparé : déplacer le curseur ne modifie jamais la partie terminée.
+
+En multijoueur, le résultat, l’heure de victoire, les statistiques et la chronologie officielle sont fournis par l’hôte. La chronologie compacte n’est ajoutée qu’à l’instantané final afin de ne pas augmenter le trafic Firebase pendant la partie. Les règles Firebase existantes n’ont pas besoin d’être modifiées pour ces champs.
 
 ## Nourriture et ravitaillement
 
@@ -96,7 +98,7 @@ Le raccourci direct consiste à maintenir **Alt**, appuyer avec le **bouton droi
 
 Il reste également possible de préparer un trajet au clic droit, d’activer **Flux continu**, puis de cliquer sur **Activer le flux continu**. Dans les deux cas, chaque unité produite ensuite par le territoire d’origine part automatiquement vers la destination. La garnison déjà présente n’est pas prélevée.
 
-Un **clic milieu** sur l’un de vos territoires ouvre le menu de convergence logistique. La commande **Faire converger les nouveaux renforts** crée ou redirige en une seule opération les flux de tous vos territoires actuellement affectés au recrutement et reliés à la destination par un chemin allié. Elle ne déplace jamais les garnisons déjà présentes et désactive le mode Hub des anciennes lignes redirigées. Les sources en nourriture, recherche ou construction ainsi que celles séparées par un obstacle sont ignorées. L’ordre compact `CONVERGE_CONTINUOUS_REINFORCEMENTS` est exécuté par l’hôte en multijoueur et ne nécessite aucune modification des règles Firebase.
+Un **clic milieu** sur l’un de vos territoires ouvre le menu de convergence logistique. La commande **Faire converger les nouveaux renforts** crée ou redirige en une seule opération les flux de tous vos territoires actuellement affectés au recrutement et reliés à la destination par un chemin allié. **Arrêter tous les transferts vers ce territoire** ferme plutôt tous vos flux continus dont il est la destination; les convois déjà partis terminent leur trajet. La convergence ne déplace jamais les garnisons déjà présentes et désactive le mode Hub des anciennes lignes redirigées. Les sources en nourriture, recherche ou construction ainsi que celles séparées par un obstacle sont ignorées. Les ordres compacts `CONVERGE_CONTINUOUS_REINFORCEMENTS` et `STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY` sont exécutés par l’hôte en multijoueur et ne nécessitent aucune modification des règles Firebase.
 
 La case **Tout relayer · Hub** transforme l’origine en relais logistique. Lors de l’activation, toute sa garnison disponible est expédiée en laissant une unité sur place. Ensuite, sa production et tous les renforts alliés qui y arrivent repartent automatiquement vers la destination. Les convois mémorisent les territoires déjà traversés afin d’interrompre une éventuelle boucle entre plusieurs hubs.
 

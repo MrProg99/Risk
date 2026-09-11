@@ -22,6 +22,7 @@
             this.nextTeamSignalId = 1;
             this.lastTeamSignalAtMs = {};
             this.events = [];
+            this.matchTimeline = new C.MatchTimeline();
             this.elapsedMs = 0;
             this.nextArmyId = 1;
             this.nextReinforcementRouteId = 1;
@@ -80,6 +81,7 @@
                 abilityActions: this.abilityActions.map((action) => ({ ...action })),
                 blackoutStates: this.blackoutStates.map((blackout) => ({ ...blackout })),
                 events: this.events.slice(),
+                matchTimeline: this.matchTimeline.toJSON(),
                 elapsedMs: this.elapsedMs,
                 nextArmyId: this.nextArmyId,
                 nextReinforcementRouteId: this.nextReinforcementRouteId,

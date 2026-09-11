@@ -170,6 +170,30 @@
                 </div>
             </header>
             <section class="victory-team" id="victory-team" aria-live="polite"></section>
+            <section class="victory-replay" id="victory-replay" aria-labelledby="victory-replay-title">
+                <header class="victory-replay-header">
+                    <div>
+                        <p class="eyebrow">Chronologie de la campagne</p>
+                        <h3 id="victory-replay-title">Progression territoriale</h3>
+                    </div>
+                    <p id="victory-replay-event" aria-live="polite">Déploiement initial des factions.</p>
+                </header>
+                <div class="victory-replay-map">
+                    <canvas id="victory-replay-canvas" aria-label="Carte animée de la progression territoriale"></canvas>
+                    <output id="victory-replay-time">00:00 / 00:00</output>
+                </div>
+                <div class="victory-replay-legend" id="victory-replay-legend"></div>
+                <div class="victory-replay-controls">
+                    <button class="button button-secondary replay-start" id="victory-replay-start" type="button">⏮ Début</button>
+                    <button class="button button-primary replay-play" id="victory-replay-play" type="button" aria-pressed="false">▶ Rejouer</button>
+                    <input id="victory-replay-range" type="range" min="0" max="1" step="1" value="0" aria-label="Position dans la chronologie de la partie">
+                    <div class="victory-replay-speeds" aria-label="Vitesse du replay">
+                        <button type="button" data-replay-speed="1" class="active" aria-pressed="true">×1</button>
+                        <button type="button" data-replay-speed="2" aria-pressed="false">×2</button>
+                        <button type="button" data-replay-speed="4" aria-pressed="false">×4</button>
+                    </div>
+                </div>
+            </section>
             <div class="victory-standings" id="victory-standings"></div>
             <footer class="victory-actions">
                 <button class="button button-secondary" id="victory-observe" type="button">Voir la carte</button>
@@ -317,7 +341,7 @@
 
                 <div class="map-corner map-help" id="map-help">
                     <span class="mouse-icon" aria-hidden="true"></span>
-                    <span>Shift + clic : groupe · Clic milieu : convergence · Clic droit : convoi · Ctrl + glisser droit : transfert · Alt + glisser droit : flux</span>
+                    <span>Shift + clic : groupe · Clic milieu : menu logistique · Clic droit : convoi · Ctrl + glisser droit : transfert · Alt + glisser droit : flux</span>
                 </div>
 
                 <div class="map-legend" aria-label="Légende des factions" id="faction-legend"></div>
@@ -485,6 +509,7 @@
     <script defer src="js/game/Faction.js"></script>
     <script defer src="js/game/Army.js"></script>
     <script defer src="js/game/ReinforcementRoute.js"></script>
+    <script defer src="js/game/MatchTimeline.js"></script>
     <script defer src="js/game/GameState.js"></script>
     <script defer src="js/game/MapGenerator.js"></script>
     <script defer src="js/game/CombatSystem.js"></script>
@@ -496,12 +521,14 @@
     <script defer src="js/render/TeamSignalRenderer.js"></script>
     <script defer src="js/render/MapRenderer.js"></script>
     <script defer src="js/render/MiniMapRenderer.js"></script>
+    <script defer src="js/render/ReplayMapRenderer.js"></script>
     <script defer src="js/input/InputManager.js"></script>
     <script defer src="js/ui/LobbyController.js"></script>
     <script defer src="js/network/FirebaseMultiplayer.js"></script>
     <script defer src="js/ui/UIController.js"></script>
     <script defer src="js/ui/TeamSignalController.js"></script>
     <script defer src="js/ui/LogisticsMenuController.js"></script>
+    <script defer src="js/ui/VictoryReplayController.js"></script>
     <script defer src="js/main.js"></script>
 </body>
 </html>
