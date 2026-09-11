@@ -17,6 +17,10 @@
             state.worldEvents = [];
             state.nextWorldEventId = 1;
             state.lastWorldEventType = null;
+            state.nextVolcanicEruptionAtMs = 0;
+            state.volcanicWarningIssued = false;
+            state.scheduledVolcanicTerritoryIds = [];
+            if (state.mapType === "volcano") this.scheduleNextVolcanicEruption(true);
             this.scheduleNext(true);
         }
 
@@ -24,6 +28,7 @@
             if (!this.enabled) return false;
             const state = this.game.state;
             let changed = this.expireEvents();
+            changed = this.updateVolcanicEruption() || changed;
             const remainingMs = state.nextWorldEventAtMs - state.elapsedMs;
 
             if (!state.worldEventWarningIssued && remainingMs <= this.warningLeadMs) {
@@ -49,10 +54,126 @@
         }
 
         triggerEvent(eventType) {
+            if (eventType === "volcanicEruption") return this.triggerVolcanicEruption();
             if (eventType === "famine") return this.triggerFamine();
             if (eventType === "barbarianRaid") return this.triggerBarbarianRaid();
             if (eventType === "wildfire") return this.triggerWildfire();
             return null;
+        }
+
+        updateVolcanicEruption() {
+            const state = this.game.state;
+            const definition = C.WORLD_EVENT_DEFINITIONS.volcanicEruption;
+            if (state.mapType !== "volcano" || !definition || state.nextVolcanicEruptionAtMs <= 0) return false;
+            const remainingMs = state.nextVolcanicEruptionAtMs - state.elapsedMs;
+            let changed = false;
+
+            if (!state.volcanicWarningIssued && remainingMs <= definition.warningLeadMs) {
+                state.volcanicWarningIssued = true;
+                state.scheduledVolcanicTerritoryIds = this.chooseVolcanicRockTargets();
+                const ringIds = this.getVolcanicRingTerritories().map((territory) => territory.id);
+                const warningIds = [...new Set(ringIds.concat(state.scheduledVolcanicTerritoryIds))];
+                this.game.addEvent(`ALERTE — ${definition.warning}`, "world");
+                this.game.notify({
+                    type: "WORLD_EVENT_WARNING",
+                    eventType: definition.id,
+                    startsInMs: Math.max(0, remainingMs),
+                    territoryIds: warningIds,
+                    rockTargetIds: state.scheduledVolcanicTerritoryIds.slice()
+                });
+                changed = true;
+            }
+
+            if (state.elapsedMs >= state.nextVolcanicEruptionAtMs) {
+                this.triggerVolcanicEruption();
+                this.scheduleNextVolcanicEruption(false);
+                changed = true;
+            }
+            return changed;
+        }
+
+        triggerVolcanicEruption() {
+            const state = this.game.state;
+            const definition = C.WORLD_EVENT_DEFINITIONS.volcanicEruption;
+            const crater = this.getVolcanoTerritories();
+            if (!definition || !crater.length) return null;
+            const ring = this.getVolcanicRingTerritories();
+            const rockTargets = state.scheduledVolcanicTerritoryIds.length
+                ? state.scheduledVolcanicTerritoryIds.map((id) => state.getTerritory(id)).filter(Boolean)
+                : this.chooseVolcanicRockTargets().map((id) => state.getTerritory(id)).filter(Boolean);
+            const impacts = [];
+            const damageTerritory = (territory, kind, minRatio, maxRatio) => {
+                if (!territory || territory.isImpassable) return;
+                const ratio = this.randomBetween(minRatio, maxRatio);
+                const damage = territory.units > 1
+                    ? Math.min(territory.units - 1, Math.max(1, Math.round(territory.units * ratio)))
+                    : 0;
+                if (damage > 0) {
+                    territory.units -= damage;
+                    this.game.recordUnitLoss(territory.ownerId, damage);
+                }
+                impacts.push({ territoryId: territory.id, kind, damage, ratio });
+            };
+
+            ring.forEach((territory) => damageTerritory(
+                territory,
+                "ring",
+                definition.ringDamageMinRatio,
+                definition.ringDamageMaxRatio
+            ));
+            rockTargets.forEach((territory) => damageTerritory(
+                territory,
+                "rock",
+                definition.rockDamageMinRatio,
+                definition.rockDamageMaxRatio
+            ));
+
+            const territoryIds = [...new Set(ring.map((territory) => territory.id).concat(rockTargets.map((territory) => territory.id)))];
+            const totalDamage = impacts.reduce((sum, impact) => sum + impact.damage, 0);
+            const worldEvent = this.registerEvent(definition.id, territoryIds, definition.visualDurationMs, {
+                craterTerritoryIds: crater.map((territory) => territory.id),
+                ringTerritoryIds: ring.map((territory) => territory.id),
+                rockTargetIds: rockTargets.map((territory) => territory.id),
+                impacts
+            });
+            this.game.addEvent(`ÉRUPTION : la Caldeira frappe ${territoryIds.length} territoires et détruit ${totalDamage} unités.`, "world");
+            state.scheduledVolcanicTerritoryIds = [];
+            state.volcanicWarningIssued = false;
+            return worldEvent;
+        }
+
+        chooseVolcanicRockTargets() {
+            const definition = C.WORLD_EVENT_DEFINITIONS.volcanicEruption;
+            const ringIds = new Set(this.getVolcanicRingTerritories().map((territory) => territory.id));
+            const candidates = C.Geometry.shuffle(this.getControlledLandTerritories().filter((territory) =>
+                territory.units > 1 && !ringIds.has(territory.id)), this.game.random);
+            const desired = C.Geometry.randomInt(this.game.random, definition.rockTargetMin, definition.rockTargetMax);
+            return candidates.slice(0, Math.min(desired, candidates.length)).map((territory) => territory.id);
+        }
+
+        getVolcanoTerritories() {
+            return this.game.state.territories.filter((territory) => territory.terrain === "volcano");
+        }
+
+        getVolcanicRingTerritories() {
+            const state = this.game.state;
+            const craterIds = new Set(this.getVolcanoTerritories().map((territory) => territory.id));
+            const ringIds = new Set();
+            craterIds.forEach((territoryId) => {
+                const territory = state.getTerritory(territoryId);
+                territory?.neighbors.forEach((neighborId) => {
+                    const neighbor = state.getTerritory(neighborId);
+                    if (neighbor && !neighbor.isImpassable && !craterIds.has(neighborId)) ringIds.add(neighborId);
+                });
+            });
+            return [...ringIds].map((territoryId) => state.getTerritory(territoryId)).filter(Boolean);
+        }
+
+        getVolcanicDangerTerritoryIds() {
+            const state = this.game.state;
+            if (state.mapType !== "volcano" || !state.volcanicWarningIssued || state.nextVolcanicEruptionAtMs <= state.elapsedMs) return new Set();
+            return new Set(this.getVolcanicRingTerritories().map((territory) => territory.id)
+                .concat(state.scheduledVolcanicTerritoryIds));
         }
 
         triggerFamine() {
@@ -187,7 +308,7 @@
 
         chooseNextEventType() {
             const state = this.game.state;
-            let definitions = Object.values(C.WORLD_EVENT_DEFINITIONS);
+            let definitions = Object.values(C.WORLD_EVENT_DEFINITIONS).filter((definition) => definition.weight > 0);
             const alternatives = definitions.filter((definition) => definition.id !== state.lastWorldEventType);
             if (alternatives.length) definitions = alternatives;
             const totalWeight = definitions.reduce((sum, definition) => sum + definition.weight, 0);
@@ -205,6 +326,17 @@
 
         randomBetween(min, max) {
             return C.Geometry.lerp(min, max, this.game.random());
+        }
+
+        scheduleNextVolcanicEruption(isFirstEvent) {
+            const state = this.game.state;
+            const definition = C.WORLD_EVENT_DEFINITIONS.volcanicEruption;
+            const delayMs = isFirstEvent
+                ? this.randomBetween(definition.firstDelayMinMs, definition.firstDelayMaxMs)
+                : this.randomBetween(definition.intervalMinMs, definition.intervalMaxMs);
+            state.nextVolcanicEruptionAtMs = state.elapsedMs + delayMs;
+            state.volcanicWarningIssued = false;
+            state.scheduledVolcanicTerritoryIds = [];
         }
     }
 

@@ -23,6 +23,7 @@
             this.isChokePoint = false;
             this.archipelagoIslandId = null;
             this.isArchipelagoPassage = false;
+            this.isVolcanicRing = false;
             this.airstrikeCooldownMs = 0;
             this.airstrikeLastAction = null;
             this.productionMode = "units";
@@ -71,6 +72,7 @@
                 isChokePoint: this.isChokePoint,
                 archipelagoIslandId: this.archipelagoIslandId,
                 isArchipelagoPassage: this.isArchipelagoPassage,
+                isVolcanicRing: this.isVolcanicRing,
                 airstrikeCooldownMs: this.airstrikeCooldownMs,
                 airstrikeLastAction: this.airstrikeLastAction ? { ...this.airstrikeLastAction } : null,
                 productionMode: this.productionMode,

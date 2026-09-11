@@ -32,6 +32,9 @@
             this.scheduledWorldEventType = null;
             this.worldEventWarningIssued = false;
             this.lastWorldEventType = null;
+            this.nextVolcanicEruptionAtMs = 0;
+            this.volcanicWarningIssued = false;
+            this.scheduledVolcanicTerritoryIds = [];
             this.revision = 0;
             this.winnerTeamId = null;
             this.victoryAtMs = null;
@@ -91,6 +94,9 @@
                 scheduledWorldEventType: this.scheduledWorldEventType,
                 worldEventWarningIssued: this.worldEventWarningIssued,
                 lastWorldEventType: this.lastWorldEventType,
+                nextVolcanicEruptionAtMs: this.nextVolcanicEruptionAtMs,
+                volcanicWarningIssued: this.volcanicWarningIssued,
+                scheduledVolcanicTerritoryIds: this.scheduledVolcanicTerritoryIds.slice(),
                 revision: this.revision,
                 winnerTeamId: this.winnerTeamId,
                 victoryAtMs: this.victoryAtMs

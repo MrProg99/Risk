@@ -2,6 +2,18 @@
     "use strict";
 
     C.TERRITORY_TYPES = {
+        volcano: {
+            id: "volcano",
+            name: "Volcan",
+            icon: "▲",
+            resource: "Magma",
+            weight: 0,
+            color: "#6f2c20",
+            productionMultiplier: 0,
+            foodCapacity: 0,
+            defenseMultiplier: 1,
+            bonuses: ["Cratère central totalement infranchissable", "Source des éruptions de la Caldeira"]
+        },
         lake: {
             id: "lake",
             name: "Lac",

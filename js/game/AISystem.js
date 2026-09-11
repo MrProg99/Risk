@@ -112,6 +112,8 @@
 
             this.chooseResearch(faction);
 
+            if (this.respondToVolcanicWarning(faction, owned)) return true;
+
             if (this.game.isFactionBlackoutActive(faction.id)) {
                 return this.respondToBlackout(faction, owned);
             }
@@ -198,6 +200,66 @@
                 return this.issueOrder(factionId, reinforcement.source.id, reinforcement.target.id, reinforcement.units);
             }
             return false;
+        }
+
+        respondToVolcanicWarning(faction, owned) {
+            const dangerIds = this.game.eventSystem.getVolcanicDangerTerritoryIds();
+            if (!dangerIds.size) return false;
+            const state = this.game.state;
+            const profile = this.getProfile(faction.id);
+
+            let cancelledDangerousRoute = false;
+            state.reinforcementRoutes.filter((route) =>
+                route.active && route.ownerId === faction.id && dangerIds.has(route.toTerritoryId))
+                .forEach((route) => {
+                    const result = this.game.executeCommand({
+                        type: "CANCEL_CONTINUOUS_REINFORCEMENT_ROUTE",
+                        playerId: faction.id,
+                        routeId: route.id
+                    });
+                    cancelledDangerousRoute = result.ok || cancelledDangerousRoute;
+                });
+
+            const evacuatingSourceIds = new Set(state.armies
+                .filter((army) => army.ownerId === faction.id && army.logisticsPurpose === "volcanic-evacuation")
+                .map((army) => army.fromTerritoryId));
+            const endangered = owned.filter((territory) =>
+                dangerIds.has(territory.id) &&
+                !evacuatingSourceIds.has(territory.id) &&
+                territory.units > profile.garrison + 5)
+                .sort((first, second) => second.units - first.units);
+
+            for (const source of endangered) {
+                const destinations = owned.filter((territory) => territory.id !== source.id && !dangerIds.has(territory.id))
+                    .map((territory) => {
+                        const path = this.game.findOwnedPath(faction.id, source.id, territory.id);
+                        if (!path) return null;
+                        const hostileNeighbors = territory.neighbors.filter((neighborId) => {
+                            const neighbor = state.getTerritory(neighborId);
+                            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id);
+                        }).length;
+                        return { territory, path, score: path.length * 10 + hostileNeighbors * 24 - Math.min(territory.units, 60) * 0.08 };
+                    })
+                    .filter(Boolean)
+                    .sort((first, second) => first.score - second.score);
+                const destination = destinations[0];
+                if (!destination) continue;
+                const localReserve = profile.garrison + (source.isCapital ? 8 : 0) + (source.wonderId ? 10 : 0);
+                const units = Math.floor(Math.max(0, source.units - localReserve) * 0.68);
+                if (units < 4) continue;
+                const result = this.game.executeCommand({
+                    type: "SEND_REINFORCEMENT_ROUTE",
+                    playerId: faction.id,
+                    fromTerritoryId: source.id,
+                    toTerritoryId: destination.territory.id,
+                    units
+                });
+                if (!result.ok) continue;
+                result.army.logisticsPurpose = "volcanic-evacuation";
+                this.ordersIssued += 1;
+                return true;
+            }
+            return cancelledDangerousRoute;
         }
 
         respondToBlackout(faction, owned) {

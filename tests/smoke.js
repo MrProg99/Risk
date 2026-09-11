@@ -143,6 +143,36 @@
                 generatedMap.territories.filter((territory) => territory.isArchipelagoPassage).length >= 4;
         });
         check(stableArchipelagoGeneration, "plusieurs graines Archipel conservent quatre îles et un réseau terrestre complet");
+        const calderaMap = game.mapGenerator.generate(424249, undefined, "volcano");
+        const craterTerritories = calderaMap.territories.filter((territory) => territory.terrain === "volcano");
+        const volcanicRing = calderaMap.territories.filter((territory) => territory.isVolcanicRing);
+        const craterIds = new Set(craterTerritories.map((territory) => territory.id));
+        const connectedCraterIds = new Set();
+        const pendingCraterIds = craterTerritories.length ? [craterTerritories[0].id] : [];
+        while (pendingCraterIds.length) {
+            const territoryId = pendingCraterIds.pop();
+            if (connectedCraterIds.has(territoryId)) continue;
+            connectedCraterIds.add(territoryId);
+            const territory = calderaMap.territories.find((candidate) => candidate.id === territoryId);
+            territory.neighbors.filter((neighborId) => craterIds.has(neighborId)).forEach((neighborId) => pendingCraterIds.push(neighborId));
+        }
+        check(calderaMap.mapType === "volcano" && craterTerritories.length === 5, "la carte Caldeira possède un cratère central de cinq zones");
+        check(craterTerritories.every((territory) => territory.isImpassable && territory.ownerId === null && territory.units === 0) && connectedCraterIds.size === craterTerritories.length, "le cratère forme un obstacle volcanique continu, neutre et infranchissable");
+        check(volcanicRing.length >= 5 && volcanicRing.every((territory) => !territory.isImpassable), "les terres directement exposées autour du volcan sont identifiées");
+        check(graphIsConnected(calderaMap.territories, true), "les armées peuvent contourner entièrement la Caldeira");
+        check(calderaMap.territories.filter((territory) => territory.terrain === "lake").every((territory) => !territory.isVolcanicRing), "aucun lac ne remplace la ceinture terrestre du volcan");
+        const stableCalderaGeneration = [15151, 25252, 35353, 45454, 55555].every((seed) => {
+            const generatedMap = game.mapGenerator.generate(seed, undefined, "volcano");
+            return generatedMap.territories.filter((territory) => territory.terrain === "volcano").length === 5 &&
+                generatedMap.territories.filter((territory) => territory.isVolcanicRing).length >= 5 &&
+                graphIsConnected(generatedMap.territories, true);
+        });
+        check(stableCalderaGeneration, "plusieurs graines Caldeira conservent un cratère complet et des terres contournables");
+        const largeCalderaMap = largeMapGame.mapGenerator.generate(424250, undefined, "volcano");
+        check(largeCalderaMap.territories.filter((territory) => territory.terrain === "volcano").length === 7 && graphIsConnected(largeCalderaMap.territories, true), "la grande Caldeira agrandit son cratère à sept zones sans couper la carte");
+        const calderaGame = new C.Game({ playerId: 1, mapType: "volcano", enableAI: false, enableWorldEvents: false });
+        calderaGame.newGame(424249);
+        check(calderaGame.state.factions.every((faction) => !calderaGame.state.getTerritoriesOwnedBy(faction.id)[0].isVolcanicRing), "les capitales de la Caldeira commencent loin de la zone d’éruption");
         const archipelagoGame = new C.Game({ playerId: 1, mapType: "archipelago", enableAI: false, enableWorldEvents: false });
         archipelagoGame.newGame(424246);
         const archipelagoStarts = archipelagoGame.state.factions.map((faction) => archipelagoGame.state.getTerritoriesOwnedBy(faction.id)[0]);
@@ -281,6 +311,7 @@
                     <input type="radio" name="mapType" value="standard">
                     <input type="radio" name="mapType" value="hourglass" checked>
                     <input type="radio" name="mapType" value="archipelago">
+                    <input type="radio" name="mapType" value="volcano">
                     <input type="radio" name="mapSize" value="standard">
                     <input type="radio" name="mapSize" value="large" checked>
                     <input type="radio" name="aiDifficulty" value="normal">
@@ -304,6 +335,8 @@
         check(submittedLobbyConfiguration.mapType === "hourglass", "le lobby transmet le type de carte Sablier au moteur");
         lobbyFixture.querySelector('input[name="mapType"][value="archipelago"]').checked = true;
         check(lobbyController.getConfiguration().mapType === "archipelago" && C.getMapTypeLabel("archipelago") === "ARCHIPEL", "le lobby et l’interface reconnaissent le type de carte Archipel");
+        lobbyFixture.querySelector('input[name="mapType"][value="volcano"]').checked = true;
+        check(lobbyController.getConfiguration().mapType === "volcano" && C.getMapTypeLabel("volcano") === "CALDEIRA", "le lobby et l’interface reconnaissent le type de carte Caldeira");
         check(submittedLobbyConfiguration.mapSize === "large", "le lobby transmet le choix Grande carte au moteur");
         check(submittedLobbyConfiguration.aiDifficulty === "hard" && submittedLobbyConfiguration.aiProductionMultiplier === 1.20, "le lobby transmet le niveau Difficile et son bonus de production");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
@@ -827,11 +860,11 @@
             toTerritoryId: lake.id,
             units: 5
         });
-        check(!lakeCrossing.ok && /lac/i.test(lakeCrossing.error), "une armée ne peut ni entrer dans un lac ni le conquérir");
+        check(!lakeCrossing.ok && /infranchissable/i.test(lakeCrossing.error), "une armée ne peut ni entrer dans un lac ni le conquérir");
         lakeShore.ownerId = previousShoreState.ownerId;
         lakeShore.units = previousShoreState.units;
 
-        check(Object.keys(C.WORLD_EVENT_DEFINITIONS).length === 3, "trois types d’événements mondiaux sont définis");
+        check(Object.keys(C.WORLD_EVENT_DEFINITIONS).length === 4 && C.WORLD_EVENT_DEFINITIONS.volcanicEruption.weight === 0, "l’éruption est un quatrième événement réservé à la carte Caldeira");
         const eventGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3, 4], enableAI: false, timeScale: 1 });
         const worldNotifications = [];
         eventGame.subscribe((change) => worldNotifications.push(change));
@@ -875,6 +908,60 @@
         check(raidedTerritory.ownerId === null && !eventGame.state.armies.includes(overwhelmingRaid), "une victoire barbare met le territoire à sac et le rend neutre");
         const serializedEvents = eventGame.state.toJSON();
         check(serializedEvents.worldEvents.length >= 2 && serializedEvents.armies.some((army) => army.isBarbarian), "les événements et armées barbares sont sérialisables pour le multijoueur");
+
+        const eruptionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], mapType: "volcano", enableAI: false, timeScale: 1 });
+        const eruptionNotifications = [];
+        eruptionGame.subscribe((change) => eruptionNotifications.push(change));
+        eruptionGame.newGame(838383);
+        check(eruptionGame.state.nextVolcanicEruptionAtMs >= 150000 && eruptionGame.state.nextVolcanicEruptionAtMs <= 210000, "la première éruption est planifiée entre deux minutes trente et trois minutes trente");
+        eruptionGame.state.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = 2;
+            territory.units = 100;
+        });
+        eruptionGame.state.nextVolcanicEruptionAtMs = eruptionGame.state.elapsedMs + 11000;
+        eruptionGame.state.volcanicWarningIssued = false;
+        eruptionGame.eventSystem.update(0);
+        const eruptionDangerIds = eruptionGame.eventSystem.getVolcanicDangerTerritoryIds();
+        check(eruptionGame.state.volcanicWarningIssued && eruptionGame.state.scheduledVolcanicTerritoryIds.length >= 3 && eruptionGame.state.scheduledVolcanicTerritoryIds.length <= 5, "l’alerte volcanique désigne trois à cinq impacts de roche avant l’éruption");
+        check(eruptionNotifications.some((change) => change.type === "WORLD_EVENT_WARNING" && change.eventType === "volcanicEruption" && change.territoryIds.length === eruptionDangerIds.size), "l’alerte transmet au rendu toutes les zones volcaniques dangereuses");
+        const warningSnapshot = eruptionGame.createNetworkSnapshot();
+        const remoteEruptionGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "volcano", enableAI: false, timeScale: 1 });
+        const remoteEruptionNotifications = [];
+        remoteEruptionGame.newGame(838383);
+        remoteEruptionGame.subscribe((change) => remoteEruptionNotifications.push(change));
+        remoteEruptionGame.applyNetworkSnapshot(warningSnapshot);
+        check(remoteEruptionGame.state.volcanicWarningIssued && remoteEruptionNotifications.some((change) => change.type === "WORLD_EVENT_WARNING" && change.eventType === "volcanicEruption"), "un joueur multijoueur reçoit la même alerte et les mêmes points d’impact volcaniques");
+        const aiEvacuation = eruptionGame.aiSystem.respondToVolcanicWarning(eruptionGame.state.getFaction(2), eruptionGame.state.getTerritoriesOwnedBy(2));
+        check(aiEvacuation && eruptionGame.state.armies.some((army) => army.logisticsPurpose === "volcanic-evacuation"), "l’IA évacue une garnison menacée avant l’éruption");
+        const dangerUnitsBeforeEruption = new Map([...eruptionDangerIds].map((territoryId) => [territoryId, eruptionGame.state.getTerritory(territoryId).units]));
+        const eruption = eruptionGame.eventSystem.triggerVolcanicEruption();
+        check(eruption.type === "volcanicEruption" && eruption.data.impacts.some((impact) => impact.kind === "ring") && eruption.data.impacts.some((impact) => impact.kind === "rock"), "l’éruption frappe la ceinture du cratère et projette des roches ailleurs");
+        check(eruption.data.impacts.every((impact) => eruptionGame.state.getTerritory(impact.territoryId).units >= 1) && eruption.data.impacts.some((impact) => eruptionGame.state.getTerritory(impact.territoryId).units < dangerUnitsBeforeEruption.get(impact.territoryId)), "les impacts détruisent des unités sans vider complètement les territoires");
+        const eruptionSnapshot = eruptionGame.createNetworkSnapshot();
+        check("nextVolcanicEruptionAtMs" in eruptionSnapshot && Array.isArray(eruptionSnapshot.scheduledVolcanicTerritoryIds), "la programmation volcanique est incluse dans les instantanés multijoueurs");
+        remoteEruptionGame.applyNetworkSnapshot(eruptionSnapshot);
+        check(remoteEruptionNotifications.some((change) => change.type === "WORLD_EVENT_STARTED" && change.worldEvent.type === "volcanicEruption"), "l’éruption et son animation sont reproduites chez les autres joueurs");
+        const calderaRenderCanvas = document.createElement("canvas");
+        calderaRenderCanvas.style.cssText = "width:900px;height:560px";
+        document.body.appendChild(calderaRenderCanvas);
+        const calderaRenderer = new C.MapRenderer(calderaRenderCanvas, eruptionGame);
+        calderaRenderer.render(performance.now());
+        const calderaMiniCanvas = document.createElement("canvas");
+        calderaMiniCanvas.style.cssText = "width:260px;height:170px";
+        document.body.appendChild(calderaMiniCanvas);
+        const calderaMiniRenderer = new C.MiniMapRenderer(calderaMiniCanvas, eruptionGame, calderaRenderer, { panel: document.body });
+        calderaMiniRenderer.render(performance.now());
+        const calderaReplayCanvas = document.createElement("canvas");
+        calderaReplayCanvas.style.cssText = "width:900px;height:390px";
+        document.body.appendChild(calderaReplayCanvas);
+        const calderaReplayRenderer = new C.ReplayMapRenderer(calderaReplayCanvas, eruptionGame);
+        calderaReplayRenderer.render(new Map(eruptionGame.state.territories.map((territory) => [territory.id, territory.ownerId])));
+        check(typeof calderaRenderer.drawVolcanicWarning === "function" && calderaMiniRenderer.baseSignature && calderaReplayCanvas.width > 1, "la carte, la mini-carte et le replay dessinent la Caldeira sans dépendre de la simulation");
+        calderaRenderer.resizeObserver.disconnect();
+        calderaReplayRenderer.resizeObserver?.disconnect();
+        calderaRenderCanvas.remove();
+        calderaMiniCanvas.remove();
+        calderaReplayCanvas.remove();
 
         const initialUnits = playerStart.units;
         for (let tick = 0; tick < 7; tick += 1) game.update(1000);

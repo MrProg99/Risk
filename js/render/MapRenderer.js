@@ -223,6 +223,7 @@
             this.drawRailroadMarkers(ctx, state);
             this.drawBuildingMarkers(ctx, state);
             this.drawWonderMarkers(ctx, state, now);
+            this.drawVolcanicWarning(ctx, state, now);
             this.drawWorldEvents(ctx, state, now);
             this.drawCannonInstallations(ctx, state, now);
             this.drawArmies(ctx, state, now);
@@ -290,15 +291,18 @@
             ctx.fill();
         }
 
-        drawTerritories(ctx, state) {
+        drawTerritories(ctx, state, now = performance.now()) {
             state.territories.forEach((territory) => {
                 const type = C.TERRITORY_TYPES[territory.terrain];
                 const faction = state.getFaction(territory.ownerId);
                 const ownerColor = faction ? faction.color : "#53636a";
                 const terrainMix = faction ? 0.24 : 0.34;
                 const isVisible = this.isTerritoryVisible(territory.id);
+                const isVolcano = territory.terrain === "volcano";
                 const fill = !isVisible && !territory.isImpassable
                     ? "#172327"
+                    : isVolcano
+                    ? C.Geometry.mixColors("#21191a", type.color, 0.52)
                     : territory.isImpassable
                     ? C.Geometry.mixColors("#092c39", type.color, 0.72)
                     : C.Geometry.mixColors(ownerColor, type.color, terrainMix);
@@ -307,7 +311,7 @@
                 ctx.fillStyle = fill;
                 ctx.fill();
 
-                if (territory.isImpassable && this.waterTexturePattern) {
+                if (territory.isImpassable && !isVolcano && this.waterTexturePattern) {
                     ctx.save();
                     this.tracePolygon(ctx, territory.polygon);
                     ctx.globalAlpha = 0.52;
@@ -316,11 +320,15 @@
                     ctx.restore();
                 }
 
+                if (isVolcano) this.drawVolcanoSurface(ctx, territory, now);
+
                 this.drawPlainTexture(ctx, territory, faction, isVisible);
 
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = !isVisible && !territory.isImpassable
                     ? "rgba(7, 17, 20, .18)"
+                    : isVolcano
+                    ? "rgba(22, 5, 3, .22)"
                     : territory.isImpassable
                     ? this.waterTexturePattern ? "rgba(2, 32, 44, .38)" : "rgba(27, 112, 132, .13)"
                     : territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
@@ -333,13 +341,13 @@
                 }
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.strokeStyle = territory.isImpassable ? "rgba(4, 26, 34, .92)" : "rgba(4, 12, 15, .72)";
+                ctx.strokeStyle = isVolcano ? "rgba(43, 9, 5, .96)" : territory.isImpassable ? "rgba(4, 26, 34, .92)" : "rgba(4, 12, 15, .72)";
                 ctx.lineWidth = 2.1;
                 ctx.lineJoin = "round";
                 ctx.stroke();
 
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.strokeStyle = territory.isImpassable ? "rgba(105, 210, 220, .34)" : "rgba(196, 222, 222, .13)";
+                ctx.strokeStyle = isVolcano ? "rgba(255, 105, 46, .46)" : territory.isImpassable ? "rgba(105, 210, 220, .34)" : "rgba(196, 222, 222, .13)";
                 ctx.lineWidth = 0.8;
                 ctx.stroke();
             });
@@ -351,6 +359,33 @@
             ctx.shadowBlur = 8;
             ctx.stroke();
             ctx.shadowBlur = 0;
+        }
+
+        drawVolcanoSurface(ctx, territory, now) {
+            const center = territory.center;
+            const pulse = (Math.sin(now / 420 + territory.id) + 1) / 2;
+            ctx.save();
+            this.tracePolygon(ctx, territory.polygon);
+            const glow = ctx.createRadialGradient(center.x, center.y, 2, center.x, center.y, 55);
+            glow.addColorStop(0, `rgba(255, 126, 47, ${.58 + pulse * .18})`);
+            glow.addColorStop(.28, "rgba(173, 47, 21, .48)");
+            glow.addColorStop(1, "rgba(33, 12, 10, .08)");
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            territory.polygon.forEach((point, index) => {
+                if (index % 2) return;
+                ctx.beginPath();
+                ctx.moveTo(center.x, center.y);
+                ctx.lineTo(C.Geometry.lerp(center.x, point.x, .48), C.Geometry.lerp(center.y, point.y, .48));
+                ctx.lineTo(C.Geometry.lerp(center.x, point.x, .82), C.Geometry.lerp(center.y, point.y, .82));
+                ctx.strokeStyle = `rgba(255, ${80 + index * 5}, 35, ${.32 + pulse * .24})`;
+                ctx.lineWidth = 2.1;
+                ctx.shadowColor = "rgba(255, 76, 22, .75)";
+                ctx.shadowBlur = 7;
+                ctx.stroke();
+            });
+            ctx.restore();
         }
 
         drawFogOfWar(ctx, state, now) {
@@ -706,14 +741,15 @@
                 const center = territory.center;
 
                 if (territory.isImpassable) {
-                    ctx.fillStyle = "rgba(167, 232, 232, .86)";
+                    const isVolcano = territory.terrain === "volcano";
+                    ctx.fillStyle = isVolcano ? "rgba(255, 161, 82, .94)" : "rgba(167, 232, 232, .86)";
                     ctx.font = "700 23px Georgia, serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
                     ctx.fillText(type.icon, center.x, center.y - 1);
-                    ctx.fillStyle = "rgba(187, 226, 226, .62)";
+                    ctx.fillStyle = isVolcano ? "rgba(255, 192, 126, .75)" : "rgba(187, 226, 226, .62)";
                     ctx.font = "600 7px sans-serif";
-                    ctx.fillText("INFRANCHISSABLE", center.x, center.y + 14);
+                    ctx.fillText(isVolcano ? "VOLCAN" : "INFRANCHISSABLE", center.x, center.y + 14);
                     return;
                 }
 
@@ -915,12 +951,37 @@
             state.worldEvents.forEach((worldEvent, eventIndex) => {
                 const definition = C.WORLD_EVENT_DEFINITIONS[worldEvent.type];
                 if (!definition) return;
+                if (worldEvent.type === "volcanicEruption") this.drawVolcanicProjectiles(ctx, state, worldEvent, now);
                 worldEvent.territoryIds.forEach((territoryId, targetIndex) => {
                     const territory = state.getTerritory(territoryId);
                     if (!territory) return;
                     if (!this.isTerritoryVisible(territory.id)) return;
                     const center = territory.center;
                     const pulse = (Math.sin(now / 230 + eventIndex + targetIndex) + 1) / 2;
+
+                    if (worldEvent.type === "volcanicEruption") {
+                        const impact = (worldEvent.data?.impacts || []).find((candidate) => Number(candidate.territoryId) === territory.id);
+                        const rockImpact = impact?.kind === "rock";
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(center.x, center.y, (rockImpact ? 31 : 24) + pulse * 8, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255, ${rockImpact ? 73 : 109}, 31, ${.10 + pulse * .10})`;
+                        ctx.fill();
+                        ctx.strokeStyle = C.Geometry.rgba(definition.color, .48 + pulse * .38);
+                        ctx.lineWidth = rockImpact ? 4 : 2.5;
+                        ctx.setLineDash(rockImpact ? [] : [5, 6]);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        for (let ember = 0; ember < 5; ember += 1) {
+                            const angle = ember * 1.47 + now / 700;
+                            ctx.beginPath();
+                            ctx.arc(center.x + Math.cos(angle) * (10 + ember * 3), center.y + Math.sin(angle) * (8 + ember * 2), 2.2, 0, Math.PI * 2);
+                            ctx.fillStyle = ember % 2 ? "#ffcc6b" : "#ff6335";
+                            ctx.fill();
+                        }
+                        ctx.restore();
+                        return;
+                    }
 
                     if (worldEvent.type === "famine") {
                         const durationMs = Math.max(1, worldEvent.endsAtMs - worldEvent.startedAtMs);
@@ -979,6 +1040,65 @@
                         ctx.setLineDash([]);
                     }
                 });
+            });
+        }
+
+        drawVolcanicWarning(ctx, state, now) {
+            if (state.mapType !== "volcano" || !state.volcanicWarningIssued) return;
+            const definition = C.WORLD_EVENT_DEFINITIONS.volcanicEruption;
+            const dangerIds = this.game.eventSystem.getVolcanicDangerTerritoryIds();
+            const pulse = (Math.sin(now / 150) + 1) / 2;
+            dangerIds.forEach((territoryId) => {
+                const territory = state.getTerritory(territoryId);
+                if (!territory || (!this.isTerritoryVisible(territory.id) && territory.ownerId !== this.game.playerId)) return;
+                this.tracePolygon(ctx, territory.polygon);
+                ctx.fillStyle = `rgba(255, 77, 34, ${.06 + pulse * .11})`;
+                ctx.fill();
+                ctx.strokeStyle = C.Geometry.rgba(definition.color, .45 + pulse * .5);
+                ctx.lineWidth = 3.2;
+                ctx.setLineDash([7, 6]);
+                ctx.lineDashOffset = -(now / 45) % 13;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            });
+        }
+
+        drawVolcanicProjectiles(ctx, state, worldEvent, now) {
+            const durationMs = Math.max(1, worldEvent.endsAtMs - worldEvent.startedAtMs);
+            const progress = C.Geometry.clamp((state.elapsedMs - worldEvent.startedAtMs) / Math.min(2800, durationMs), 0, 1);
+            if (progress >= 1) return;
+            const crater = (worldEvent.data?.craterTerritoryIds || [])
+                .map((id) => state.getTerritory(id)).filter(Boolean);
+            if (!crater.length) return;
+            const source = {
+                x: crater.reduce((sum, territory) => sum + territory.center.x, 0) / crater.length,
+                y: crater.reduce((sum, territory) => sum + territory.center.y, 0) / crater.length
+            };
+            (worldEvent.data?.rockTargetIds || []).forEach((territoryId, index) => {
+                const target = state.getTerritory(territoryId);
+                if (!target || !this.isTerritoryVisible(target.id)) return;
+                const staggered = C.Geometry.clamp(progress * 1.35 - index * .08, 0, 1);
+                if (staggered <= 0 || staggered >= 1) return;
+                const control = {
+                    x: (source.x + target.center.x) / 2,
+                    y: Math.min(source.y, target.center.y) - 180 - index * 18
+                };
+                const inverse = 1 - staggered;
+                const x = inverse * inverse * source.x + 2 * inverse * staggered * control.x + staggered * staggered * target.center.x;
+                const y = inverse * inverse * source.y + 2 * inverse * staggered * control.y + staggered * staggered * target.center.y;
+                ctx.beginPath();
+                ctx.moveTo(source.x, source.y);
+                ctx.quadraticCurveTo(control.x, control.y, target.center.x, target.center.y);
+                ctx.strokeStyle = "rgba(255, 110, 48, .28)";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x, y, 7 + index % 3, 0, Math.PI * 2);
+                ctx.fillStyle = "#ff7a35";
+                ctx.shadowColor = "#ff3d1f";
+                ctx.shadowBlur = 18;
+                ctx.fill();
+                ctx.shadowBlur = 0;
             });
         }
 

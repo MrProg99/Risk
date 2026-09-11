@@ -2,6 +2,26 @@
     "use strict";
 
     C.WORLD_EVENT_DEFINITIONS = {
+        volcanicEruption: {
+            id: "volcanicEruption",
+            name: "Éruption volcanique",
+            icon: "▲",
+            color: "#ff6a32",
+            weight: 0,
+            warningLeadMs: 12000,
+            firstDelayMinMs: 150000,
+            firstDelayMaxMs: 210000,
+            intervalMinMs: 180000,
+            intervalMaxMs: 300000,
+            ringDamageMinRatio: 0.22,
+            ringDamageMaxRatio: 0.28,
+            rockDamageMinRatio: 0.10,
+            rockDamageMaxRatio: 0.20,
+            rockTargetMin: 3,
+            rockTargetMax: 5,
+            visualDurationMs: 10000,
+            warning: "Le volcan gronde : évacuez les garnisons massées autour de la Caldeira et sous les zones d’impact."
+        },
         famine: {
             id: "famine",
             name: "Famine",

@@ -56,10 +56,57 @@
                 : normalizedMapType === "archipelago"
                     ? this.createArchipelago(territories, random)
                     : [];
+            if (normalizedMapType === "volcano") this.createCaldera(territories);
             if (normalizedMapType !== "archipelago") this.createLakes(territories, random);
             this.ensureMinimumTerrain(territories, "airport", this.minimumAirports, random);
             this.createMountainBarriers(territories, random);
             return { islandPolygon, territories, mapType: normalizedMapType, chokeEdges };
+        }
+
+        createCaldera(territories) {
+            const center = { x: this.width / 2, y: this.height / 2 };
+            const targetCount = this.maximumTerritories >= 150 ? 7 : 5;
+            const radialScore = (territory) => {
+                const x = (territory.center.x - center.x) / (this.width * 0.43);
+                const y = (territory.center.y - center.y) / (this.height * 0.38);
+                return x * x + y * y;
+            };
+            const candidates = territories.slice().sort((first, second) =>
+                radialScore(first) - radialScore(second) || first.id - second.id);
+            const crater = [];
+
+            for (const candidate of candidates) {
+                if (crater.length && !candidate.neighbors.some((neighborId) =>
+                    crater.some((territory) => territory.id === neighborId))) continue;
+                if (radialScore(candidate) > 0.13 && crater.length >= 3) continue;
+
+                candidate.isImpassable = true;
+                if (!this.isTraversableGraphConnected(territories)) {
+                    candidate.isImpassable = false;
+                    continue;
+                }
+
+                candidate.terrain = "volcano";
+                candidate.resource = "Magma en fusion";
+                candidate.production = 0;
+                candidate.productionProgress = 0;
+                candidate.ownerId = null;
+                candidate.units = 0;
+                crater.push(candidate);
+                if (crater.length >= targetCount) break;
+            }
+
+            crater.sort((first, second) => radialScore(first) - radialScore(second));
+            crater.forEach((territory, index) => {
+                territory.name = index === 0 ? "Cœur de la Caldeira" : `Cratère volcanique ${index}`;
+            });
+            const craterIds = new Set(crater.map((territory) => territory.id));
+            crater.forEach((territory) => territory.neighbors.forEach((neighborId) => {
+                if (craterIds.has(neighborId)) return;
+                const neighbor = territories.find((candidate) => candidate.id === neighborId);
+                if (neighbor && !neighbor.isImpassable) neighbor.isVolcanicRing = true;
+            }));
+            return crater;
         }
 
         createHourglassChoke(territories) {
@@ -474,6 +521,7 @@
             const names = C.Geometry.shuffle(LAKE_NAMES, random);
             const candidates = C.Geometry.shuffle(territories.filter((territory) =>
                 !territory.isImpassable &&
+                !territory.isVolcanicRing &&
                 !territory.isChokePoint &&
                 territory.neighbors.length >= 4 &&
                 C.Geometry.distance(territory.center, mapCenter) < this.width * 0.34), random);

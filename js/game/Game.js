@@ -101,10 +101,14 @@
                     ? `Les factions ${list} sont contrôlées par l’ordinateur.`
                     : `La faction ${list} est contrôlée par l’ordinateur.`, "info");
             }
-            const lakeCount = state.territories.filter((territory) => territory.isImpassable).length;
+            const lakeCount = state.territories.filter((territory) => territory.terrain === "lake").length;
+            const volcanoCount = state.territories.filter((territory) => territory.terrain === "volcano").length;
+            const landCount = state.territories.length - lakeCount - volcanoCount;
             this.addEvent(this.mapType === "archipelago"
-                ? `Archipel généré : ${state.territories.length - lakeCount} territoires terrestres, ${lakeCount} zones maritimes et plusieurs passages interinsulaires.`
-                : `Carte générée : ${state.territories.length - lakeCount} territoires et ${lakeCount} lacs infranchissables.`, "info");
+                ? `Archipel généré : ${landCount} territoires terrestres, ${lakeCount} zones maritimes et plusieurs passages interinsulaires.`
+                : this.mapType === "volcano"
+                    ? `Caldeira générée : ${landCount} territoires encerclent un cratère de ${volcanoCount} zones infranchissables.`
+                    : `Carte générée : ${landCount} territoires et ${lakeCount} lacs infranchissables.`, "info");
             const cannonCount = state.territories.filter((territory) => territory.installation?.type === "cannon").length;
             this.addEvent(`${cannonCount} canons de campagne sont disséminés sur la carte.`, "info");
             this.notify({ type: "NEW_GAME", seed: normalizedSeed });
@@ -126,6 +130,8 @@
                 ? this.selectHourglassStartingTerritories(territories)
                 : this.mapType === "archipelago"
                     ? this.selectArchipelagoStartingTerritories(territories)
+                    : this.mapType === "volcano"
+                        ? this.selectCalderaStartingTerritories(territories)
                     : this.selectDistributedStartingTerritories(territories);
 
             this.state.territories.forEach((territory) => {
@@ -182,6 +188,17 @@
                 starts.push(best);
             }
             return starts;
+        }
+
+        selectCalderaStartingTerritories(territories) {
+            const center = { x: this.state.mapWidth / 2, y: this.state.mapHeight / 2 };
+            let outerRing = territories.filter((territory) => {
+                const x = (territory.center.x - center.x) / (this.state.mapWidth * 0.43);
+                const y = (territory.center.y - center.y) / (this.state.mapHeight * 0.38);
+                return !territory.isVolcanicRing && Math.hypot(x, y) >= 0.58;
+            });
+            if (outerRing.length < this.state.factions.length) outerRing = territories.filter((territory) => !territory.isVolcanicRing);
+            return this.selectDistributedStartingTerritories(outerRing);
         }
 
         selectHourglassStartingTerritories(territories) {
@@ -1404,7 +1421,7 @@
             const units = Math.floor(Number(command.units));
 
             if (!from || !to) return { ok: false, error: "Territoire introuvable." };
-            if (from.isImpassable || to.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
+            if (from.isImpassable || to.isImpassable) return { ok: false, error: "Cette zone est totalement infranchissable." };
             if (from.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
             if (!from.isNeighbor(to.id)) return { ok: false, error: "La cible ne partage aucune frontière avec l’origine." };
             if (from.isPathBlocked(to.id)) return { ok: false, error: "Une chaîne de montagnes bloque cette frontière." };
@@ -1450,7 +1467,7 @@
             const units = Math.floor(Number(command.units));
 
             if (!from || !destination) return { ok: false, error: "Territoire introuvable." };
-            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
+            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Cette zone est totalement infranchissable." };
             if (from.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
             if (!this.areAllied(destination.ownerId, playerId)) return { ok: false, error: "Un convoi ne peut rejoindre qu’un territoire allié." };
             if (from.id === destination.id) return { ok: false, error: "Choisissez un autre territoire de destination." };
@@ -1552,7 +1569,7 @@
             const from = this.state.getTerritory(command.fromTerritoryId);
             const destination = this.state.getTerritory(command.toTerritoryId);
             if (!from || !destination) return { ok: false, error: "Territoire introuvable." };
-            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Les lacs sont totalement infranchissables." };
+            if (from.isImpassable || destination.isImpassable) return { ok: false, error: "Cette zone est totalement infranchissable." };
             if (from.ownerId !== playerId || !this.areAllied(destination.ownerId, playerId)) {
                 return { ok: false, error: "Une ligne continue doit relier deux territoires alliés." };
             }
@@ -2474,6 +2491,9 @@
                 scheduledWorldEventType: this.state.scheduledWorldEventType,
                 worldEventWarningIssued: this.state.worldEventWarningIssued,
                 lastWorldEventType: this.state.lastWorldEventType,
+                nextVolcanicEruptionAtMs: this.state.nextVolcanicEruptionAtMs,
+                volcanicWarningIssued: this.state.volcanicWarningIssued,
+                scheduledVolcanicTerritoryIds: this.state.scheduledVolcanicTerritoryIds.slice(),
                 territories: this.state.territories.map((territory) => ({
                     id: territory.id,
                     ownerId: territory.ownerId,
@@ -2533,6 +2553,8 @@
             const previousWinnerTeamId = this.state.winnerTeamId;
             const previousAbilityActionIds = new Set(this.state.abilityActions.map((action) => action.id));
             const previousBlackoutStates = new Map(this.state.blackoutStates.map((blackout) => [Number(blackout.teamId), { ...blackout }]));
+            const previousWorldEventIds = new Set(this.state.worldEvents.map((worldEvent) => Number(worldEvent.id)));
+            const previousVolcanicWarning = this.state.volcanicWarningIssued;
             (snapshot.territories || []).forEach((dynamic) => {
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
@@ -2710,6 +2732,11 @@
                 return route;
             });
             this.state.worldEvents = snapshot.worldEvents || [];
+            this.state.worldEvents.forEach((worldEvent) => {
+                if (!previousWorldEventIds.has(Number(worldEvent.id))) {
+                    this.notify({ type: "WORLD_EVENT_STARTED", worldEvent: { ...worldEvent, territoryIds: (worldEvent.territoryIds || []).slice() } });
+                }
+            });
             this.state.abilityActions = snapshot.abilityActions || [];
             this.state.abilityActions.forEach((action) => {
                 if (!previousAbilityActionIds.has(action.id)) this.notify({ type: "ABILITY_LAUNCHED", ...action });
@@ -2745,6 +2772,19 @@
             this.state.scheduledWorldEventType = snapshot.scheduledWorldEventType || null;
             this.state.worldEventWarningIssued = Boolean(snapshot.worldEventWarningIssued);
             this.state.lastWorldEventType = snapshot.lastWorldEventType || null;
+            this.state.nextVolcanicEruptionAtMs = Number(snapshot.nextVolcanicEruptionAtMs) || 0;
+            this.state.volcanicWarningIssued = Boolean(snapshot.volcanicWarningIssued);
+            this.state.scheduledVolcanicTerritoryIds = (snapshot.scheduledVolcanicTerritoryIds || []).map(Number).filter(Number.isFinite);
+            if (!previousVolcanicWarning && this.state.volcanicWarningIssued && this.state.mapType === "volcano") {
+                const ringIds = this.eventSystem.getVolcanicRingTerritories().map((territory) => territory.id);
+                this.notify({
+                    type: "WORLD_EVENT_WARNING",
+                    eventType: "volcanicEruption",
+                    startsInMs: Math.max(0, this.state.nextVolcanicEruptionAtMs - (Number(snapshot.elapsedMs) || 0)),
+                    territoryIds: [...new Set(ringIds.concat(this.state.scheduledVolcanicTerritoryIds))],
+                    rockTargetIds: this.state.scheduledVolcanicTerritoryIds.slice()
+                });
+            }
             if (snapshot.matchTimeline) {
                 this.state.matchTimeline = C.MatchTimeline.fromJSON(snapshot.matchTimeline);
             }

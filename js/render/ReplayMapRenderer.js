@@ -71,18 +71,25 @@
                 const ownerId = owners.has(territory.id) ? owners.get(territory.id) : null;
                 const faction = state.getFaction(ownerId);
                 const ownerColor = faction?.color || "#53636a";
-                const fill = territory.isImpassable
+                const isVolcano = territory.terrain === "volcano";
+                const fill = isVolcano
+                    ? C.Geometry.mixColors("#211516", type.color, 0.58)
+                    : territory.isImpassable
                     ? C.Geometry.mixColors("#07313f", type.color, 0.62)
                     : C.Geometry.mixColors(ownerColor, type.color, faction ? 0.16 : 0.28);
 
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = fill;
                 ctx.fill();
-                ctx.fillStyle = territory.isImpassable
+                ctx.fillStyle = isVolcano
+                    ? "rgba(255, 82, 31, .14)"
+                    : territory.isImpassable
                     ? "rgba(39, 154, 178, .17)"
                     : faction ? "rgba(5, 14, 17, .08)" : "rgba(5, 14, 17, .24)";
                 ctx.fill();
-                ctx.strokeStyle = territory.isImpassable
+                ctx.strokeStyle = isVolcano
+                    ? "rgba(255, 105, 48, .62)"
+                    : territory.isImpassable
                     ? "rgba(87, 182, 197, .32)"
                     : "rgba(3, 10, 13, .78)";
                 ctx.lineWidth = Math.max(1.1, 1.45 / scale);

@@ -146,7 +146,8 @@
                 const visible = distance !== undefined;
                 const faction = visible ? state.getFaction(territory.ownerId) : null;
                 let fill = "#152227";
-                if (territory.isImpassable) fill = "#0b4352";
+                if (territory.terrain === "volcano") fill = "#6f2c20";
+                else if (territory.isImpassable) fill = "#0b4352";
                 else if (visible) fill = faction ? faction.color : "#526269";
                 this.tracePolygon(ctx, territory.polygon);
                 ctx.fillStyle = fill;
@@ -156,7 +157,9 @@
                     ctx.fill();
                 }
                 this.tracePolygon(ctx, territory.polygon);
-                ctx.strokeStyle = territory.isImpassable ? "rgba(96, 204, 216, .40)" : "rgba(4, 11, 14, .86)";
+                ctx.strokeStyle = territory.terrain === "volcano"
+                    ? "rgba(255, 107, 49, .70)"
+                    : territory.isImpassable ? "rgba(96, 204, 216, .40)" : "rgba(4, 11, 14, .86)";
                 ctx.lineWidth = 1.15 * this.pixelRatio / this.scale;
                 ctx.stroke();
             });

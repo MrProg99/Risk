@@ -355,6 +355,8 @@
                 this.refreshDynamic();
             } else if (change.type === "WORLD_EVENT_WARNING") {
                 const definition = C.WORLD_EVENT_DEFINITIONS[change.eventType];
+                (change.territoryIds || []).forEach((territoryId) =>
+                    this.renderer.pulseTerritory(territoryId, definition ? definition.color : "#ff844d"));
                 if (definition) this.showToast(`ALERTE : ${definition.name} imminente.`);
             } else if (change.type === "WORLD_EVENT_STARTED") {
                 const definition = C.WORLD_EVENT_DEFINITIONS[change.worldEvent.type];
@@ -1152,6 +1154,12 @@
             lakes.className = "legend-item";
             lakes.innerHTML = '<span class="legend-lake">≈</span> Lac infranchissable';
             this.elements.factionLegend.append(lakes);
+            if (this.game.state.mapType === "volcano") {
+                const volcano = document.createElement("span");
+                volcano.className = "legend-item";
+                volcano.innerHTML = '<span class="legend-volcano">▲</span> Cratère volcanique';
+                this.elements.factionLegend.append(volcano);
+            }
             const cannon = document.createElement("span");
             cannon.className = "legend-item";
             cannon.innerHTML = '<span class="legend-cannon">✹</span> Canon';
@@ -1664,7 +1672,9 @@
                         ? `production suspendue · ${remainingSeconds} s`
                         : worldEvent.type === "wildfire"
                             ? `${worldEvent.data.damage || 0} unités détruites`
-                            : `raid en approche · ${remainingSeconds} s`;
+                            : worldEvent.type === "volcanicEruption"
+                                ? `${(worldEvent.data.impacts || []).find((impact) => Number(impact.territoryId) === territory.id)?.damage || 0} unités détruites`
+                                : `raid en approche · ${remainingSeconds} s`;
                     entries.unshift({ label: `${definition.name} : ${effect}`, rare: false, worldEvent: true });
                 });
             if (territory.installation) {
