@@ -24,6 +24,9 @@
             this.replay = this.elements.replayCanvas && C.VictoryReplayController
                 ? new C.VictoryReplayController(game, this.elements)
                 : null;
+            this.unitHistoryChart = this.elements.unitHistoryCanvas && C.UnitHistoryChart
+                ? new C.UnitHistoryChart(game, this.elements)
+                : null;
             this.bindEvents();
             this.unsubscribe = game.subscribe((change) => this.handleGameChange(change));
         }
@@ -58,6 +61,9 @@
                 victoryMap: byId("victory-map"),
                 victoryTeam: byId("victory-team"),
                 victoryStandings: byId("victory-standings"),
+                unitHistoryCanvas: byId("victory-unit-history-canvas"),
+                unitHistoryLegend: byId("victory-unit-history-legend"),
+                unitHistoryTooltip: byId("victory-unit-history-tooltip"),
                 victoryObserve: byId("victory-observe"),
                 victoryRestart: byId("victory-restart"),
                 matchSummary: byId("match-summary"),
@@ -255,7 +261,7 @@
                     this.audio?.playTerritoryLost();
                     this.showToast(`Territoire perdu : ${territory ? territory.name : "position inconnue"} · Espace pour localiser.`);
                 }
-                this.refreshDynamic();
+                if (!change.fromNetwork) this.refreshDynamic();
             } else if (change.type === "ATTACK_REPELLED" || change.type === "ARMY_ARRIVED" || change.type === "ARMY_ROUTE_STOPPED") {
                 this.renderer.pulseTerritory(change.territoryId, "#e9f1f0");
                 this.refreshDynamic();
@@ -384,6 +390,14 @@
                 this.clearSelection();
                 this.renderPauseState();
                 this.showVictoryScreen();
+            } else if (change.type === "NETWORK_SNAPSHOT_APPLIED") {
+                if (this.game.state.winnerTeamId === null) {
+                    const summaryWasOpen = !this.elements.victoryScreen?.hidden;
+                    this.refreshDynamic();
+                    if (summaryWasOpen && !this.elements.victoryScreen?.hidden && this.getVictoryPresentationKey()) {
+                        this.unitHistoryChart?.open(this.getVictoryDurationMs());
+                    }
+                }
             } else if (change.type === "PAUSE_CHANGED" || change.type === "TIME_SCALE_CHANGED") {
                 this.renderPauseState();
             }
@@ -402,6 +416,7 @@
             this.victoryScreenPresented = true;
             this.victoryPresentationKey = presentationKey;
             document.body.classList.add("victory-open");
+            this.unitHistoryChart?.open(this.getVictoryDurationMs());
             this.replay?.open(this.getVictoryDurationMs());
             this.elements.victoryObserve.focus();
         }
@@ -439,6 +454,7 @@
             this.elements.victoryScreen.hidden = true;
             document.body.classList.remove("victory-open");
             this.replay?.close(reset);
+            this.unitHistoryChart?.close(reset);
             if (reset) {
                 this.victoryScreenPresented = false;
                 this.victoryPresentationKey = null;

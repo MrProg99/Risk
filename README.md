@@ -43,6 +43,8 @@ Chaque commandant, humain comme IA, possède une fiche statistique : territoires
 
 Le bilan contient aussi une **chronologie territoriale** sans brouillard de guerre. Elle s’ouvre sur la carte finale; **Rejouer**, **Début**, le curseur et les vitesses ×1, ×2 ou ×4 permettent de revoir chaque changement de propriétaire. La conquête courante est mise en évidence, son événement est décrit et les compteurs de territoires de toutes les factions évoluent avec la carte. Il s’agit d’un état historique séparé : déplacer le curseur ne modifie jamais la partie terminée.
 
+Un graphique **Armées dans le temps** compare également toutes les factions. Une mesure est conservée toutes les cinq secondes ainsi qu’aux conquêtes et à la fin de la campagne; elle additionne les garnisons et les unités en déplacement. Chaque courbe reprend la couleur du joueur, la légende affiche sa force finale et son pic militaire, et le survol donne les effectifs de tous les adversaires au moment choisi.
+
 En multijoueur, le résultat, l’heure de victoire, les statistiques et la chronologie officielle sont fournis par l’hôte. La chronologie compacte n’est ajoutée qu’à l’instantané final afin de ne pas augmenter le trafic Firebase pendant la partie. Les règles Firebase existantes n’ont pas besoin d’être modifiées pour ces champs.
 
 ## Nourriture et ravitaillement

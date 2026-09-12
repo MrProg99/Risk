@@ -689,7 +689,10 @@
         const timelineUnit = new C.MatchTimeline().reset([
             { id: 1, ownerId: 1 },
             { id: 2, ownerId: null }
-        ]);
+        ], [{ id: 1 }, { id: 2 }]);
+        timelineUnit.recordUnitSample(0, { 1: 20, 2: 20 });
+        timelineUnit.recordUnitSample(5000, { 1: 31, 2: 14 });
+        timelineUnit.recordUnitSample(9000, { 1: 24, 2: 33 });
         timelineUnit.recordCapture({ timeMs: 5000, territoryId: 2, previousOwnerId: null, ownerId: 1 });
         timelineUnit.recordCapture({ timeMs: 9000, territoryId: 1, previousOwnerId: 1, ownerId: 2 });
         const restoredTimelineUnit = C.MatchTimeline.fromJSON(timelineUnit.toJSON());
@@ -697,6 +700,8 @@
             "la chronologie reconstruit exactement la propriété avant et après une conquête");
         check(restoredTimelineUnit.getCaptureCountAt(7000) === 1 && restoredTimelineUnit.getLatestCaptureAt(10000).ownerId === 2,
             "la chronologie compacte conserve l’ordre et le temps des conquêtes");
+        check(restoredTimelineUnit.getUnitSeries(1).length === 3 && restoredTimelineUnit.getUnitSeries(2, 5000).at(-1).units === 14,
+            "la chronologie compacte conserve aussi les armées totales de chaque joueur dans le temps");
 
         const victoryGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, aiFactionIds: [2], enableWorldEvents: false, timeScale: 1 });
         victoryGame.newGame(323232);
@@ -757,8 +762,10 @@
             if (change.type === "GAME_OVER") remoteGameOverNotice = change;
         });
         check(remoteVictoryGame.applyNetworkSnapshot(victorySnapshot) && remoteGameOverNotice?.winnerTeamId === 1 && remoteVictoryGame.state.getFaction(1).statistics.territoriesCaptured === 1, "la victoire et toutes les statistiques sont synchronisées vers les joueurs multijoueurs");
-        check(victorySnapshot.matchTimeline?.captures.length === 1 && remoteVictoryGame.state.matchTimeline.getLatestCaptureAt(Infinity)?.territoryId === victoryTarget.id,
-            "l’instantané final transmet le replay officiel complet aux autres joueurs");
+        check(victorySnapshot.matchTimeline?.captures.length === 1 && victorySnapshot.matchTimeline?.unitSamples.length >= 2 &&
+            remoteVictoryGame.state.matchTimeline.getLatestCaptureAt(Infinity)?.territoryId === victoryTarget.id &&
+            remoteVictoryGame.state.matchTimeline.getUnitSeries(1).at(-1).units === victoryGame.getFactionStats(1).totalUnits,
+            "l’instantané final transmet le replay et le graphique d’armées officiels aux autres joueurs");
 
         const replayContainer = document.createElement("section");
         const replayCanvas = document.createElement("canvas");
@@ -798,6 +805,31 @@
             "le curseur et les vitesses du replay reconstruisent puis signalent la conquête choisie");
         replayController.close(true);
         replayContainer.remove();
+
+        const unitChartContainer = document.createElement("section");
+        unitChartContainer.style.width = "900px";
+        const unitHistoryCanvas = document.createElement("canvas");
+        unitHistoryCanvas.style.width = "900px";
+        unitHistoryCanvas.style.height = "260px";
+        const unitHistoryTooltip = document.createElement("div");
+        const unitHistoryLegend = document.createElement("div");
+        unitChartContainer.append(unitHistoryCanvas, unitHistoryTooltip, unitHistoryLegend);
+        document.body.append(unitChartContainer);
+        const unitHistoryChart = new C.UnitHistoryChart(victoryGame, {
+            unitHistoryCanvas,
+            unitHistoryTooltip,
+            unitHistoryLegend
+        });
+        unitHistoryChart.open(victoryGame.state.victoryAtMs);
+        check(unitHistoryChart.series.length === 2 && unitHistoryChart.series.every((series) => series.points.length >= 2) &&
+            unitHistoryLegend.children.length === 2 && unitHistoryCanvas.width > 0 && /Pic/.test(unitHistoryLegend.textContent),
+            "le bilan dessine une courbe d’unités, une valeur finale et un pic pour chaque joueur");
+        unitHistoryChart.hoverTimeMs = victoryGame.state.victoryAtMs / 2;
+        unitHistoryChart.render();
+        check(!unitHistoryTooltip.hidden && unitHistoryTooltip.children.length === 3,
+            "le survol du graphique compare les armées de tous les adversaires à un instant précis");
+        unitHistoryChart.close(true);
+        unitChartContainer.remove();
 
         const victoryElements = {
             victoryOutcome: document.createElement("p"),

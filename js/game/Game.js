@@ -29,6 +29,7 @@
             this.paused = false;
             this.timeScale = C.Geometry.clamp(Number(options.timeScale ?? 0.72), 0.25, 2);
             this.productionIntervalMs = 5000;
+            this.unitHistorySampleIntervalMs = Math.max(1000, Number(options.unitHistorySampleIntervalMs ?? 5000));
             this.unitProductionMultiplier = C.Geometry.clamp(Number(options.unitProductionMultiplier ?? 0.875), 0.1, 2);
             this.visibilityRange = Math.round(C.Geometry.clamp(Number(options.visibilityRange ?? 2), 1, 6));
             this.quickTransferRatio = C.Geometry.clamp(Number(options.quickTransferRatio ?? 0.8), 0.1, 1);
@@ -86,7 +87,8 @@
             });
             this.assignRareSites();
             this.assignInstallations();
-            state.matchTimeline.reset(state.territories);
+            state.matchTimeline.reset(state.territories, state.factions);
+            this.recordUnitHistorySample(true);
             this.aiSystem.reset();
             this.eventSystem.reset();
             const playerFaction = state.getFaction(this.playerId);
@@ -382,6 +384,7 @@
             });
             arrivedArmies.forEach((army) => this.resolveArmyArrival(army));
             this.aiSystem.update(safeDelta);
+            this.recordUnitHistorySample();
 
             if (changed || arrivedArmies.length) this.state.touch();
         }
@@ -2051,6 +2054,7 @@
                         previousOwnerId: previousOwner ? previousOwner.id : null,
                         barbariansWon: true
                     });
+                    this.recordUnitHistorySample(true);
                     this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, previousOwnerId: previousOwner ? previousOwner.id : null, ownerId: null });
                     this.evaluateTeamVictory();
                     return;
@@ -2099,6 +2103,7 @@
                     this.addEvent(`${attacker.name} s’empare de la capitale de ${previousOwner.name} !`, "capture");
                     this.relocateCapital(previousOwner);
                 }
+                this.recordUnitHistorySample(true);
                 this.notify({ type: "TERRITORY_CAPTURED", territoryId: target.id, previousOwnerId: previousOwner ? previousOwner.id : null, ownerId: attacker.id });
                 this.evaluateTeamVictory();
             } else {
@@ -2439,6 +2444,22 @@
             };
         }
 
+        recordUnitHistorySample(force = false) {
+            const timeline = this.state.matchTimeline;
+            if (!timeline?.recordUnitSample || !this.state.factions.length) return false;
+            const lastSample = timeline.unitSamples[timeline.unitSamples.length - 1];
+            if (!force && lastSample && this.state.elapsedMs - lastSample[0] < this.unitHistorySampleIntervalMs) return false;
+            const totals = new Map(this.state.factions.map((faction) => {
+                const territories = this.state.getTerritoriesOwnedBy(faction.id);
+                const movingUnits = this.state.armies
+                    .filter((army) => !army.isBarbarian && army.ownerId === faction.id)
+                    .reduce((sum, army) => sum + army.units, 0);
+                return [faction.id, territories.reduce((sum, territory) => sum + territory.units, 0) + movingUnits];
+            }));
+            timeline.recordUnitSample(this.state.elapsedMs, totals);
+            return true;
+        }
+
         getFactionStats(factionId) {
             const territories = this.state.getTerritoriesOwnedBy(factionId);
             const movingUnits = this.state.armies
@@ -2555,6 +2576,7 @@
             const previousBlackoutStates = new Map(this.state.blackoutStates.map((blackout) => [Number(blackout.teamId), { ...blackout }]));
             const previousWorldEventIds = new Set(this.state.worldEvents.map((worldEvent) => Number(worldEvent.id)));
             const previousVolcanicWarning = this.state.volcanicWarningIssued;
+            let territoryOwnershipChanged = false;
             (snapshot.territories || []).forEach((dynamic) => {
                 const territory = this.state.getTerritory(dynamic.id);
                 if (!territory) return;
@@ -2637,11 +2659,13 @@
                     : ["food", "research"].includes(dynamic.productionMode) ? dynamic.productionMode : "units";
                 territory.productionModeChangedAtMs = Number(dynamic.productionModeChangedAtMs) || 0;
                 if (previousOwnerId !== territory.ownerId) {
+                    territoryOwnershipChanged = true;
                     this.notify({
                         type: "TERRITORY_CAPTURED",
                         territoryId: territory.id,
                         previousOwnerId,
-                        ownerId: territory.ownerId
+                        ownerId: territory.ownerId,
+                        fromNetwork: true
                     });
                 }
                 if (territory.airstrikeLastAction && territory.airstrikeLastAction.firedAtMs > previousAirstrikeAtMs) {
@@ -2787,6 +2811,11 @@
             }
             if (snapshot.matchTimeline) {
                 this.state.matchTimeline = C.MatchTimeline.fromJSON(snapshot.matchTimeline);
+            } else {
+                // Les clients construisent un historique local léger à partir des
+                // instantanés courants. L'hôte le remplace par la chronologie
+                // officielle complète lorsque la partie se termine.
+                this.recordUnitHistorySample(territoryOwnershipChanged);
             }
             this.state.winnerTeamId = snapshot.winnerTeamId ?? null;
             this.state.victoryAtMs = snapshot.victoryAtMs ?? null;
@@ -2856,6 +2885,7 @@
             if (livingTeams.size === 1 && this.state.factions.length > 1) {
                 this.state.winnerTeamId = livingTeams.values().next().value;
                 this.state.victoryAtMs = this.state.elapsedMs;
+                this.recordUnitHistorySample(true);
                 this.addEvent(`L’équipe ${this.state.winnerTeamId} remporte la partie !`, "capture");
                 this.paused = true;
                 this.state.touch();
