@@ -797,7 +797,9 @@
         C.UIController.prototype.renderVictoryScreen.call({
             game: victoryGame,
             elements: victoryElements,
-            formatDuration: C.UIController.prototype.formatDuration
+            localEliminationAtMs: null,
+            formatDuration: C.UIController.prototype.formatDuration,
+            getVictoryDurationMs: C.UIController.prototype.getVictoryDurationMs
         });
         check(victoryElements.victoryTitle.textContent === "VICTOIRE" && victoryElements.victoryStandings.children.length === 2 && /IA/.test(victoryElements.victoryStandings.textContent), "l’écran de victoire affiche une fiche statistique pour chaque humain et chaque IA");
 
@@ -813,8 +815,13 @@
             game: victoryGame,
             elements: defeatElements,
             victoryScreenPresented: false,
+            victoryPresentationKey: null,
+            localEliminationAtMs: null,
             closeResearchScreen: () => {},
             formatDuration: C.UIController.prototype.formatDuration,
+            isLocalTeamEliminated: C.UIController.prototype.isLocalTeamEliminated,
+            getVictoryPresentationKey: C.UIController.prototype.getVictoryPresentationKey,
+            getVictoryDurationMs: C.UIController.prototype.getVictoryDurationMs,
             renderVictoryScreen: C.UIController.prototype.renderVictoryScreen,
             showVictoryScreen: C.UIController.prototype.showVictoryScreen
         };
@@ -828,6 +835,81 @@
             "Voir la carte garde le bilan fermé et laisse son bouton de rappel visible");
         document.body.classList.remove("victory-open");
         victoryGame.state.winnerTeamId = 1;
+
+        const eliminationGame = new C.Game({
+            playerId: 1,
+            activeFactionIds: [1, 2, 3],
+            aiFactionIds: [2, 3],
+            mapType: "volcano",
+            enableAI: false,
+            enableWorldEvents: false,
+            timeScale: 1
+        });
+        eliminationGame.newGame(515151);
+        const eliminationLand = eliminationGame.state.territories.filter((territory) => !territory.isImpassable);
+        eliminationLand.forEach((territory) => {
+            territory.ownerId = null;
+            territory.units = 5;
+        });
+        eliminationLand[0].ownerId = 2;
+        eliminationLand[1].ownerId = 3;
+        eliminationGame.state.elapsedMs = 133000;
+        const eliminationElements = {
+            victoryOutcome: document.createElement("p"),
+            victoryTitle: document.createElement("h2"),
+            victorySubtitle: document.createElement("p"),
+            victoryDuration: document.createElement("span"),
+            victoryMap: document.createElement("span"),
+            victoryTeam: document.createElement("section"),
+            victoryStandings: document.createElement("div"),
+            victoryScreen: document.createElement("section"),
+            matchSummary: document.createElement("button"),
+            victoryObserve: document.createElement("button")
+        };
+        eliminationElements.victoryScreen.hidden = true;
+        let eliminationReplayDuration = null;
+        const eliminationUi = {
+            game: eliminationGame,
+            elements: eliminationElements,
+            victoryScreenPresented: false,
+            victoryPresentationKey: null,
+            localEliminationAtMs: null,
+            closeResearchScreen: () => {},
+            replay: {
+                open: (durationMs) => { eliminationReplayDuration = durationMs; },
+                close: () => {}
+            },
+            formatDuration: C.UIController.prototype.formatDuration,
+            isLocalTeamEliminated: C.UIController.prototype.isLocalTeamEliminated,
+            getVictoryPresentationKey: C.UIController.prototype.getVictoryPresentationKey,
+            getVictoryDurationMs: C.UIController.prototype.getVictoryDurationMs,
+            renderVictoryScreen: C.UIController.prototype.renderVictoryScreen,
+            showVictoryScreen: C.UIController.prototype.showVictoryScreen
+        };
+        const eliminationPlayer = eliminationGame.state.getFaction(1);
+        const temporaryAlly = eliminationGame.state.getFaction(2);
+        temporaryAlly.teamId = eliminationPlayer.teamId;
+        check(!C.UIController.prototype.isLocalTeamEliminated.call(eliminationUi),
+            "un joueur sans territoire n’est pas éliminé tant qu’un allié de son équipe contrôle encore la carte");
+        temporaryAlly.teamId = 2;
+        C.UIController.prototype.ensureVictoryScreen.call(eliminationUi);
+        check(eliminationUi.victoryScreenPresented && eliminationUi.victoryPresentationKey === "eliminated:1" &&
+            !eliminationElements.victoryScreen.hidden && eliminationElements.victoryTitle.textContent === "DÉFAITE" &&
+            /dernier territoire/.test(eliminationElements.victorySubtitle.textContent) && /guerre continue/.test(eliminationElements.victorySubtitle.textContent) &&
+            eliminationReplayDuration === 133000,
+        "la perte du dernier territoire ouvre immédiatement le bilan sur une Caldeira même si plusieurs IA restent en lice");
+        C.UIController.prototype.hideVictoryScreen.call(eliminationUi);
+        C.UIController.prototype.ensureVictoryScreen.call(eliminationUi);
+        check(eliminationElements.victoryScreen.hidden && !eliminationElements.matchSummary.hidden,
+            "le bilan d’élimination reste accessible sans se rouvrir pendant que les IA poursuivent la guerre");
+        eliminationGame.state.elapsedMs = 180000;
+        eliminationGame.state.victoryAtMs = 180000;
+        eliminationGame.state.winnerTeamId = 2;
+        C.UIController.prototype.ensureVictoryScreen.call(eliminationUi);
+        check(!eliminationElements.victoryScreen.hidden && eliminationUi.victoryPresentationKey === "winner:2" &&
+            /impose sa domination/.test(eliminationElements.victorySubtitle.textContent) && eliminationReplayDuration === 180000,
+        "le résultat officiel rouvre et actualise le bilan lorsque la guerre entre IA se termine ensuite");
+        document.body.classList.remove("victory-open");
 
         const playerStart = state.getTerritoriesOwnedBy(game.playerId)[0];
         const playerTerritoryIds = state.getTerritoriesOwnedBy(game.playerId).map((territory) => territory.id);
@@ -1979,7 +2061,7 @@
         for (let tick = 0; tick < 24; tick += 1) aiGame.update(1000);
         check(aiGame.aiSystem.ordersIssued > 0, "les factions contrôlées par l’ordinateur prennent des décisions");
         check(aiGame.aiSystem.getMaximumTacticalArmies(6) === 2 && aiGame.aiSystem.getMaximumTacticalArmies(15) === 5 && aiGame.aiSystem.getMaximumTacticalArmies(30) === 8, "la capacité tactique de l’IA progresse avec son empire jusqu’à huit armées simultanées");
-        check(aiGame.aiSystem.getMaximumRearRedistributions(6) === 2 && aiGame.aiSystem.getMaximumRearRedistributions(24) === 3 && aiGame.aiSystem.getMaximumRearRedistributions(48) === 5, "la capacité de redistribution arrière de l’IA augmente avec son empire jusqu’à cinq convois simultanés");
+        check(aiGame.aiSystem.getMaximumRearRedistributions(6) === 3 && aiGame.aiSystem.getMaximumRearRedistributions(24) === 4 && aiGame.aiSystem.getMaximumRearRedistributions(60) === 10, "la capacité de redistribution arrière de l’IA augmente avec son empire jusqu’à dix convois simultanés");
         check(aiGame.aiSystem.getMaximumNeutralExpansions(1) === 1 &&
             aiGame.aiSystem.getMaximumNeutralExpansions(6) === 2 &&
             aiGame.aiSystem.getMaximumNeutralExpansions(15, { totalLandCount: 110 }) === 3 &&
@@ -2417,7 +2499,7 @@
             "l'IA plafonne ses villes alimentaires a 20 %, 30 % ou 40 % selon la gravite de la penurie"
         );
 
-        const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
+        const aiLogisticsGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1, capitalFoodCapacity: 10000 });
         aiLogisticsGame.newGame(515151);
         const technocratStart = aiLogisticsGame.state.getTerritoriesOwnedBy(2)[0];
         const technocratNetwork = findPathWithMinimumHops(aiLogisticsGame.state.territories, technocratStart.id, 3);
@@ -2427,6 +2509,7 @@
         technocratStart.neighbors.map((id) => aiLogisticsGame.state.getTerritory(id)).filter((territory) => territory && !territory.isImpassable).forEach((territory) => {
             territory.ownerId = 2;
         });
+        aiLogisticsGame.state.getTerritoriesOwnedBy(2).forEach((territory) => { territory.units = 80; });
         aiLogisticsGame.aiSystem.manageContinuousReinforcements(
             aiLogisticsGame.state.getFaction(2),
             aiLogisticsGame.state.getTerritoriesOwnedBy(2)
@@ -2434,9 +2517,13 @@
         const aiRoute = aiLogisticsGame.state.reinforcementRoutes.find((route) => route.active && route.ownerId === 2);
         check(Boolean(aiRoute) && aiLogisticsGame.aiSystem.continuousRoutesCreated > 0, "l’ordinateur ouvre une ligne de renfort continue vers une frontière");
         const aiRouteSource = aiLogisticsGame.state.getTerritory(aiRoute.fromTerritoryId);
+        const initialRouteStock = aiLogisticsGame.state.armies.find((army) =>
+            army.reinforcementRouteId === aiRoute.id && army.logisticsPurpose === "continuous-initial-stock");
+        check(initialRouteStock && initialRouteStock.units >= 40 && aiRouteSource.units < 40, "l’ouverture d’un flux IA expédie aussi la majorité de la garnison déjà accumulée");
+        const dispatchedBeforeProduction = aiRoute.unitsDispatched;
         aiRouteSource.productionProgress = 0.99;
         aiLogisticsGame.update(1000);
-        check(aiRoute.unitsDispatched > 0, "la production de l’IA alimente automatiquement sa ligne logistique");
+        check(aiRoute.unitsDispatched > dispatchedBeforeProduction, "la production de l’IA alimente automatiquement sa ligne logistique");
 
         const networkGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], mapType: "hourglass", enableAI: false, enableWorldEvents: false, timeScale: 1 });
         networkGame.newGame(525252);
@@ -2482,6 +2569,72 @@
         const rearConvoy = rearGame.state.armies.find((army) => army.logisticsPurpose === "rear-redistribution");
         check(rearRedistribution && rearConvoy && rearConvoy.units >= 40 && rearSource.units >= 20 && rearSource.units < 55, "l’IA expédie la majorité d’une grosse garnison arrière vers une frontière distante en conservant une réserve");
         check(rearConvoy.toJSON().logisticsPurpose === "rear-redistribution" && rearGame.aiSystem.rearRedistributionsSent === 1, "les convois de redistribution arrière sont identifiés et sérialisables");
+
+        function createRearSweepScenario() {
+            const sweepGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+            sweepGame.newGame(616162);
+            sweepGame.random = () => 0.5;
+            const sweepTerritories = [1, 2, 3, 4, 5, 6].map((id) => {
+                const territory = new C.Territory({ id, name: `Logistique ${id}`, terrain: "plain", polygon: [], center: { x: id * 100, y: 100 } });
+                territory.ownerId = id <= 5 ? 2 : 1;
+                territory.units = id <= 4 ? 100 : id === 5 ? 10 : 60;
+                return territory;
+            });
+            [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6]].forEach(([first, second]) => {
+                sweepTerritories[first - 1].neighbors.push(second);
+                sweepTerritories[second - 1].neighbors.push(first);
+            });
+            sweepGame.state.territories = sweepTerritories;
+            sweepTerritories[0].isCapital = true;
+            sweepGame.state.getFaction(2).capitalTerritoryId = 1;
+            sweepGame.aiSystem.factionIds = [2];
+            sweepGame.aiSystem.reset();
+            sweepGame.aiSystem.enabled = true;
+            sweepGame.aiSystem.offensivePlans.set(2, {
+                stagingTerritoryId: 5,
+                targetTerritoryId: 6,
+                contributorIds: [1],
+                createdAt: 0,
+                lastActionAt: 0,
+                expiresAt: 90000
+            });
+            return sweepGame;
+        }
+
+        const batchSweepGame = createRearSweepScenario();
+        const batchSweepResult = batchSweepGame.aiSystem.runRearLogisticsSweep(2);
+        const batchRearConvoys = batchSweepGame.state.armies.filter((army) => army.logisticsPurpose === "rear-redistribution");
+        check(batchSweepResult && batchRearConvoys.length === 2 && new Set(batchRearConvoys.map((army) => army.fromTerritoryId)).size === 2, "un seul balayage logistique évacue plusieurs garnisons arrière distinctes");
+        check(batchRearConvoys.some((army) => army.fromTerritoryId === 4 && army.finalTerritoryId === 5), "le balayage récupère aussi le surplus situé juste derrière la ligne de front");
+        check(batchSweepGame.state.getTerritory(1).units === 100, "le balayage ne prélève jamais un donateur réservé à l’offensive coordonnée");
+        check(batchSweepGame.aiSystem.getMaximumRearRedistributions(60) === 10, "un grand empire peut maintenant maintenir jusqu’à dix convois de redistribution simultanés");
+
+        const independentSweepGame = createRearSweepScenario();
+        independentSweepGame.aiSystem.thinkTimers.set(2, 99999);
+        independentSweepGame.aiSystem.rearSweepTimers.set(2, 0);
+        independentSweepGame.aiSystem.update(1);
+        check(independentSweepGame.state.armies.filter((army) => army.logisticsPurpose === "rear-redistribution").length === 2 && independentSweepGame.aiSystem.thinkTimers.get(2) > 90000, "le balayage arrière fonctionne même lorsqu’aucune nouvelle décision tactique n’est disponible");
+
+        const alliedSweepGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3], enableAI: false, enableWorldEvents: false });
+        alliedSweepGame.newGame(717171);
+        const alliedSweepFaction = alliedSweepGame.state.getFaction(2);
+        alliedSweepFaction.teamId = 2;
+        alliedSweepGame.state.getFaction(3).teamId = 2;
+        alliedSweepGame.state.territories = [
+            [1, 2, 100], [2, 3, 5], [3, 2, 10], [4, 1, 60]
+        ].map(([id, ownerId, units]) => {
+            const territory = new C.Territory({ id, name: `Allié ${id}`, terrain: "plain", polygon: [], center: { x: id * 100, y: 100 } });
+            territory.ownerId = ownerId;
+            territory.units = units;
+            return territory;
+        });
+        [[1, 2], [2, 3], [3, 4]].forEach(([first, second]) => {
+            alliedSweepGame.state.getTerritory(first).neighbors.push(second);
+            alliedSweepGame.state.getTerritory(second).neighbors.push(first);
+        });
+        const alliedRedistribution = alliedSweepGame.aiSystem.redistributeRearSurplus(alliedSweepFaction, alliedSweepGame.state.getTerritoriesOwnedBy(2));
+        const alliedRearConvoy = alliedSweepGame.state.armies.find((army) => army.logisticsPurpose === "rear-redistribution");
+        check(alliedRedistribution && alliedRearConvoy?.toTerritoryId === 2 && alliedRearConvoy.finalTerritoryId === 3, "la redistribution IA peut traverser le territoire d’un équipier pour atteindre son propre front");
 
         const tacticalGame = new C.Game({ playerId: 1, enableAI: true, timeScale: 1 });
         tacticalGame.newGame(919191);

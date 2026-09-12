@@ -18,6 +18,8 @@
             this.toastTimer = null;
             this.researchTreeKey = null;
             this.victoryScreenPresented = false;
+            this.victoryPresentationKey = null;
+            this.localEliminationAtMs = null;
             this.elements = this.collectElements();
             this.replay = this.elements.replayCanvas && C.VictoryReplayController
                 ? new C.VictoryReplayController(game, this.elements)
@@ -388,21 +390,48 @@
         }
 
         showVictoryScreen() {
-            if (this.game.state.winnerTeamId === null || !this.elements.victoryScreen) return;
+            const presentationKey = this.getVictoryPresentationKey();
+            if (!presentationKey || !this.elements.victoryScreen) return;
+            if (presentationKey.startsWith("eliminated:") && this.localEliminationAtMs === null) {
+                this.localEliminationAtMs = this.game.state.elapsedMs;
+            }
             this.closeResearchScreen(false);
             this.renderVictoryScreen();
             this.elements.victoryScreen.hidden = false;
             this.elements.matchSummary.hidden = true;
             this.victoryScreenPresented = true;
+            this.victoryPresentationKey = presentationKey;
             document.body.classList.add("victory-open");
-            this.replay?.open();
+            this.replay?.open(this.getVictoryDurationMs());
             this.elements.victoryObserve.focus();
         }
 
         ensureVictoryScreen() {
-            if (this.game.state.winnerTeamId !== null && !this.victoryScreenPresented) {
+            const presentationKey = this.getVictoryPresentationKey();
+            if (presentationKey && (!this.victoryScreenPresented || presentationKey !== this.victoryPresentationKey)) {
                 this.showVictoryScreen();
             }
+        }
+
+        isLocalTeamEliminated() {
+            const playerFaction = this.game.state.getFaction(this.game.playerId);
+            if (!playerFaction) return false;
+            const teamFactions = this.game.state.factions.filter((faction) => faction.teamId === playerFaction.teamId);
+            const teamWasDeployed = teamFactions.some((faction) => Number(faction.statistics?.peakTerritories) > 0);
+            if (!teamWasDeployed) return false;
+            const teamFactionIds = new Set(teamFactions.map((faction) => faction.id));
+            return !this.game.state.territories.some((territory) => teamFactionIds.has(territory.ownerId));
+        }
+
+        getVictoryPresentationKey() {
+            if (this.game.state.winnerTeamId !== null) return `winner:${this.game.state.winnerTeamId}`;
+            if (!this.isLocalTeamEliminated()) return null;
+            const playerFaction = this.game.state.getFaction(this.game.playerId);
+            return playerFaction ? `eliminated:${playerFaction.teamId}` : null;
+        }
+
+        getVictoryDurationMs() {
+            return this.game.state.victoryAtMs ?? this.localEliminationAtMs ?? this.game.state.elapsedMs;
         }
 
         hideVictoryScreen(reset = false) {
@@ -410,44 +439,58 @@
             this.elements.victoryScreen.hidden = true;
             document.body.classList.remove("victory-open");
             this.replay?.close(reset);
-            if (reset) this.victoryScreenPresented = false;
-            this.elements.matchSummary.hidden = reset || this.game.state.winnerTeamId === null;
+            if (reset) {
+                this.victoryScreenPresented = false;
+                this.victoryPresentationKey = null;
+                this.localEliminationAtMs = null;
+            }
+            this.elements.matchSummary.hidden = reset || this.getVictoryPresentationKey() === null;
             if (!reset && !this.elements.matchSummary.hidden) this.elements.matchSummary.focus();
         }
 
         renderVictoryScreen() {
             const winnerTeamId = this.game.state.winnerTeamId;
             const playerFaction = this.game.state.getFaction(this.game.playerId);
-            const playerWon = playerFaction?.teamId === winnerTeamId;
+            const matchComplete = winnerTeamId !== null;
+            const playerWon = matchComplete && playerFaction?.teamId === winnerTeamId;
             const standings = this.game.getFinalStandings();
-            const winners = standings.filter((entry) => entry.teamId === winnerTeamId);
-            const durationMs = this.game.state.victoryAtMs ?? this.game.state.elapsedMs;
-            this.elements.victoryOutcome.textContent = playerWon ? "Campagne victorieuse" : "Campagne terminée";
+            const featuredPlayers = matchComplete
+                ? standings.filter((entry) => entry.teamId === winnerTeamId)
+                : standings.filter((entry) => entry.territoryCount > 0);
+            const livingTeamCount = new Set(featuredPlayers.map((entry) => entry.teamId)).size;
+            const durationMs = this.getVictoryDurationMs();
+            this.elements.victoryOutcome.textContent = playerWon
+                ? "Campagne victorieuse"
+                : matchComplete ? "Campagne terminée" : "Forces éliminées";
             this.elements.victoryTitle.textContent = playerWon ? "VICTOIRE" : "DÉFAITE";
             this.elements.victorySubtitle.textContent = playerWon
                 ? `Votre équipe impose sa domination après ${this.formatDuration(durationMs)}.`
-                : `L’équipe ${winnerTeamId} impose sa domination après ${this.formatDuration(durationMs)}.`;
+                : matchComplete
+                    ? `L’équipe ${winnerTeamId} impose sa domination après ${this.formatDuration(durationMs)}.`
+                    : `Votre équipe a perdu son dernier territoire après ${this.formatDuration(durationMs)}. ${livingTeamCount > 1
+                        ? `La guerre continue entre ${livingTeamCount} équipes.`
+                        : "Une équipe reste en lice."}`;
             this.elements.victoryDuration.textContent = this.formatDuration(durationMs);
             this.elements.victoryMap.textContent = `Carte #${String(this.game.state.seed).padStart(6, "0")}`;
 
             const dots = document.createElement("span");
             dots.className = "victory-team-dots";
-            winners.forEach((entry) => {
+            featuredPlayers.forEach((entry) => {
                 const dot = document.createElement("i");
                 dot.style.setProperty("--faction-color", entry.color);
                 dots.append(dot);
             });
             const teamText = document.createElement("span");
-            teamText.append("Équipe dominante : ");
+            teamText.append(matchComplete ? "Équipe dominante : " : "Forces encore en lice : ");
             const teamName = document.createElement("strong");
-            teamName.textContent = winners.map((entry) => entry.playerName || entry.name).join(" + ");
+            teamName.textContent = featuredPlayers.map((entry) => entry.playerName || entry.name).join(" + ");
             teamText.append(teamName);
             this.elements.victoryTeam.replaceChildren(dots, teamText);
 
             this.elements.victoryStandings.replaceChildren(...standings.map((entry, index) => {
                 const card = document.createElement("article");
                 card.className = "victory-player";
-                card.classList.toggle("winner", entry.teamId === winnerTeamId);
+                card.classList.toggle("winner", matchComplete && entry.teamId === winnerTeamId);
                 card.classList.toggle("local-player", entry.factionId === this.game.playerId);
                 card.style.setProperty("--player-color", entry.color);
 
@@ -464,7 +507,9 @@
                 identity.append(commander, detail);
                 const rank = document.createElement("span");
                 rank.className = "victory-rank";
-                rank.textContent = entry.teamId === winnerTeamId ? "Vainqueur" : `#${index + 1}`;
+                rank.textContent = matchComplete
+                    ? entry.teamId === winnerTeamId ? "Vainqueur" : `#${index + 1}`
+                    : entry.territoryCount > 0 ? "En lice" : "Éliminé";
                 heading.append(dot, identity, rank);
 
                 const values = [

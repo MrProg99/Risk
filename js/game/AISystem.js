@@ -46,6 +46,7 @@
             this.enabled = options.enabled !== false;
             this.factionIds = options.factionIds || [2, 3, 4];
             this.thinkTimers = new Map();
+            this.rearSweepTimers = new Map();
             this.offensivePlans = new Map();
             this.alliedAidCooldowns = new Map();
             this.ordersIssued = 0;
@@ -79,18 +80,27 @@
             this.farmsConstructed = 0;
             this.wondersConstructed = 0;
             this.thinkTimers.clear();
+            this.rearSweepTimers.clear();
             this.offensivePlans.clear();
             this.alliedAidCooldowns.clear();
             this.factionIds.forEach((factionId, index) => {
                 // Les premiers ordres sont décalés pour éviter que les trois IA
                 // ne jouent exactement sur la même image de simulation.
                 this.thinkTimers.set(factionId, 1200 + index * 650 + this.randomBetween(0, 900));
+                this.rearSweepTimers.set(factionId, 6000 + index * 850 + this.randomBetween(0, 1800));
             });
         }
 
         update(deltaMs) {
             if (!this.enabled) return;
             this.factionIds.forEach((factionId) => {
+                let rearSweepRemaining = (this.rearSweepTimers.get(factionId) || 0) - deltaMs;
+                if (rearSweepRemaining <= 0) {
+                    this.runRearLogisticsSweep(factionId);
+                    rearSweepRemaining = this.randomBetween(9000, 13500);
+                }
+                this.rearSweepTimers.set(factionId, rearSweepRemaining);
+
                 let remaining = (this.thinkTimers.get(factionId) || 0) - deltaMs;
                 if (remaining > 0) {
                     this.thinkTimers.set(factionId, remaining);
@@ -102,6 +112,25 @@
                 remaining = this.randomBetween(profile.intervalMin, profile.intervalMax);
                 this.thinkTimers.set(factionId, remaining);
             });
+        }
+
+        runRearLogisticsSweep(factionId) {
+            const state = this.game.state;
+            const faction = state.getFaction(factionId);
+            const owned = state.getTerritoriesOwnedBy(factionId);
+            if (!faction || !owned.length) return false;
+            if (state.mapType === "volcano" && state.volcanicWarningIssued) {
+                return this.respondToVolcanicWarning(faction, owned);
+            }
+
+            const pendingPlan = this.offensivePlans.get(faction.id);
+            const reservedSourceIds = new Set(pendingPlan
+                ? [pendingPlan.stagingTerritoryId, ...(pendingPlan.contributorIds || [])]
+                : []);
+            const maximumOrders = C.Geometry.clamp(Math.ceil(owned.length / 12), 2, 4);
+            const redistributed = this.redistributeRearSurplus(faction, owned, reservedSourceIds, maximumOrders);
+            const routeAdjusted = this.manageContinuousReinforcements(faction, owned, reservedSourceIds);
+            return redistributed || routeAdjusted;
         }
 
         think(factionId) {
@@ -326,9 +355,8 @@
             return this.advanceOffensivePlan(faction, owned);
         }
 
-        redistributeRearSurplus(faction, owned, reservedSourceIds = new Set()) {
+        redistributeRearSurplus(faction, owned, reservedSourceIds = new Set(), maximumOrders = 1) {
             const state = this.game.state;
-            const profile = this.getProfile(faction.id);
             const targets = this.rankLogisticsTargets(faction, owned);
             if (!targets.length) return false;
 
@@ -336,6 +364,10 @@
                 army.ownerId === faction.id && army.isConvoy && !army.reinforcementRouteId && army.logisticsPurpose === "rear-redistribution");
             const maximumRedistributions = this.getMaximumRearRedistributions(owned.length);
             if (activeRedistributions.length >= maximumRedistributions) return false;
+            const availableSlots = Math.min(
+                Math.max(1, Math.floor(Number(maximumOrders) || 1)),
+                maximumRedistributions - activeRedistributions.length
+            );
 
             const activeSourceIds = new Set(activeRedistributions.map((army) => army.fromTerritoryId));
             const candidates = [];
@@ -346,18 +378,14 @@
                     .filter((neighbor) => neighbor && !neighbor.isImpassable && !source.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id));
                 if (hostileNeighbors.length) return;
 
-                const reserve = profile.garrison +
-                    (source.isCapital ? 15 : 0) +
-                    (source.installation ? 8 : 0) +
-                    (source.rareSite ? 5 : 0) +
-                    (source.wonderId || source.wonderConstruction ? 28 : 0);
+                const reserve = this.getRearLogisticsReserve(faction.id, source);
                 const surplus = source.units - this.getDefensiveReserve(faction.id, source, reserve);
                 if (surplus < 8) return;
 
                 targets.slice(0, 4).forEach((targetEntry) => {
                     const target = targetEntry.territory;
-                    const path = this.game.findOwnedPath(faction.id, source.id, target.id);
-                    if (!path || path.length < 3) return;
+                    const path = this.game.findAlliedPath(faction.id, source.id, target.id);
+                    if (!path || path.length < 2) return;
                     candidates.push({
                         source,
                         target,
@@ -370,21 +398,27 @@
             });
 
             candidates.sort((first, second) => second.score - first.score);
-            const best = candidates[0];
-            if (!best) return false;
-            const units = Math.max(6, Math.floor(best.surplus * .85));
-            const result = this.game.executeCommand({
-                type: "SEND_REINFORCEMENT_ROUTE",
-                playerId: faction.id,
-                fromTerritoryId: best.source.id,
-                toTerritoryId: best.target.id,
-                units
-            });
-            if (!result.ok) return false;
-            result.army.logisticsPurpose = "rear-redistribution";
-            this.ordersIssued += 1;
-            this.rearRedistributionsSent += 1;
-            return true;
+            const dispatchedSourceIds = new Set();
+            let dispatched = 0;
+            for (const candidate of candidates) {
+                if (dispatched >= availableSlots) break;
+                if (dispatchedSourceIds.has(candidate.source.id)) continue;
+                const units = Math.max(6, Math.floor(candidate.surplus * .85));
+                const result = this.game.executeCommand({
+                    type: "SEND_REINFORCEMENT_ROUTE",
+                    playerId: faction.id,
+                    fromTerritoryId: candidate.source.id,
+                    toTerritoryId: candidate.target.id,
+                    units
+                });
+                if (!result.ok) continue;
+                result.army.logisticsPurpose = "rear-redistribution";
+                dispatchedSourceIds.add(candidate.source.id);
+                dispatched += 1;
+                this.ordersIssued += 1;
+                this.rearRedistributionsSent += 1;
+            }
+            return dispatched > 0;
         }
 
         launchOpportunisticNeutralExpansion(faction, owned) {
@@ -1550,7 +1584,7 @@
                 const source = state.getTerritory(staleRoute.fromTerritoryId);
                 const target = priorityTargets
                     .map((entry) => entry.territory)
-                    .find((candidate) => source && this.game.findOwnedPath(faction.id, source.id, candidate.id));
+                    .find((candidate) => source && this.game.findAlliedPath(faction.id, source.id, candidate.id));
                 if (target) return this.createContinuousRoute(faction.id, source.id, target.id);
             }
 
@@ -1563,7 +1597,7 @@
                 priorityTargets.forEach((targetEntry) => {
                     const target = targetEntry.territory;
                     if (source.id === target.id) return;
-                    const path = this.game.findOwnedPath(faction.id, source.id, target.id);
+                    const path = this.game.findAlliedPath(faction.id, source.id, target.id);
                     if (!path) return;
                     const production = this.game.getProductionMultiplier(source);
                     const targetCongestion = targetUseCounts.get(target.id) || 0;
@@ -1589,11 +1623,13 @@
 
         rankLogisticsTargets(faction, owned) {
             const state = this.game.state;
+            const volcanicDangerIds = this.game.eventSystem.getVolcanicDangerTerritoryIds();
             const archipelagoOpening = this.isArchipelagoOpening(faction.id);
             const minimumGatewayDistance = archipelagoOpening
                 ? Math.min(...owned.map((territory) => this.getArchipelagoGatewayDistance(faction.id, territory, 12)))
                 : Infinity;
             return owned.map((territory) => {
+                if (volcanicDangerIds.has(territory.id)) return null;
                 const hostileNeighbors = territory.neighbors
                     .map((id) => state.getTerritory(id))
                     .filter((neighbor) => neighbor && !neighbor.isImpassable && !this.game.areAllied(neighbor.ownerId, faction.id) && !territory.isPathBlocked(neighbor.id));
@@ -1622,6 +1658,32 @@
             if (result.ok) {
                 this.ordersIssued += 1;
                 this.continuousRoutesCreated += 1;
+                const source = this.game.state.getTerritory(fromTerritoryId);
+                const reserve = this.getRearLogisticsReserve(factionId, source);
+                const surplus = source
+                    ? source.units - this.getDefensiveReserve(factionId, source, reserve)
+                    : 0;
+                if (surplus >= 8) {
+                    const units = Math.max(6, Math.floor(surplus * .80));
+                    const dispatch = this.game.executeCommand({
+                        type: "SEND_REINFORCEMENT_ROUTE",
+                        playerId: factionId,
+                        fromTerritoryId,
+                        toTerritoryId,
+                        units,
+                        reinforcementRouteId: result.route.id
+                    });
+                    if (dispatch.ok) {
+                        dispatch.army.logisticsPurpose = "continuous-initial-stock";
+                        result.route.unitsDispatched += units;
+                        this.game.notify({
+                            type: "REINFORCEMENT_ROUTE_DISPATCH",
+                            routeId: result.route.id,
+                            units,
+                            armyId: dispatch.army.id
+                        });
+                    }
+                }
             }
             return result.ok;
         }
@@ -1757,6 +1819,16 @@
             return Math.max(minimumReserve, Math.ceil(incomingPower * 1.28 / defense) + 1);
         }
 
+        getRearLogisticsReserve(factionId, territory) {
+            const profile = this.getProfile(factionId);
+            if (!territory) return profile.garrison;
+            return profile.garrison +
+                (territory.isCapital ? 15 : 0) +
+                (territory.installation ? 8 : 0) +
+                (territory.rareSite ? 5 : 0) +
+                (territory.wonderId || territory.wonderConstruction ? 28 : 0);
+        }
+
         issueOrder(factionId, fromTerritoryId, toTerritoryId, units) {
             const source = this.game.state.getTerritory(fromTerritoryId);
             if (!source || source.units - units < this.getDefensiveReserve(factionId, source)) return false;
@@ -1776,7 +1848,7 @@
         }
 
         getMaximumRearRedistributions(territoryCount) {
-            return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 8), 2, 5);
+            return C.Geometry.clamp(Math.ceil(Math.max(0, territoryCount) / 6), 3, 10);
         }
 
         getMaximumNeutralExpansions(territoryCount, options = {}) {

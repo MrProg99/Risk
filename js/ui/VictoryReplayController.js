@@ -41,9 +41,9 @@
             });
         }
 
-        open() {
+        open(durationOverrideMs = null) {
             const timeline = this.game.state.matchTimeline;
-            const duration = Math.max(0, Number(this.game.state.victoryAtMs ?? this.game.state.elapsedMs) || 0);
+            const duration = Math.max(0, Number(durationOverrideMs ?? this.game.state.victoryAtMs ?? this.game.state.elapsedMs) || 0);
             const timelineKey = `${this.game.state.seed}:${timeline.captures.length}:${duration}`;
             this.visible = true;
             if (timelineKey !== this.timelineKey) {
@@ -201,7 +201,10 @@
 
         describeCurrentMoment() {
             if (this.currentTimeMs <= 0 || this.captureCount === 0) return "Déploiement initial des factions.";
-            if (this.currentTimeMs >= this.durationMs) return `Fin de la campagne · ${this.captureCount} conquête${this.captureCount > 1 ? "s" : ""}.`;
+            if (this.currentTimeMs >= this.durationMs) {
+                const label = this.game.state.winnerTeamId === null ? "Situation lors de votre élimination" : "Fin de la campagne";
+                return `${label} · ${this.captureCount} conquête${this.captureCount > 1 ? "s" : ""}.`;
+            }
             const event = this.timeline.getLatestCaptureAt(this.currentTimeMs);
             if (!event) return "Les frontières sont encore intactes.";
             const territory = this.game.state.getTerritory(event.territoryId);
