@@ -291,6 +291,20 @@
         researchModeTerritories.forEach((territory) => { territory.units = 100; });
         check(researchModeGame.aiSystem.manageResearchAllocation(researchModeFaction, researchModeTerritories) && !researchModeTerritories.some((territory) => territory.productionMode === "research"), "l’IA ferme son laboratoire lorsque la couverture alimentaire devient dangereuse");
         check(researchModeGame.aiSystem.getResearchTerritoryLimit(5) === 0 && researchModeGame.aiSystem.getResearchTerritoryLimit(6) === 1 && researchModeGame.aiSystem.getResearchTerritoryLimit(12) === 2 && researchModeGame.aiSystem.getResearchTerritoryLimit(21) === 3, "les plafonds de recherche de l’IA progressent prudemment avec son territoire");
+        const independentResearchGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: true, enableWorldEvents: false, timeScale: 1 });
+        independentResearchGame.newGame(424244);
+        const independentAi = independentResearchGame.aiSystem;
+        const independentFaction = independentResearchGame.state.getFaction(2);
+        let economicMaintenanceRuns = 0;
+        independentAi.thinkTimers.set(2, 60000);
+        independentAi.economyTimers.set(2, 0);
+        independentAi.runEconomicMaintenance = () => {
+            economicMaintenanceRuns += 1;
+            return true;
+        };
+        independentAi.update(100);
+        check(Boolean(independentFaction.research.activeTechnologyId) && economicMaintenanceRuns === 1 && independentAi.thinkTimers.get(2) > 59000,
+            "la recherche et l’entretien économique de l’IA avancent sans attendre ni consommer sa prochaine décision tactique");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
@@ -2443,10 +2457,11 @@
         const protectedFarm = mountainFarmGame.state.getTerritory(1);
         protectedFarm.blockedNeighbors = [];
         mountainFarmGame.state.getTerritory(3).blockedNeighbors = [];
-        check(!mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned), "l’IA évite un chantier agricole au contact terrestre direct d’un ennemi");
+        check(mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned) && protectedFarm.buildingConstruction?.buildingId === "farm", "un front ennemi n’empêche plus l’IA de construire sur sa seule plaine disponible");
+        mountainFarmGame.cancelBuildingConstruction(protectedFarm);
         protectedFarm.blockedNeighbors = [3];
         mountainFarmGame.state.getTerritory(3).blockedNeighbors = [1];
-        check(mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned) && protectedFarm.buildingConstruction?.buildingId === "farm", "une plaine protégée par une montagne peut accueillir une ferme malgré l’ennemi voisin");
+        check(mountainFarmGame.aiSystem.manageFarmConstruction(mountainFarmFaction, mountainFarmOwned) && protectedFarm.buildingConstruction?.buildingId === "farm", "une montagne ne change pas l’admissibilité agricole d’une plaine contrôlée");
 
         const abilityAiFaction = aiGame.state.getFaction(2);
         const abilityAiSource = aiGame.state.getTerritoriesOwnedBy(2)[0];
@@ -3212,10 +3227,25 @@
         });
         const farmAiOwned = farmAiGame.state.getTerritoriesOwnedBy(2);
         farmAiOwned.forEach((territory) => { territory.units = 1; });
+        const farmRouteDestination = farmAiCandidate.neighbors
+            .map((neighborId) => farmAiGame.state.getTerritory(neighborId))
+            .find((territory) => territory && territory.ownerId === 2 && !territory.isImpassable && !farmAiCandidate.isPathBlocked(territory.id)) || farmAiCandidate;
+        farmAiCandidate.isCapital = true;
+        farmAiCandidate.installation = { type: "cannon" };
+        farmAiCandidate.rareSite = { id: "metropolis", name: "Métropole", bonuses: [] };
+        farmAiCandidate.railroad = true;
+        farmAiCandidate.productionMode = "research";
+        farmAiGame.state.reinforcementRoutes.push(new C.ReinforcementRoute({
+            id: farmAiGame.state.nextReinforcementRouteId++,
+            ownerId: 2,
+            fromTerritoryId: farmAiCandidate.id,
+            toTerritoryId: farmRouteDestination.id,
+            path: [farmAiCandidate.id, farmRouteDestination.id]
+        }));
         const farmAiCapacity = farmAiGame.getFactionFoodState(2).capacity;
         farmAiGame.state.getTerritory(farmAiFaction.capitalTerritoryId).units += Math.max(0, Math.floor(farmAiCapacity / 1.2) - farmAiOwned.length);
         const farmAiDecision = farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned);
-        check(farmAiDecision && farmAiCandidate.buildingConstruction?.buildingId === "farm", "l’IA prépare une ferme sur une plaine arrière lorsque sa marge alimentaire approche 120 %");
+        check(farmAiDecision && farmAiCandidate.buildingConstruction?.buildingId === "farm", "l’IA peut bâtir sa ferme sur toute plaine possédée, même capitale, hub, site stratégique, voie ferrée ou centre de recherche");
         farmAiGame.cancelBuildingConstruction(farmAiCandidate);
         farmAiOwned.forEach((territory) => { territory.units = 1; });
         check(!farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned), "l’IA ne construit aucune ferme lorsqu’elle possède déjà une grande réserve alimentaire");

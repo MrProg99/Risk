@@ -47,6 +47,7 @@
             this.factionIds = options.factionIds || [2, 3, 4];
             this.thinkTimers = new Map();
             this.rearSweepTimers = new Map();
+            this.economyTimers = new Map();
             this.offensivePlans = new Map();
             this.alliedAidCooldowns = new Map();
             this.ordersIssued = 0;
@@ -81,6 +82,7 @@
             this.wondersConstructed = 0;
             this.thinkTimers.clear();
             this.rearSweepTimers.clear();
+            this.economyTimers.clear();
             this.offensivePlans.clear();
             this.alliedAidCooldowns.clear();
             this.factionIds.forEach((factionId, index) => {
@@ -88,12 +90,28 @@
                 // ne jouent exactement sur la même image de simulation.
                 this.thinkTimers.set(factionId, 1200 + index * 650 + this.randomBetween(0, 900));
                 this.rearSweepTimers.set(factionId, 6000 + index * 850 + this.randomBetween(0, 1800));
+                this.economyTimers.set(factionId, 900 + index * 420 + this.randomBetween(0, 700));
             });
         }
 
         update(deltaMs) {
             if (!this.enabled) return;
             this.factionIds.forEach((factionId) => {
+                const faction = this.game.state.getFaction(factionId);
+                const owned = this.game.state.getTerritoriesOwnedBy(factionId);
+                if (faction && owned.length && !faction.research.activeTechnologyId) {
+                    // Le laboratoire national choisit immédiatement la recherche suivante.
+                    // Cette décision ne consomme jamais un créneau militaire.
+                    this.chooseResearch(faction);
+                }
+
+                let economyRemaining = (this.economyTimers.get(factionId) || 0) - deltaMs;
+                if (economyRemaining <= 0) {
+                    this.runEconomicMaintenance(factionId);
+                    economyRemaining = this.randomBetween(2800, 4300);
+                }
+                this.economyTimers.set(factionId, economyRemaining);
+
                 let rearSweepRemaining = (this.rearSweepTimers.get(factionId) || 0) - deltaMs;
                 if (rearSweepRemaining <= 0) {
                     this.runRearLogisticsSweep(factionId);
@@ -112,6 +130,20 @@
                 remaining = this.randomBetween(profile.intervalMin, profile.intervalMax);
                 this.thinkTimers.set(factionId, remaining);
             });
+        }
+
+        runEconomicMaintenance(factionId) {
+            const state = this.game.state;
+            const faction = state.getFaction(factionId);
+            const owned = state.getTerritoriesOwnedBy(factionId);
+            if (!faction || !owned.length) return false;
+
+            // Ces trois responsabilités progressent en parallèle de la guerre. Une
+            // attaque, un rassemblement ou un Blackout ne peut plus les affamer.
+            const foodAdjusted = this.manageFoodSupply(faction, owned);
+            const farmStarted = this.manageFarmConstruction(faction, owned);
+            const researchAdjusted = this.manageResearchAllocation(faction, owned);
+            return foodAdjusted || farmStarted || researchAdjusted;
         }
 
         runRearLogisticsSweep(factionId) {
@@ -139,8 +171,6 @@
             const owned = state.getTerritoriesOwnedBy(factionId);
             if (!faction || !owned.length) return false;
 
-            this.chooseResearch(faction);
-
             if (this.respondToVolcanicWarning(faction, owned)) return true;
 
             if (this.game.isFactionBlackoutActive(faction.id)) {
@@ -155,15 +185,9 @@
             // être réduite avant les changements de production et la logistique de fond.
             if (this.prioritizeEncircledEnemy(faction, owned) === true) return true;
 
-            if (this.manageResearchAllocation(faction, owned)) return true;
-
-            if (this.manageFoodSupply(faction, owned)) return true;
-
             if (this.manageWonderConstruction(faction, owned)) return true;
 
             if (this.manageWonderDefense(faction, owned)) return true;
-
-            if (this.manageFarmConstruction(faction, owned)) return true;
 
             if (this.manageRailroadConstruction(faction, owned)) return true;
 
@@ -292,8 +316,6 @@
         }
 
         respondToBlackout(faction, owned) {
-            if (this.manageResearchAllocation(faction, owned)) return true;
-            if (this.manageFoodSupply(faction, owned)) return true;
             if (this.considerAlliedDefense(faction, owned)) return true;
             if (this.redistributeRearSurplus(faction, owned)) return true;
             if (this.manageContinuousReinforcements(faction, owned)) return true;
@@ -839,32 +861,18 @@
             const farmLimit = C.Geometry.clamp(Math.ceil(owned.length / 8), 1, 8);
             if (existingFarms >= farmLimit) return false;
 
-            const state = this.game.state;
-            const routeSources = new Set(state.reinforcementRoutes
-                .filter((route) => route.active && route.ownerId === faction.id)
-                .map((route) => route.fromTerritoryId));
             const candidates = owned
                 .filter((territory) => definition.allowedTerrains.includes(territory.terrain))
                 .filter((territory) => !territory.buildings.includes(definition.id) && !this.game.isTerritoryUnderConstruction(territory))
-                .filter((territory) => !territory.isCapital && !territory.installation && !territory.rareSite && !territory.railroad)
-                .filter((territory) => !routeSources.has(territory.id) && ["units", "food"].includes(territory.productionMode))
+                .filter((territory) => ["units", "food", "research"].includes(territory.productionMode))
                 .map((territory) => {
-                    const hostileNeighbors = territory.neighbors
-                        .map((neighborId) => state.getTerritory(neighborId))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id)).length;
-                    if (hostileNeighbors > 0) return null;
-                    const suspendedFood = this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory);
-                    const constructionRatio = (food.capacity - suspendedFood) / food.demand;
-                    if (constructionRatio < 0.95) return null;
-                    const alliedNeighbors = territory.neighbors
-                        .map((neighborId) => state.getTerritory(neighborId))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && this.game.areAllied(neighbor.ownerId, faction.id)).length;
                     return {
                         territory,
-                        score: (territory.productionMode === "food" ? 80 : 0) + alliedNeighbors * 7 - territory.units * 0.15 - this.game.getProductionMultiplier(territory) * 5
+                        // Aucune position stratégique n'interdit une ferme. Le score sert
+                        // seulement à choisir quelle plaine aménager en premier.
+                        score: (territory.productionMode === "food" ? 80 : 0) - this.game.getProductionMultiplier(territory) * 5
                     };
                 })
-                .filter(Boolean)
                 .sort((first, second) => second.score - first.score);
             const selected = candidates[0]?.territory;
             if (!selected) return false;
