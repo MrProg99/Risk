@@ -388,6 +388,7 @@
         check(submittedLobbyConfiguration.aiDifficulty === "hard" && submittedLobbyConfiguration.aiProductionMultiplier === 1.20, "le lobby transmet le niveau Difficile et son bonus de production");
         check(submittedLobbyConfiguration.activeFactionIds.join(",") === "2,3,4", "la validation du lobby transmet la liste des participants au moteur");
         lobbyController.close();
+        check(document.body.classList.contains("game-running") && !document.body.classList.contains("lobby-open"), "la fermeture du lobby active la mise en page plein écran de la partie");
         lobbyFixture.remove();
         const joinLobbyFixture = document.createElement("div");
         joinLobbyFixture.innerHTML = `

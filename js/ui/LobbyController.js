@@ -347,6 +347,7 @@
         }
 
         open() {
+            document.body.classList.remove("game-running");
             document.body.classList.add("lobby-open");
             this.lobby.hidden = false;
             this.gameApp.inert = true;
@@ -355,6 +356,7 @@
 
         close() {
             document.body.classList.remove("lobby-open");
+            document.body.classList.add("game-running");
             this.lobby.hidden = true;
             this.gameApp.inert = false;
             this.gameApp.removeAttribute("aria-hidden");

@@ -705,6 +705,40 @@ button { color: inherit; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes radar { to { transform: rotate(360deg); } }
 
+/* During a desktop match, the command bar and map share the viewport instead
+   of making the document taller than the screen. The side panel keeps its own
+   scrollbar, while map navigation remains entirely inside the canvas. */
+@media (min-width: 1051px) {
+    body.game-running {
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    body.game-running .app-shell {
+        height: 100vh;
+        height: 100dvh;
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    body.game-running .game-layout {
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    body.game-running .map-card,
+    body.game-running .side-panel {
+        height: 100%;
+        min-height: 0;
+    }
+
+    body.game-running .side-panel {
+        overscroll-behavior: contain;
+    }
+}
+
 @media (max-width: 1050px) {
     .app-shell { padding: 10px; grid-template-rows: auto auto; }
     .topbar { flex-wrap: wrap; gap: 12px; }
