@@ -115,6 +115,12 @@
                 modeUnits: byId("mode-units"),
                 modeFood: byId("mode-food"),
                 modeResearch: byId("mode-research"),
+                minefieldPanel: byId("minefield-panel"),
+                minefieldStatus: byId("minefield-status"),
+                minefieldProgress: byId("minefield-progress"),
+                minefieldProgressBar: byId("minefield-progress-bar"),
+                minefieldDetail: byId("minefield-detail"),
+                minefieldBuild: byId("minefield-build"),
                 railroadPanel: byId("railroad-panel"),
                 railroadStatus: byId("railroad-status"),
                 railroadProgress: byId("railroad-progress"),
@@ -200,6 +206,7 @@
             this.elements.modeUnits.addEventListener("click", () => this.setTerritoryMode("units"));
             this.elements.modeFood.addEventListener("click", () => this.setTerritoryMode("food"));
             this.elements.modeResearch.addEventListener("click", () => this.setTerritoryMode("research"));
+            this.elements.minefieldBuild.addEventListener("click", () => this.buildMinefield());
             this.elements.railroadBuild.addEventListener("click", () => this.buildRailroad());
             this.elements.buildingBuild.addEventListener("click", () => this.buildTerritoryBuilding());
             this.elements.wonderBuild.addEventListener("click", () => this.buildWonder());
@@ -321,6 +328,20 @@
             } else if (change.type === "TERRITORY_MODE_CHANGED" || change.type === "FOOD_ATTRITION") {
                 if (change.type === "FOOD_ATTRITION" && change.factionId === this.game.playerId) {
                     this.showToast(`Pénurie alimentaire : ${change.losses} unité${change.losses > 1 ? "s" : ""} perdue${change.losses > 1 ? "s" : ""}.`);
+                }
+                this.refreshDynamic();
+            } else if (change.type === "MINEFIELD_CONSTRUCTION_STARTED" || change.type === "MINEFIELD_CONSTRUCTION_COMPLETED") {
+                this.refreshDynamic();
+            } else if (change.type === "MINEFIELD_TRIGGERED") {
+                this.renderer.pulseTerritory(change.territoryId, "#ff766d");
+                const playerFaction = this.game.state.getFaction(this.game.playerId);
+                const defender = this.game.state.getFaction(change.defenderFactionId);
+                const attacker = this.game.state.getFaction(change.attackerFactionId);
+                const playerInvolved = defender?.teamId === playerFaction?.teamId || attacker?.teamId === playerFaction?.teamId;
+                if (playerInvolved) {
+                    const territory = this.game.state.getTerritory(change.territoryId);
+                    this.audio?.playMineExplosion();
+                    this.showToast(`Champ de mines déclenché à ${territory?.name || "une position"} : ${change.losses} pertes.`);
                 }
                 this.refreshDynamic();
             } else if (change.type === "RAILROAD_CONSTRUCTION_STARTED" || change.type === "RAILROAD_CONSTRUCTION_COMPLETED") {
@@ -1074,7 +1095,7 @@
             this.clearTerritorySelectionOnly();
             this.refreshAbilities();
             const targetingMessage = abilityId === "reinforcement"
-                ? `Cliquez sur un de vos territoires pour recevoir ${abilityStats.units} unités.`
+                ? `Cliquez sur un territoire à vous ou allié pour y mobiliser ${abilityStats.units} unités.`
                 : abilityId === "paratrooper"
                     ? `Choisissez un territoire ennemi visible pour larguer ${abilityStats.units} parachutistes.`
                 : abilityId === "nuclear"
@@ -1096,7 +1117,9 @@
 
         useAbilityAt(territory) {
             const abilityId = this.targetingAbilityId;
-            const food = this.game.getFactionFoodState(this.game.playerId);
+            const recipientFood = abilityId === "reinforcement" && territory.ownerId !== null
+                ? this.game.getFactionFoodState(territory.ownerId)
+                : null;
             const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: this.game.playerId, abilityId, targetTerritoryId: territory.id });
             if (!result.ok) return this.showToast(result.error);
             this.targetingAbilityId = null;
@@ -1105,8 +1128,14 @@
             if (result.pending) return this.showToast("Ordre de capacité transmis à l’hôte.");
             if (abilityId === "reinforcement") {
                 const units = Number(result.units) || C.getFactionAbilityStats(this.game.state.getFaction(this.game.playerId), "reinforcement").units;
-                const shortage = food.capacity - food.demand < units;
-                this.showToast(`${units} renforts mobilisés à ${territory.name}${shortage ? " · attention à la nourriture" : ""}.`);
+                const recipientFaction = this.game.state.getFaction(result.targetFactionId ?? territory.ownerId);
+                const alliedSupport = recipientFaction && recipientFaction.id !== this.game.playerId;
+                const shortage = recipientFood && recipientFood.capacity - recipientFood.demand < units;
+                const recipientLabel = alliedSupport ? ` pour ${recipientFaction.name}` : "";
+                const shortageLabel = shortage
+                    ? alliedSupport ? ` · ${recipientFaction.name} risque une pénurie` : " · attention à la nourriture"
+                    : "";
+                this.showToast(`${units} renforts mobilisés${recipientLabel} à ${territory.name}${shortageLabel}.`);
             }
         }
 
@@ -1295,6 +1324,7 @@
 
             this.renderBonuses(territory, type, faction);
             this.renderProductionMode(territory);
+            this.renderMinefieldPanel(territory);
             this.renderRailroadPanel(territory);
             this.renderBuildingPanel(territory);
             this.renderWonderPanel(territory);
@@ -1356,6 +1386,7 @@
                 this.elements.bonusList.append(item);
             });
             this.elements.airportPanel.hidden = true;
+            this.elements.minefieldPanel.hidden = true;
             this.elements.railroadPanel.hidden = true;
             this.elements.buildingPanel.hidden = true;
             this.elements.wonderPanel.hidden = true;
@@ -1399,6 +1430,76 @@
                 : territory.isCapital
                 ? `La capitale recrute des unités et maintient une capacité de ${passiveCapacity} nourritures.`
                 : `Ce territoire recrute des unités tout en fournissant ${passiveCapacity} nourritures. Le mode nourriture ajouterait ${foodCapacity} points.`;
+        }
+
+        renderMinefieldPanel(territory) {
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const canCommand = territory.ownerId === this.game.playerId && !territory.isImpassable;
+            const alliedView = faction && this.game.areAllied(faction.id, this.game.playerId);
+            const show = !territory.isImpassable && (canCommand || (alliedView && (territory.minefield || territory.minefieldConstructionActive)));
+            this.elements.minefieldPanel.hidden = !show;
+            if (!show) return;
+
+            const unlocked = Boolean(faction?.research.completedTechnologyIds.includes("defense-minefields"));
+            const progress = C.Geometry.clamp(
+                territory.minefieldConstructionProgressMs / this.game.minefieldConstructionDurationMs,
+                0,
+                1
+            );
+            const activeCount = faction ? this.game.getFactionMinefieldCount(faction.id) : 0;
+            const otherDeployment = canCommand && this.game.state.territories.some((candidate) =>
+                candidate.ownerId === this.game.playerId && candidate.id !== territory.id && candidate.minefieldConstructionActive);
+            const limitReached = activeCount >= this.game.minefieldMaximumPerFaction;
+
+            this.elements.minefieldPanel.classList.toggle("active", territory.minefield);
+            this.elements.minefieldPanel.classList.toggle("building", territory.minefieldConstructionActive);
+            this.elements.minefieldProgress.hidden = !territory.minefieldConstructionActive;
+            this.elements.minefieldProgressBar.style.width = `${Math.round(progress * 100)}%`;
+            this.elements.minefieldBuild.hidden = !canCommand || territory.minefield || territory.minefieldConstructionActive;
+            this.elements.minefieldBuild.disabled = !unlocked || limitReached || otherDeployment;
+
+            if (territory.minefieldConstructionActive) {
+                const remaining = Math.max(0, Math.ceil((this.game.minefieldConstructionDurationMs - territory.minefieldConstructionProgressMs) / 1000));
+                this.elements.minefieldStatus.textContent = `PRÉPARATION ${Math.round(progress * 100)} %`;
+                this.elements.minefieldDetail.textContent = `${remaining} s restantes. La production locale continue normalement pendant le déploiement du génie.`;
+                return;
+            }
+            if (territory.minefield) {
+                this.elements.minefieldStatus.textContent = "ARMÉ";
+                this.elements.minefieldDetail.textContent = `Caché aux adversaires. La première armée terrestre ennemie perdra 15 % de ses unités, de ${this.game.minefieldMinimumDamage} à ${this.game.minefieldMaximumDamage}, puis le champ sera consommé.`;
+                return;
+            }
+
+            this.elements.minefieldStatus.textContent = unlocked ? "DISPONIBLE" : "À RECHERCHER";
+            this.elements.minefieldBuild.textContent = !unlocked
+                ? "Recherche requise"
+                : otherDeployment
+                    ? "Équipe du génie occupée"
+                    : limitReached
+                        ? `Limite atteinte · ${activeCount}/${this.game.minefieldMaximumPerFaction}`
+                        : `Miner le territoire · ${Math.round(this.game.minefieldConstructionDurationMs / 1000)} s`;
+            this.elements.minefieldDetail.textContent = !unlocked
+                ? "Recherchez Champs de mines dans l’axe Défense pour préparer cette position."
+                : otherDeployment
+                    ? "Une seule préparation nationale peut progresser à la fois."
+                    : limitReached
+                        ? `Votre faction contrôle déjà ${activeCount} champs de mines préparés ou en cours.`
+                        : `Déploiement indépendant de la production · ${activeCount}/${this.game.minefieldMaximumPerFaction} champs utilisés.`;
+        }
+
+        buildMinefield() {
+            const territory = this.game.state.getTerritory(this.selectedTerritoryId);
+            if (!territory) return;
+            const result = this.game.executeCommand({
+                type: "BUILD_MINEFIELD",
+                playerId: this.game.playerId,
+                territoryId: territory.id
+            });
+            if (!result.ok) return this.showToast(result.error);
+            this.clearSelection();
+            this.showToast(result.pending
+                ? "Ordre de minage transmis à l’hôte."
+                : `Préparation du champ de mines lancée à ${territory.name}.`);
         }
 
         renderRailroadPanel(territory) {

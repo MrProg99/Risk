@@ -260,7 +260,7 @@
                     <button class="ability-button missile" id="ability-missile" type="button" title="Missile tactique">
                         <span>☄</span><span>Missile<small id="ability-missile-status">Verrouillé</small></span>
                     </button>
-                    <button class="ability-button reinforcement" id="ability-reinforcement" type="button" title="Mobilisation d’urgence">
+                    <button class="ability-button reinforcement" id="ability-reinforcement" type="button" title="Mobilisation d’urgence sur un territoire à vous ou allié">
                         <span>+</span><span>Renfort<small id="ability-reinforcement-status">Verrouillé</small></span>
                     </button>
                     <button class="ability-button paratrooper" id="ability-paratrooper" type="button" title="Largage de parachutistes">
@@ -433,6 +433,16 @@
                             <button id="mode-research" type="button">⌬ Recherche</button>
                         </div>
                         <p id="production-mode-detail"></p>
+                    </section>
+
+                    <section class="minefield-panel" id="minefield-panel" hidden>
+                        <div class="section-title-row">
+                            <h3>Défense minée</h3>
+                            <span class="minefield-status" id="minefield-status">À RECHERCHER</span>
+                        </div>
+                        <div class="minefield-progress" id="minefield-progress" hidden><span id="minefield-progress-bar"></span></div>
+                        <p id="minefield-detail">Recherchez Champs de mines dans l’axe Défense.</p>
+                        <button class="minefield-build-button" id="minefield-build" type="button">Miner le territoire · 40 s</button>
                     </section>
 
                     <section class="railroad-panel" id="railroad-panel" hidden>

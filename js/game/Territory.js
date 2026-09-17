@@ -34,6 +34,10 @@
             this.railroadPreviousProductionMode = null;
             this.buildings = [];
             this.buildingConstruction = null;
+            this.minefield = false;
+            this.minefieldConstructionActive = false;
+            this.minefieldConstructionProgressMs = 0;
+            this.minefieldLastTrigger = null;
             this.wonderId = null;
             this.wonderBuilderFactionId = null;
             this.wonderConstruction = null;
@@ -83,6 +87,10 @@
                 railroadPreviousProductionMode: this.railroadPreviousProductionMode,
                 buildings: this.buildings.slice(),
                 buildingConstruction: this.buildingConstruction ? { ...this.buildingConstruction } : null,
+                minefield: this.minefield,
+                minefieldConstructionActive: this.minefieldConstructionActive,
+                minefieldConstructionProgressMs: this.minefieldConstructionProgressMs,
+                minefieldLastTrigger: this.minefieldLastTrigger ? { ...this.minefieldLastTrigger } : null,
                 wonderId: this.wonderId,
                 wonderBuilderFactionId: this.wonderBuilderFactionId,
                 wonderConstruction: this.wonderConstruction ? { ...this.wonderConstruction } : null,

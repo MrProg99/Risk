@@ -40,6 +40,11 @@
             this.airstrikeDamageRatio = C.Geometry.clamp(Number(options.airstrikeDamageRatio ?? 0.10), 0.01, 0.9);
             this.railroadConstructionDurationMs = C.Geometry.clamp(Number(options.railroadConstructionDurationMs ?? 45000), 10000, 300000);
             this.railroadTravelSpeedMultiplier = C.Geometry.clamp(Number(options.railroadTravelSpeedMultiplier ?? 1.35), 1, 3);
+            this.minefieldConstructionDurationMs = C.Geometry.clamp(Number(options.minefieldConstructionDurationMs ?? 40000), 5000, 300000);
+            this.minefieldMaximumPerFaction = Math.round(C.Geometry.clamp(Number(options.minefieldMaximumPerFaction ?? 5), 1, 20));
+            this.minefieldDamageRatio = C.Geometry.clamp(Number(options.minefieldDamageRatio ?? 0.15), 0.01, 1);
+            this.minefieldMinimumDamage = Math.round(C.Geometry.clamp(Number(options.minefieldMinimumDamage ?? 3), 1, 100));
+            this.minefieldMaximumDamage = Math.round(C.Geometry.clamp(Number(options.minefieldMaximumDamage ?? 25), 1, 500));
             this.wonderCaptureActivationDelayMs = C.Geometry.clamp(Number(options.wonderCaptureActivationDelayMs ?? 20000), 0, 120000);
             this.capitalFoodCapacity = Math.max(0, Number(options.capitalFoodCapacity ?? 200));
             this.territoryBaseFoodCapacity = Math.max(0, Number(options.territoryBaseFoodCapacity ?? 10));
@@ -352,6 +357,7 @@
             this.maintainReinforcementRoutes();
             changed = this.updateRailroadConstruction(safeDelta) || changed;
             changed = this.updateBuildingConstruction(safeDelta) || changed;
+            changed = this.updateMinefieldConstruction(safeDelta) || changed;
             changed = this.updateWonderConstruction(safeDelta) || changed;
             changed = this.updateWonderActivation(safeDelta) || changed;
             changed = this.eventSystem.update(safeDelta) || changed;
@@ -844,6 +850,7 @@
             if (command.type === "STOP_CONTINUOUS_REINFORCEMENTS_TO_TERRITORY") return this.stopContinuousReinforcementsToTerritory(command);
             if (command.type === "BUILD_RAILROAD") return this.buildRailroad(command);
             if (command.type === "BUILD_TERRITORY_BUILDING") return this.buildTerritoryBuilding(command);
+            if (command.type === "BUILD_MINEFIELD") return this.buildMinefield(command);
             if (command.type === "BUILD_WONDER") return this.buildWonder(command);
             return { ok: false, error: `Commande inconnue : ${command.type}` };
         }
@@ -936,15 +943,27 @@
                 return { ok: true, action };
             }
             if (definition.id === "reinforcement") {
-                if (target.ownerId !== playerId) return { ok: false, error: "Les renforts doivent rejoindre un de vos territoires." };
+                if (!this.areAllied(target.ownerId, playerId)) {
+                    return { ok: false, error: "Les renforts doivent rejoindre un territoire de votre équipe." };
+                }
+                const recipientFaction = this.state.getFaction(target.ownerId);
                 target.units += abilityStats.units;
                 faction.statistics.abilitiesUsed += 1;
                 faction.statistics.unitsProduced += abilityStats.units;
                 faction.abilityCooldowns.reinforcement = this.getAbilityCooldownDuration(faction.id, abilityStats.cooldownMs);
-                this.addLogisticsEvent(`${faction.name} mobilise ${abilityStats.units} renforts d’urgence à ${target.name}.`, faction.id);
-                this.notify({ type: "ABILITY_RESOLVED", abilityId: definition.id, abilityLevel, factionId: playerId, targetTerritoryId: target.id, units: abilityStats.units });
+                const recipientLabel = recipientFaction.id === faction.id ? "" : ` pour ${recipientFaction.name}`;
+                this.addLogisticsEvent(`${faction.name} mobilise ${abilityStats.units} renforts d’urgence${recipientLabel} à ${target.name}.`, faction.id);
+                this.notify({
+                    type: "ABILITY_RESOLVED",
+                    abilityId: definition.id,
+                    abilityLevel,
+                    factionId: playerId,
+                    targetFactionId: recipientFaction.id,
+                    targetTerritoryId: target.id,
+                    units: abilityStats.units
+                });
                 this.state.touch();
-                return { ok: true, units: abilityStats.units, abilityLevel };
+                return { ok: true, units: abilityStats.units, abilityLevel, targetFactionId: recipientFaction.id };
             }
             if (definition.id === "paratrooper") {
                 if (target.ownerId === null || this.areAllied(target.ownerId, playerId)) {
@@ -1200,6 +1219,133 @@
             if (territory.productionMode === "construction") territory.productionMode = "units";
             territory.productionModeChangedAtMs = this.state.elapsedMs;
             territory.productionProgress = 0;
+        }
+
+        getFactionMinefieldCount(factionId) {
+            const normalizedFactionId = Number(factionId);
+            return this.state.territories.filter((territory) =>
+                territory.ownerId === normalizedFactionId &&
+                (territory.minefield || territory.minefieldConstructionActive)).length;
+        }
+
+        buildMinefield(command) {
+            if (this.paused) return { ok: false, error: "La simulation est en pause." };
+            const playerId = Number(command.playerId);
+            const faction = this.state.getFaction(playerId);
+            const territory = this.state.getTerritory(command.territoryId);
+            if (!faction || !territory || territory.isImpassable) return { ok: false, error: "Territoire invalide." };
+            if (territory.ownerId !== playerId) return { ok: false, error: "Ce territoire ne vous appartient pas." };
+            if (!faction.research.completedTechnologyIds.includes("defense-minefields")) {
+                return { ok: false, error: "Recherchez d’abord : Champs de mines." };
+            }
+            if (territory.minefield) return { ok: false, error: "Ce territoire possède déjà un champ de mines." };
+            if (territory.minefieldConstructionActive) return { ok: false, error: "Le minage de ce territoire est déjà en cours." };
+            if (this.getFactionMinefieldCount(playerId) >= this.minefieldMaximumPerFaction) {
+                return { ok: false, error: `Limite atteinte : ${this.minefieldMaximumPerFaction} champs de mines actifs.` };
+            }
+            if (this.state.territories.some((candidate) => candidate.ownerId === playerId && candidate.minefieldConstructionActive)) {
+                return { ok: false, error: "Une seule équipe du génie peut préparer un champ de mines à la fois." };
+            }
+
+            territory.minefieldConstructionActive = true;
+            territory.minefieldConstructionProgressMs = 0;
+            this.state.touch();
+            this.addLogisticsEvent(`${faction.name} commence à miner ${territory.name}.`, faction.id);
+            this.notify({
+                type: "MINEFIELD_CONSTRUCTION_STARTED",
+                factionId: faction.id,
+                territoryId: territory.id,
+                durationMs: this.minefieldConstructionDurationMs
+            });
+            return { ok: true, territory };
+        }
+
+        updateMinefieldConstruction(deltaMs) {
+            let changed = false;
+            this.state.territories.forEach((territory) => {
+                if (!territory.minefieldConstructionActive) return;
+                if (territory.ownerId === null || territory.isImpassable) {
+                    this.cancelMinefieldConstruction(territory);
+                    changed = true;
+                    return;
+                }
+                territory.minefieldConstructionProgressMs += deltaMs;
+                changed = true;
+                if (territory.minefieldConstructionProgressMs < this.minefieldConstructionDurationMs) return;
+
+                const faction = this.state.getFaction(territory.ownerId);
+                territory.minefield = true;
+                territory.minefieldConstructionActive = false;
+                territory.minefieldConstructionProgressMs = this.minefieldConstructionDurationMs;
+                if (faction) this.addLogisticsEvent(`${faction.name} termine le champ de mines de ${territory.name}.`, faction.id);
+                this.notify({
+                    type: "MINEFIELD_CONSTRUCTION_COMPLETED",
+                    factionId: territory.ownerId,
+                    territoryId: territory.id
+                });
+            });
+            return changed;
+        }
+
+        cancelMinefieldConstruction(territory) {
+            if (!territory) return;
+            territory.minefieldConstructionActive = false;
+            territory.minefieldConstructionProgressMs = 0;
+        }
+
+        clearMinefieldDefense(territory) {
+            if (!territory) return;
+            territory.minefield = false;
+            this.cancelMinefieldConstruction(territory);
+        }
+
+        getMinefieldDamage(attackingUnits) {
+            const units = Math.max(0, Math.floor(Number(attackingUnits) || 0));
+            if (!units) return 0;
+            return Math.min(
+                units,
+                this.minefieldMaximumDamage,
+                Math.max(this.minefieldMinimumDamage, Math.round(units * this.minefieldDamageRatio))
+            );
+        }
+
+        canTriggerMinefield(territory, army) {
+            return Boolean(
+                territory?.minefield &&
+                army &&
+                !army.isConvoy &&
+                army.logisticsPurpose !== "paratrooper" &&
+                territory.ownerId !== null &&
+                !this.areAllied(territory.ownerId, army.ownerId)
+            );
+        }
+
+        triggerMinefield(territory, army, attacker) {
+            if (!this.canTriggerMinefield(territory, army)) return 0;
+            const losses = this.getMinefieldDamage(army.units);
+            territory.minefield = false;
+            territory.minefieldConstructionProgressMs = 0;
+            army.units = Math.max(0, army.units - losses);
+            territory.minefieldLastTrigger = {
+                defenderFactionId: territory.ownerId,
+                attackerFactionId: army.isBarbarian ? null : army.ownerId,
+                losses,
+                survivors: army.units,
+                triggeredAtMs: Math.max(1, this.state.elapsedMs)
+            };
+            this.recordUnitLoss(army.isBarbarian ? null : army.ownerId, losses, territory.ownerId);
+            const defender = this.state.getFaction(territory.ownerId);
+            this.addEvent(`Le champ de mines de ${territory.name} frappe ${attacker.name} : ${losses} perte${losses > 1 ? "s" : ""}.`, army.isBarbarian ? "world" : "combat");
+            this.notify({
+                type: "MINEFIELD_TRIGGERED",
+                territoryId: territory.id,
+                defenderFactionId: defender?.id ?? null,
+                attackerFactionId: army.isBarbarian ? null : army.ownerId,
+                losses,
+                survivors: army.units,
+                triggeredAtMs: territory.minefieldLastTrigger.triggeredAtMs
+            });
+            return losses;
         }
 
         buildWonder(command) {
@@ -2003,6 +2149,13 @@
             }
 
             const previousOwner = this.state.getFaction(target.ownerId);
+            this.triggerMinefield(target, army, attacker);
+            if (army.units <= 0) {
+                if (previousOwner) previousOwner.statistics.battlesWon += 1;
+                this.addEvent(`${attacker.name} est anéanti dans le champ de mines de ${target.name}.`, army.isBarbarian ? "world" : "combat");
+                this.notify({ type: "ATTACK_REPELLED", territoryId: target.id, reason: "minefield" });
+                return;
+            }
             const defendingUnits = target.units;
             const result = C.CombatSystem.resolve({
                 army,
@@ -2026,6 +2179,7 @@
                     this.cancelRailroadConstruction(target);
                     this.cancelBuildingConstruction(target);
                     this.cancelWonderConstruction(target);
+                    this.clearMinefieldDefense(target);
                     target.ownerId = null;
                     target.units = result.attackerSurvivors;
                     target.productionProgress = 0;
@@ -2065,6 +2219,7 @@
                 this.cancelRailroadConstruction(target);
                 this.cancelBuildingConstruction(target);
                 this.cancelWonderConstruction(target);
+                this.clearMinefieldDefense(target);
                 target.ownerId = attacker.id;
                 target.units = result.attackerSurvivors;
                 target.productionProgress = 0;
@@ -2532,6 +2687,10 @@
                     railroadPreviousProductionMode: territory.railroadPreviousProductionMode,
                     buildings: (territory.buildings || []).slice(),
                     buildingConstruction: territory.buildingConstruction ? { ...territory.buildingConstruction } : null,
+                    minefield: Boolean(territory.minefield),
+                    minefieldConstructionActive: Boolean(territory.minefieldConstructionActive),
+                    minefieldConstructionProgressMs: territory.minefieldConstructionProgressMs,
+                    minefieldLastTrigger: territory.minefieldLastTrigger ? { ...territory.minefieldLastTrigger } : null,
                     wonderId: territory.wonderId,
                     wonderBuilderFactionId: territory.wonderBuilderFactionId,
                     wonderConstruction: territory.wonderConstruction ? { ...territory.wonderConstruction } : null,
@@ -2586,6 +2745,7 @@
                 const previousWonderActivationRemainingMs = territory.wonderActivationRemainingMs;
                 const previousWonderActionAtMs = Number(territory.wonderLastAction?.firedAtMs) || 0;
                 const previousAirstrikeAtMs = Number(territory.airstrikeLastAction?.firedAtMs) || 0;
+                const previousMinefieldTriggerAtMs = Number(territory.minefieldLastTrigger?.triggeredAtMs) || 0;
                 territory.ownerId = dynamic.ownerId ?? null;
                 territory.units = Number(dynamic.units) || 0;
                 territory.productionProgress = Number(dynamic.productionProgress) || 0;
@@ -2616,6 +2776,23 @@
                     previousProductionMode: ["units", "food", "research"].includes(dynamic.buildingConstruction.previousProductionMode)
                         ? dynamic.buildingConstruction.previousProductionMode
                         : "units"
+                } : null;
+                territory.minefield = Boolean(dynamic.minefield);
+                territory.minefieldConstructionActive = Boolean(dynamic.minefieldConstructionActive);
+                territory.minefieldConstructionProgressMs = territory.minefieldConstructionActive || territory.minefield
+                    ? Math.min(this.minefieldConstructionDurationMs, Math.max(0, Number(dynamic.minefieldConstructionProgressMs) || 0))
+                    : 0;
+                const minefieldTriggerAtMs = Number(dynamic.minefieldLastTrigger?.triggeredAtMs) || 0;
+                territory.minefieldLastTrigger = minefieldTriggerAtMs > 0 ? {
+                    defenderFactionId: dynamic.minefieldLastTrigger.defenderFactionId == null
+                        ? null
+                        : Number(dynamic.minefieldLastTrigger.defenderFactionId),
+                    attackerFactionId: dynamic.minefieldLastTrigger.attackerFactionId == null
+                        ? null
+                        : Number(dynamic.minefieldLastTrigger.attackerFactionId),
+                    losses: Math.max(0, Number(dynamic.minefieldLastTrigger.losses) || 0),
+                    survivors: Math.max(0, Number(dynamic.minefieldLastTrigger.survivors) || 0),
+                    triggeredAtMs: minefieldTriggerAtMs
                 } : null;
                 const wonderDefinition = C.getWonderType(dynamic.wonderId);
                 territory.wonderId = wonderDefinition ? wonderDefinition.id : null;
@@ -2674,6 +2851,14 @@
                         type: "AIRSTRIKE_RESOLVED",
                         factionId: territory.ownerId,
                         sourceTerritoryId: territory.id
+                    });
+                }
+                if (territory.minefieldLastTrigger && territory.minefieldLastTrigger.triggeredAtMs > previousMinefieldTriggerAtMs) {
+                    this.notify({
+                        ...territory.minefieldLastTrigger,
+                        type: "MINEFIELD_TRIGGERED",
+                        territoryId: territory.id,
+                        fromNetwork: true
                     });
                 }
                 if (territory.wonderConstruction && previousWonderConstruction?.wonderId !== territory.wonderConstruction.wonderId) {

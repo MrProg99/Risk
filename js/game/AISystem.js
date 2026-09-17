@@ -62,6 +62,7 @@
             this.alliedDefenseConvoysSent = 0;
             this.railroadsConstructed = 0;
             this.farmsConstructed = 0;
+            this.minefieldsDeployed = 0;
             this.wondersConstructed = 0;
             this.reset();
         }
@@ -79,6 +80,7 @@
             this.alliedDefenseConvoysSent = 0;
             this.railroadsConstructed = 0;
             this.farmsConstructed = 0;
+            this.minefieldsDeployed = 0;
             this.wondersConstructed = 0;
             this.thinkTimers.clear();
             this.rearSweepTimers.clear();
@@ -143,7 +145,8 @@
             const foodAdjusted = this.manageFoodSupply(faction, owned);
             const farmStarted = this.manageFarmConstruction(faction, owned);
             const researchAdjusted = this.manageResearchAllocation(faction, owned);
-            return foodAdjusted || farmStarted || researchAdjusted;
+            const minefieldStarted = this.manageMinefieldDeployment(faction, owned);
+            return foodAdjusted || farmStarted || researchAdjusted || minefieldStarted;
         }
 
         runRearLogisticsSweep(factionId) {
@@ -888,6 +891,54 @@
             return true;
         }
 
+        manageMinefieldDeployment(faction, owned) {
+            if (!faction.research.completedTechnologyIds.includes("defense-minefields")) return false;
+            if (owned.some((territory) => territory.minefieldConstructionActive)) return false;
+            if (this.game.getFactionMinefieldCount(faction.id) >= this.game.minefieldMaximumPerFaction) return false;
+
+            const state = this.game.state;
+            const incomingByTerritory = new Map();
+            state.armies.forEach((army) => {
+                if (army.isConvoy || army.logisticsPurpose === "paratrooper" || this.game.areAllied(army.ownerId, faction.id)) return;
+                incomingByTerritory.set(army.finalTerritoryId, (incomingByTerritory.get(army.finalTerritoryId) || 0) + army.units);
+            });
+            const candidates = owned
+                .filter((territory) => !territory.minefield && !territory.minefieldConstructionActive && !territory.isImpassable)
+                .map((territory) => {
+                    const hostiles = territory.neighbors
+                        .filter((neighborId) => !territory.isPathBlocked(neighborId))
+                        .map((neighborId) => state.getTerritory(neighborId))
+                        .filter((neighbor) => neighbor && !neighbor.isImpassable && neighbor.ownerId !== null && !this.game.areAllied(neighbor.ownerId, faction.id));
+                    const hostilePower = hostiles.reduce((sum, neighbor) => sum + neighbor.units, 0);
+                    const incomingPower = incomingByTerritory.get(territory.id) || 0;
+                    const strategicValue =
+                        (territory.isChokePoint ? 65 : 0) +
+                        (territory.isCapital ? 60 : 0) +
+                        (territory.wonderId || territory.wonderConstruction ? 75 : 0) +
+                        (territory.installation ? 28 : 0) +
+                        (territory.terrain === "airport" ? 22 : 0) +
+                        (territory.rareSite ? 20 : 0) +
+                        (territory.buildings.includes("farm") ? 16 : 0);
+                    return {
+                        territory,
+                        score: strategicValue + hostiles.length * 38 + Math.min(80, hostilePower * 0.22) + Math.min(100, incomingPower * 0.6) - territory.units * 0.05
+                    };
+                })
+                .filter((candidate) => candidate.score >= 42)
+                .sort((first, second) => second.score - first.score);
+            const selected = candidates[0]?.territory;
+            if (!selected) return false;
+            const result = this.game.executeCommand({
+                type: "BUILD_MINEFIELD",
+                playerId: faction.id,
+                territoryId: selected.id
+            });
+            if (!result.ok) return false;
+            this.ordersIssued += 1;
+            this.minefieldsDeployed += 1;
+            return true;
+        }
+
         chooseWonder(faction, owned, definitions = C.getUnlockedWonderTypes(faction)) {
             if (!definitions.length) return null;
             const food = this.game.getFactionFoodState(faction.id);
@@ -1214,18 +1265,21 @@
 
             if (completed.includes(C.ABILITY_DEFINITIONS.reinforcement.technologyId) && (cooldowns.reinforcement || 0) <= 0) {
                 const definition = C.getFactionAbilityStats(faction, "reinforcement");
-                const food = this.game.getFactionFoodState(faction.id);
-                const targets = owned.map((territory) => {
-                    const hostileStrength = territory.neighbors
-                        .map((id) => this.game.state.getTerritory(id))
-                        .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id))
-                        .reduce((sum, neighbor) => sum + neighbor.units, 0);
-                    const danger = hostileStrength / Math.max(1, territory.units);
-                    const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0) + (territory.wonderId || territory.wonderConstruction ? 55 : 0);
-                    return { territory, danger, score: danger * 35 + strategic - territory.units * 0.12 };
-                }).sort((a, b) => b.score - a.score);
+                const targets = this.game.state.territories
+                    .filter((territory) => !territory.isImpassable && territory.ownerId !== null && this.game.areAllied(territory.ownerId, faction.id))
+                    .map((territory) => {
+                        const hostileStrength = territory.neighbors
+                            .map((id) => this.game.state.getTerritory(id))
+                            .filter((neighbor) => neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id) && !this.game.areAllied(neighbor.ownerId, faction.id))
+                            .reduce((sum, neighbor) => sum + neighbor.units, 0);
+                        const danger = hostileStrength / Math.max(1, territory.units);
+                        const strategic = (territory.isCapital ? 45 : 0) + (territory.installation ? 14 : 0) + (territory.rareSite ? 10 : 0) + (territory.wonderId || territory.wonderConstruction ? 55 : 0);
+                        const alliedSupportPenalty = territory.ownerId === faction.id ? 0 : 6;
+                        return { territory, danger, score: danger * 35 + strategic - territory.units * 0.12 - alliedSupportPenalty };
+                    }).sort((a, b) => b.score - a.score);
                 const best = targets[0];
-                const freeCapacity = food.capacity - food.demand;
+                const recipientFood = best ? this.game.getFactionFoodState(best.territory.ownerId) : null;
+                const freeCapacity = recipientFood ? recipientFood.capacity - recipientFood.demand : 0;
                 const emergency = best && best.territory.isCapital && best.danger >= 0.9;
                 if (best && best.danger >= 1.15 && (freeCapacity >= definition.units || emergency)) {
                     const result = this.game.executeCommand({ type: "USE_ABILITY", playerId: faction.id, abilityId: "reinforcement", targetTerritoryId: best.territory.id });
@@ -1910,6 +1964,7 @@
                         : 0) +
                     (technology.id === "construction-railroad" ? 18 : 0) +
                     (technology.id === "construction-agriculture" ? 16 : 0) +
+                    (technology.id === "defense-minefields" ? 18 : 0) +
                     (technology.id === "ability-blackout" ? 14 : 0) +
                     (technology.id === "attack-heavy-bomber" ? airportCount > 0 ? 42 + Math.min(airportCount, 3) * 6 : -16 : 0) +
                     (technology.effects?.unlockWonder === preferredWonder?.id ? 85 : technology.effects?.unlockWonder ? -12 : 0) +

@@ -222,6 +222,7 @@
             this.drawTerritoryMarkers(ctx, state);
             this.drawRailroadMarkers(ctx, state);
             this.drawBuildingMarkers(ctx, state);
+            this.drawMinefieldMarkers(ctx, state);
             this.drawWonderMarkers(ctx, state, now);
             this.drawVolcanicWarning(ctx, state, now);
             this.drawWorldEvents(ctx, state, now);
@@ -680,6 +681,38 @@
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText(construction ? "⌁" : definition.icon, x, y + 0.5);
+                ctx.restore();
+            });
+        }
+
+        drawMinefieldMarkers(ctx, state) {
+            state.territories.forEach((territory) => {
+                if ((!territory.minefield && !territory.minefieldConstructionActive) ||
+                    !this.isTerritoryVisible(territory.id) ||
+                    !this.game.areAllied(territory.ownerId, this.game.playerId)) return;
+                const x = territory.center.x;
+                const y = territory.center.y + 33;
+                const progress = territory.minefieldConstructionActive
+                    ? C.Geometry.clamp(territory.minefieldConstructionProgressMs / this.game.minefieldConstructionDurationMs, 0, 1)
+                    : 1;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(x, y, 9, 0, Math.PI * 2);
+                ctx.fillStyle = territory.minefield ? "rgba(54, 17, 17, .96)" : "rgba(13, 38, 39, .95)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(4, 10, 12, .95)";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(x, y, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                ctx.strokeStyle = territory.minefield ? "#ff766d" : "#57d8d0";
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+                ctx.fillStyle = territory.minefield ? "#ffaaa3" : "#9aeee8";
+                ctx.font = "900 11px Georgia, serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(territory.minefieldConstructionActive ? "⌁" : "✹", x, y + 0.5);
                 ctx.restore();
             });
         }

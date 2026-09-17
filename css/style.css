@@ -484,6 +484,17 @@ button { color: inherit; }
 .production-mode-buttons button.active { border-color: rgba(158,215,122,.55); color: #10200c; background: #9ed77a; }
 .production-mode-buttons #mode-research.active { border-color: rgba(181,140,255,.7); color: #160c25; background: #b58cff; }
 .production-mode-panel p { margin: 8px 0 0; color: #71868c; font-size: .61rem; line-height: 1.45; }
+.minefield-panel { margin-top: 12px; padding: 11px; border: 1px solid rgba(87,216,208,.24); border-radius: 9px; background: linear-gradient(145deg, rgba(40,112,111,.10), rgba(255,255,255,.012)); }
+.minefield-panel.active { border-color: rgba(255,118,109,.52); box-shadow: inset 3px 0 rgba(255,118,109,.68); background: linear-gradient(145deg, rgba(126,48,43,.13), rgba(255,255,255,.012)); }
+.minefield-panel.building { border-color: rgba(87,216,208,.48); background: linear-gradient(145deg, rgba(42,137,132,.14), rgba(255,255,255,.012)); }
+.minefield-status { padding: 3px 5px; border-radius: 4px; color: #75e4dc !important; background: rgba(87,216,208,.09); font: 700 .54rem var(--mono) !important; }
+.minefield-panel.active .minefield-status { color: #ff8d84 !important; background: rgba(255,118,109,.10); }
+.minefield-panel p { margin: 8px 0 10px; color: #718988; font-size: .61rem; line-height: 1.45; }
+.minefield-progress { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 7px; background: rgba(34,76,75,.58); }
+.minefield-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #318e89, #75e4dc); box-shadow: 0 0 10px rgba(87,216,208,.38); transition: width .18s linear; }
+.minefield-build-button { width: 100%; min-height: 33px; border: 1px solid rgba(87,216,208,.36); border-radius: 6px; color: #9aeae5; background: rgba(87,216,208,.07); font-size: .61rem; font-weight: 760; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
+.minefield-build-button:not(:disabled):hover { border-color: rgba(87,216,208,.68); background: rgba(87,216,208,.13); }
+.minefield-build-button:disabled { color: #607574; border-color: var(--line); background: rgba(255,255,255,.018); cursor: not-allowed; }
 .railroad-panel { margin-top: 15px; padding: 11px; border: 1px solid rgba(233,189,99,.24); border-radius: 9px; background: linear-gradient(145deg, rgba(151,101,32,.09), rgba(255,255,255,.012)); }
 .railroad-panel.active { border-color: rgba(233,189,99,.42); box-shadow: inset 3px 0 rgba(233,189,99,.55); }
 .railroad-panel.building { border-color: rgba(242,183,82,.46); background: linear-gradient(145deg, rgba(184,115,26,.13), rgba(255,255,255,.012)); }

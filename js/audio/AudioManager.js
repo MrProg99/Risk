@@ -34,6 +34,9 @@
             this.nuclearSoundSource = options.nuclearSoundSource || "Son/Nuclear.mp3";
             this.nuclearSoundVolume = C.Geometry.clamp(Number(options.nuclearSoundVolume ?? 0.72), 0, 1);
             this.nuclearSound = null;
+            this.mineExplosionSoundSource = options.mineExplosionSoundSource || "Son/MineExplosion.mp3";
+            this.mineExplosionSoundVolume = C.Geometry.clamp(Number(options.mineExplosionSoundVolume ?? 0.68), 0, 1);
+            this.mineExplosionSound = null;
             this.contextFactory = options.contextFactory || (() => {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 return AudioContextClass ? new AudioContextClass() : null;
@@ -242,6 +245,29 @@
             try {
                 this.nuclearSound.currentTime = 0;
                 const playback = this.nuclearSound.play();
+                if (playback && typeof playback.catch === "function") playback.catch(() => {});
+            } catch (_error) {
+                return false;
+            }
+            return true;
+        }
+
+        playMineExplosion() {
+            if (!this.mineExplosionSound) {
+                try {
+                    this.mineExplosionSound = this.effectMediaFactory(this.mineExplosionSoundSource);
+                    this.mineExplosionSound.preload = "auto";
+                } catch (_error) {
+                    this.mineExplosionSound = null;
+                }
+            }
+            if (!this.mineExplosionSound) return false;
+
+            this.duckBackgroundMusic(1300);
+            this.mineExplosionSound.volume = this.mineExplosionSoundVolume;
+            try {
+                this.mineExplosionSound.currentTime = 0;
+                const playback = this.mineExplosionSound.play();
                 if (playback && typeof playback.catch === "function") playback.catch(() => {});
             } catch (_error) {
                 return false;

@@ -24,7 +24,7 @@
             icon: "⬟",
             color: "#57d8d0",
             description: "Renforcer les garnisons et les installations défensives.",
-            technologyIds: ["defense-1", "defense-2", "defense-3", "defense-4", "wonder-monumental-citadel"]
+            technologyIds: ["defense-1", "defense-2", "defense-minefields", "defense-3", "defense-4", "wonder-monumental-citadel"]
         },
         {
             id: "abilities",
@@ -219,6 +219,17 @@
             effects: { defenseMultiplier: 0.08 },
             effectLabel: "+8 % de puissance défensive"
         },
+        "defense-minefields": {
+            id: "defense-minefields",
+            branchId: "defense",
+            tier: 3,
+            name: "Champs de mines",
+            description: "Autorise le génie à préparer des défenses cachées qui frappent la première armée terrestre ennemie.",
+            durationMs: 180000,
+            prerequisiteId: "defense-2",
+            effects: { unlockMinefields: true },
+            effectLabel: "Débloque les champs de mines · 15 % des attaquants · maximum 25"
+        },
         "defense-3": {
             id: "defense-3",
             branchId: "defense",
@@ -279,11 +290,11 @@
             branchId: "abilities",
             tier: 1,
             name: "Mobilisation d’urgence",
-            description: "Mobilise immédiatement une réserve sur un territoire contrôlé.",
+            description: "Mobilise immédiatement une réserve sur un territoire contrôlé par vous ou un allié.",
             durationMs: 210000,
             prerequisiteId: null,
             effects: { unlockAbility: "reinforcement" },
-            effectLabel: "+35 unités · recharge 2 min 30"
+            effectLabel: "+35 unités sur un territoire allié · recharge 2 min 30"
         },
         "ability-reinforcement-2": {
             id: "ability-reinforcement-2",

@@ -4,6 +4,12 @@
     class GameState {
         constructor(options = {}) {
             const mapSize = C.getMapSizeDefinition(options.mapSize);
+            this._territoryById = new Map();
+            this._factionById = new Map();
+            this._reinforcementRouteById = new Map();
+            this._territories = [];
+            this._factions = [];
+            this._reinforcementRoutes = [];
             this.seed = 0;
             this.mapType = "standard";
             this.mapSize = mapSize.id;
@@ -40,16 +46,68 @@
             this.victoryAtMs = null;
         }
 
+        get territories() {
+            return this._territories;
+        }
+
+        set territories(territories) {
+            this._territories = Array.isArray(territories) ? territories : [];
+            this._territoryById = this.createIdIndex(this._territories);
+        }
+
+        get factions() {
+            return this._factions;
+        }
+
+        set factions(factions) {
+            this._factions = Array.isArray(factions) ? factions : [];
+            this._factionById = this.createIdIndex(this._factions);
+        }
+
+        get reinforcementRoutes() {
+            return this._reinforcementRoutes;
+        }
+
+        set reinforcementRoutes(routes) {
+            this._reinforcementRoutes = Array.isArray(routes) ? routes : [];
+            this._reinforcementRouteById = this.createIdIndex(this._reinforcementRoutes);
+        }
+
+        createIdIndex(collection) {
+            const index = new Map();
+            collection.forEach((item) => {
+                const id = Number(item?.id);
+                if (!Number.isNaN(id) && !index.has(id)) index.set(id, item);
+            });
+            return index;
+        }
+
+        rebuildIndexes() {
+            this._territoryById = this.createIdIndex(this._territories);
+            this._factionById = this.createIdIndex(this._factions);
+            this._reinforcementRouteById = this.createIdIndex(this._reinforcementRoutes);
+        }
+
+        findAndCacheById(collection, index, id) {
+            const normalizedId = Number(id);
+            if (Number.isNaN(normalizedId)) return null;
+            const indexed = index.get(normalizedId);
+            if (indexed) return indexed;
+            const found = collection.find((item) => item.id === normalizedId) || null;
+            if (found) index.set(normalizedId, found);
+            return found;
+        }
+
         getTerritory(id) {
-            return this.territories.find((territory) => territory.id === Number(id)) || null;
+            return this.findAndCacheById(this._territories, this._territoryById, id);
         }
 
         getFaction(id) {
-            return this.factions.find((faction) => faction.id === Number(id)) || null;
+            return this.findAndCacheById(this._factions, this._factionById, id);
         }
 
         getReinforcementRoute(id) {
-            return this.reinforcementRoutes.find((route) => route.id === Number(id)) || null;
+            return this.findAndCacheById(this._reinforcementRoutes, this._reinforcementRouteById, id);
         }
 
         getTerritoriesOwnedBy(factionId) {

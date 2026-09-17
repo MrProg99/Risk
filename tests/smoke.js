@@ -93,6 +93,21 @@
         game.newGame(424242);
         const state = game.state;
 
+        const indexedState = new C.GameState();
+        const firstIndexedTerritory = { id: 1 };
+        const replacementIndexedTerritory = { id: 1 };
+        const indexedFaction = { id: 2 };
+        const indexedRoute = { id: 3 };
+        indexedState.territories = [firstIndexedTerritory];
+        indexedState.factions = [indexedFaction];
+        indexedState.reinforcementRoutes = [indexedRoute];
+        check(indexedState.getTerritory("1") === firstIndexedTerritory && indexedState.getFaction("2") === indexedFaction && indexedState.getReinforcementRoute("3") === indexedRoute, "GameState retrouve ses entités par leurs index d'identifiants");
+        indexedState.territories = [replacementIndexedTerritory];
+        check(indexedState.getTerritory(1) === replacementIndexedTerritory, "le remplacement d'une collection reconstruit son index sans conserver d'objet périmé");
+        const appendedIndexedTerritory = { id: 4 };
+        indexedState.territories.push(appendedIndexedTerritory);
+        check(indexedState.getTerritory(4) === appendedIndexedTerritory, "une entité ajoutée directement au tableau est indexée à sa première recherche");
+
         check(state.mapSize === "standard" && state.mapWidth === 2800 && state.mapHeight === 1800, "la carte actuelle mesure 2800 par 1800 unités");
         check(state.territories.length >= 110 && state.territories.length <= 120, "la carte étendue contient entre 110 et 120 territoires");
         check(state.territories.every((territory) => territory.polygon.length >= 3), "chaque territoire possède un polygone valide");
@@ -1358,7 +1373,7 @@
         check(territoryCaptureChanges.some((change) => change.territoryId === cannonTerritory.id && change.previousOwnerId === 1 && change.ownerId === 2), "une conquête indique l’ancien propriétaire pour détecter la perte d’un territoire");
         check(cannonTerritory.installationProgressMs === 0 && cannonState.events.some((event) => /contrôle du canon/.test(event.message)), "la capture du canon est annoncée et réinitialise sa cadence de tir");
 
-        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 29, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
+        check(C.TECHNOLOGY_BRANCHES.length === 4 && Object.keys(C.TECHNOLOGIES).length === 30, "l’arbre propose quatre axes progressifs et cinq recherches ultimes de merveilles");
         check(Object.keys(C.WONDER_TYPES).length === 5 && Object.values(C.WONDER_TYPES).every((definition) => definition.constructionDurationMs === 180000), "cinq merveilles de trois minutes sont définies dans un catalogue extensible");
         const bigBerthaDefinition = C.WONDER_TYPES["big-bertha"];
         check(bigBerthaDefinition.siteEffects.fireIntervalMs === 15000 && bigBerthaDefinition.siteEffects.rangeHops === 3 && bigBerthaDefinition.siteEffects.hitChance === 0.75 && bigBerthaDefinition.siteEffects.maximumDamage === 18, "la Grosse Bertha possède sa cadence, sa portée, sa précision et son plafond de dégâts");
@@ -1688,6 +1703,22 @@
         const unitsBeforeMobilization = researchTerritory.units;
         const mobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: researchTerritory.id });
         check(mobilization.ok && researchTerritory.units === unitsBeforeMobilization + 35, "la mobilisation d’urgence ajoute 35 unités sur un territoire contrôlé");
+        const mobilizationAlly = researchGame.state.getFaction(2);
+        const mobilizationAllyTeamId = mobilizationAlly.teamId;
+        mobilizationAlly.teamId = researchFaction.teamId;
+        researchFaction.abilityCooldowns.reinforcement = 0;
+        abilityTarget.ownerId = mobilizationAlly.id;
+        abilityTarget.units = 20;
+        const alliedFoodDemandBeforeMobilization = researchGame.getFactionFoodState(mobilizationAlly.id).demand;
+        const alliedMobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: abilityTarget.id });
+        check(alliedMobilization.ok && alliedMobilization.targetFactionId === mobilizationAlly.id && abilityTarget.ownerId === mobilizationAlly.id && abilityTarget.units === 55, "la mobilisation d’urgence peut renforcer directement un territoire allié sans en changer le propriétaire");
+        check(researchGame.getFactionFoodState(mobilizationAlly.id).demand === alliedFoodDemandBeforeMobilization + 35, "les unités mobilisées chez un allié consomment la nourriture du destinataire");
+        const alliedMobilizationCooldown = researchFaction.abilityCooldowns.reinforcement;
+        mobilizationAlly.teamId = mobilizationAllyTeamId;
+        researchFaction.abilityCooldowns.reinforcement = 0;
+        const hostileMobilization = researchGame.executeCommand({ type: "USE_ABILITY", playerId: 1, abilityId: "reinforcement", targetTerritoryId: abilityTarget.id });
+        check(!hostileMobilization.ok && abilityTarget.units === 55, "la mobilisation reste interdite sur un territoire ennemi");
+        researchFaction.abilityCooldowns.reinforcement = alliedMobilizationCooldown;
         abilityTarget.ownerId = 2;
         abilityTarget.units = 10;
         abilityTarget.terrain = "plain";
@@ -1805,6 +1836,33 @@
         blackoutAiTarget.units = 20;
         check(blackoutAiGame.aiSystem.considerAbilities(blackoutAiFaction, blackoutAiGame.state.getTerritoriesOwnedBy(2)) && blackoutAiGame.isFactionBlackoutActive(1), "l’IA déclenche Blackout lorsqu’une offensive contre une équipe ennemie est prête");
 
+        const alliedMobilizationAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2, 3], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        alliedMobilizationAiGame.newGame(898989);
+        const alliedMobilizationAiFaction = alliedMobilizationAiGame.state.getFaction(2);
+        const alliedMobilizationAiRecipient = alliedMobilizationAiGame.state.getFaction(1);
+        alliedMobilizationAiRecipient.teamId = alliedMobilizationAiFaction.teamId;
+        alliedMobilizationAiFaction.research.completedTechnologyIds.push("ability-reinforcement");
+        alliedMobilizationAiGame.state.territories.filter((territory) => !territory.isImpassable).forEach((territory) => {
+            territory.ownerId = alliedMobilizationAiFaction.id;
+            territory.units = 200;
+            territory.isCapital = false;
+        });
+        const alliedMobilizationAiTarget = alliedMobilizationAiGame.state.territories.find((territory) => !territory.isImpassable && territory.neighbors.some((territoryId) => {
+            const neighbor = alliedMobilizationAiGame.state.getTerritory(territoryId);
+            return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighbor.id);
+        }));
+        const alliedMobilizationAiEnemy = alliedMobilizationAiTarget.neighbors
+            .map((territoryId) => alliedMobilizationAiGame.state.getTerritory(territoryId))
+            .find((territory) => territory && !territory.isImpassable && !alliedMobilizationAiTarget.isPathBlocked(territory.id));
+        alliedMobilizationAiTarget.ownerId = alliedMobilizationAiRecipient.id;
+        alliedMobilizationAiTarget.units = 10;
+        alliedMobilizationAiTarget.isCapital = true;
+        alliedMobilizationAiRecipient.capitalTerritoryId = alliedMobilizationAiTarget.id;
+        alliedMobilizationAiEnemy.ownerId = 3;
+        alliedMobilizationAiEnemy.units = 120;
+        const alliedMobilizationAiUsed = alliedMobilizationAiGame.aiSystem.considerAbilities(alliedMobilizationAiFaction, alliedMobilizationAiGame.state.getTerritoriesOwnedBy(2));
+        check(alliedMobilizationAiUsed && alliedMobilizationAiTarget.units === 45 && alliedMobilizationAiFaction.abilityCooldowns.reinforcement > 0, "l’IA peut consacrer sa Mobilisation d’urgence à une capitale alliée fortement menacée");
+
         const upgradedAbilityGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
         upgradedAbilityGame.newGame(818182);
         const upgradedFaction = upgradedAbilityGame.state.getFaction(1);
@@ -1899,6 +1957,22 @@
             contextFactory: () => fakeAudioContext
         });
         check(nuclearAudioManager.playNuclearLaunch() && nuclearSoundSource === "Son/Nuclear.mp3" && nuclearSoundPlayCount === 1 && fakeNuclearSound.currentTime === 0 && fakeNuclearSound.preload === "auto", "le lancement nucléaire joue Nuclear.mp3 depuis le début");
+        let mineExplosionSoundSource = "";
+        let mineExplosionPlayCount = 0;
+        const fakeMineExplosionSound = {
+            currentTime: 9,
+            preload: "none",
+            volume: 1,
+            play: () => { mineExplosionPlayCount += 1; }
+        };
+        const mineExplosionAudioManager = new C.AudioManager({
+            effectMediaFactory: (source) => {
+                mineExplosionSoundSource = source;
+                return fakeMineExplosionSound;
+            },
+            contextFactory: () => fakeAudioContext
+        });
+        check(mineExplosionAudioManager.playMineExplosion() && mineExplosionSoundSource === "Son/MineExplosion.mp3" && mineExplosionPlayCount === 1 && fakeMineExplosionSound.currentTime === 0 && fakeMineExplosionSound.preload === "auto", "une mine déclenchée joue MineExplosion.mp3 depuis le début");
         let loadedMusicSource = "";
         let musicPlayCount = 0;
         let musicLoadCount = 0;
@@ -1959,6 +2033,42 @@
             targetTerritoryId: 15
         });
         check(nuclearLaunchSounds === 1 && nuclearLaunchPulses === 2, "la bombe nucléaire joue son alerte pour tous les joueurs, même lorsqu’un adversaire la lance");
+        let mineExplosionSounds = 0;
+        const minefieldAudioUiStub = {
+            game: {
+                playerId: 1,
+                state: {
+                    getFaction: (factionId) => factionId == null ? null : ({ id: factionId, teamId: factionId === 4 ? 1 : factionId }),
+                    getTerritory: () => ({ name: "Passe d’Onyx" })
+                }
+            },
+            renderer: { pulseTerritory: () => {} },
+            audio: { playMineExplosion: () => { mineExplosionSounds += 1; } },
+            refreshDynamic: () => {},
+            showToast: () => {}
+        };
+        C.UIController.prototype.handleGameChange.call(minefieldAudioUiStub, {
+            type: "MINEFIELD_TRIGGERED",
+            territoryId: 21,
+            defenderFactionId: 2,
+            attackerFactionId: 1,
+            losses: 15
+        });
+        C.UIController.prototype.handleGameChange.call(minefieldAudioUiStub, {
+            type: "MINEFIELD_TRIGGERED",
+            territoryId: 22,
+            defenderFactionId: 4,
+            attackerFactionId: 2,
+            losses: 12
+        });
+        C.UIController.prototype.handleGameChange.call(minefieldAudioUiStub, {
+            type: "MINEFIELD_TRIGGERED",
+            territoryId: 23,
+            defenderFactionId: 2,
+            attackerFactionId: 3,
+            losses: 8
+        });
+        check(mineExplosionSounds === 2, "l’explosion d’une mine est audible uniquement lorsque le joueur ou son équipe attaque ou défend le champ");
         let berthaSounds = 0;
         let berthaAnimations = 0;
         let berthaToast = "";
@@ -3378,6 +3488,120 @@
         railroadAiGame.resolveArmyArrival(railroadCapture.army);
         check(aiRailroadTerritory.ownerId === 1 && !aiRailroadTerritory.railroadConstructionActive && !aiRailroadTerritory.railroad, "la capture d’un chantier inachevé annule proprement les travaux");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "construction").technologyIds.includes("construction-railroad"), "la recherche Réseau ferroviaire apparaît dans l’arbre Construction");
+
+        const minefieldGame = new C.Game({
+            playerId: 1,
+            activeFactionIds: [1, 2],
+            enableAI: false,
+            enableWorldEvents: false,
+            timeScale: 1,
+            minefieldConstructionDurationMs: 10000
+        });
+        minefieldGame.newGame(939393);
+        const minefieldState = minefieldGame.state;
+        const minefieldTarget = minefieldState.territories.find((territory) =>
+            !territory.isImpassable &&
+            territory.neighbors.some((neighborId) => {
+                const neighbor = minefieldState.getTerritory(neighborId);
+                return neighbor && !neighbor.isImpassable && !territory.isPathBlocked(neighborId);
+            }));
+        const minefieldSource = minefieldTarget.neighbors
+            .map((neighborId) => minefieldState.getTerritory(neighborId))
+            .find((territory) => territory && !territory.isImpassable && !minefieldTarget.isPathBlocked(territory.id));
+        const minefieldSecondTarget = minefieldState.territories.find((territory) =>
+            territory.id !== minefieldTarget.id && territory.id !== minefieldSource.id && !territory.isImpassable);
+        minefieldState.territories.forEach((territory) => {
+            if (!territory.isImpassable) {
+                territory.ownerId = null;
+                territory.units = 10;
+            }
+        });
+        minefieldTarget.ownerId = 1;
+        minefieldTarget.units = 1000;
+        minefieldTarget.productionMode = "food";
+        minefieldSecondTarget.ownerId = 1;
+        minefieldSource.ownerId = 2;
+        minefieldSource.units = 250;
+        const minefieldFaction = minefieldState.getFaction(1);
+        const lockedMinefield = minefieldGame.executeCommand({ type: "BUILD_MINEFIELD", playerId: 1, territoryId: minefieldTarget.id });
+        check(!lockedMinefield.ok, "un champ de mines exige d’abord la recherche défensive correspondante");
+        minefieldFaction.research.completedTechnologyIds.push("defense-minefields");
+        const startedMinefield = minefieldGame.executeCommand({ type: "BUILD_MINEFIELD", playerId: 1, territoryId: minefieldTarget.id });
+        check(startedMinefield.ok && minefieldTarget.minefieldConstructionActive && minefieldTarget.productionMode === "food", "le génie prépare un champ de mines sans suspendre l’affectation du territoire");
+        const competingMinefield = minefieldGame.executeCommand({ type: "BUILD_MINEFIELD", playerId: 1, territoryId: minefieldSecondTarget.id });
+        check(!competingMinefield.ok, "une faction ne prépare qu’un champ de mines à la fois");
+        minefieldGame.updateMinefieldConstruction(4500);
+        const minefieldConstructionSnapshot = minefieldGame.createNetworkSnapshot();
+        const minefieldRemote = new C.Game({
+            playerId: 2,
+            activeFactionIds: [1, 2],
+            enableAI: false,
+            enableWorldEvents: false,
+            minefieldConstructionDurationMs: 10000
+        });
+        minefieldRemote.newGame(939393);
+        minefieldRemote.applyNetworkSnapshot(minefieldConstructionSnapshot);
+        const remoteMinefieldTarget = minefieldRemote.state.getTerritory(minefieldTarget.id);
+        check(remoteMinefieldTarget.minefieldConstructionActive && remoteMinefieldTarget.minefieldConstructionProgressMs === 4500, "la préparation d’un champ de mines est synchronisée en multijoueur");
+        minefieldGame.updateMinefieldConstruction(5500);
+        check(minefieldTarget.minefield && !minefieldTarget.minefieldConstructionActive && minefieldTarget.productionMode === "food", "le champ devient armé après 40 secondes sans modifier la production locale");
+        check(minefieldGame.getMinefieldDamage(10) === 3 && minefieldGame.getMinefieldDamage(100) === 15 && minefieldGame.getMinefieldDamage(500) === 25, "les mines infligent 15 % des assaillants avec un minimum de 3 et un maximum de 25");
+
+        const minefieldAttack = minefieldGame.executeCommand({
+            type: "SEND_ARMY",
+            playerId: 2,
+            fromTerritoryId: minefieldSource.id,
+            toTerritoryId: minefieldTarget.id,
+            units: 100
+        });
+        minefieldGame.resolveArmyArrival(minefieldAttack.army);
+        check(minefieldAttack.ok && !minefieldTarget.minefield && minefieldTarget.minefieldLastTrigger?.losses === 15 && minefieldTarget.ownerId === 1, "la première armée terrestre ennemie déclenche et consomme le piège avant le combat");
+        let remoteMinefieldTriggers = 0;
+        minefieldRemote.subscribe((change) => {
+            if (change.type === "MINEFIELD_TRIGGERED") remoteMinefieldTriggers += 1;
+        });
+        const triggeredMinefieldSnapshot = minefieldGame.createNetworkSnapshot();
+        minefieldRemote.applyNetworkSnapshot(triggeredMinefieldSnapshot);
+        minefieldRemote.applyNetworkSnapshot(triggeredMinefieldSnapshot);
+        check(remoteMinefieldTriggers === 1 && remoteMinefieldTarget.minefieldLastTrigger?.losses === 15, "le déclenchement caché est diffusé une seule fois aux autres clients Firebase");
+
+        const restartedMinefield = minefieldGame.executeCommand({ type: "BUILD_MINEFIELD", playerId: 1, territoryId: minefieldTarget.id });
+        minefieldGame.updateMinefieldConstruction(10000);
+        minefieldTarget.units = 1;
+        const paratrooperArmy = new C.Army({
+            id: minefieldState.nextArmyId++,
+            ownerId: 2,
+            fromTerritoryId: minefieldSource.id,
+            toTerritoryId: minefieldTarget.id,
+            finalTerritoryId: minefieldTarget.id,
+            units: 50,
+            durationMs: 1,
+            start: minefieldSource.center,
+            end: minefieldTarget.center,
+            logisticsPurpose: "paratrooper"
+        });
+        minefieldState.armies.push(paratrooperArmy);
+        minefieldGame.resolveArmyArrival(paratrooperArmy);
+        check(restartedMinefield.ok && minefieldTarget.ownerId === 2 && !minefieldTarget.minefield, "les parachutistes évitent les mines mais détruisent le dispositif lorsqu’ils capturent le territoire");
+        const minefieldLimitTerritories = minefieldState.territories.filter((territory) => !territory.isImpassable).slice(0, 6);
+        minefieldState.territories.forEach((territory) => {
+            territory.minefield = false;
+            territory.minefieldConstructionActive = false;
+        });
+        minefieldLimitTerritories.forEach((territory, index) => {
+            territory.ownerId = 1;
+            territory.minefield = index < minefieldGame.minefieldMaximumPerFaction;
+        });
+        const excessiveMinefield = minefieldGame.executeCommand({ type: "BUILD_MINEFIELD", playerId: 1, territoryId: minefieldLimitTerritories[5].id });
+        check(!excessiveMinefield.ok && minefieldGame.getFactionMinefieldCount(1) === 5, "une faction ne peut entretenir plus de cinq champs de mines actifs");
+        check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "defense").technologyIds.includes("defense-minefields"), "la recherche Champs de mines apparaît dans l’axe Défense");
+
+        const minefieldAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false });
+        minefieldAiGame.newGame(949494);
+        const minefieldAiFaction = minefieldAiGame.state.getFaction(2);
+        minefieldAiFaction.research.completedTechnologyIds.push("defense-minefields");
+        const minefieldAiDecision = minefieldAiGame.aiSystem.manageMinefieldDeployment(minefieldAiFaction, minefieldAiGame.state.getTerritoriesOwnedBy(2));
+        check(minefieldAiDecision && minefieldAiGame.state.getTerritoriesOwnedBy(2).some((territory) => territory.minefieldConstructionActive), "l’IA sait fortifier automatiquement une position stratégique avec un champ de mines");
 
         C.runTeamSignalTests(check);
         C.runPopupPositionTests(check);
