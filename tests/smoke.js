@@ -2030,6 +2030,21 @@
         musicAudioManager.duckBackgroundMusic();
         check(fakeMusic.volume < musicAudioManager.backgroundMusicVolume, "la musique baisse temporairement pendant le carillon de recherche");
         clearTimeout(musicAudioManager.musicRestoreTimer);
+        const storedAudioSettings = new Map([["frontieres.musicVolume", "0.64"]]);
+        const fakeAudioStorage = {
+            getItem: (key) => storedAudioSettings.has(key) ? storedAudioSettings.get(key) : null,
+            setItem: (key, value) => storedAudioSettings.set(key, value)
+        };
+        const adjustableMusic = { volume: 1, play: () => {}, addEventListener: () => {} };
+        const adjustableAudioManager = new C.AudioManager({
+            storage: fakeAudioStorage,
+            mediaFactory: () => adjustableMusic,
+            contextFactory: () => fakeAudioContext
+        });
+        adjustableAudioManager.startBackgroundMusic();
+        check(adjustableAudioManager.getBackgroundMusicVolume() === 0.64 && adjustableMusic.volume === 0.64, "le volume musical sauvegardé est restauré au lancement et appliqué à la piste en cours");
+        adjustableAudioManager.setBackgroundMusicVolume(0.37);
+        check(adjustableMusic.volume === 0.37 && storedAudioSettings.get("frontieres.musicVolume") === "0.37", "le réglage musical agit immédiatement et persiste dans le navigateur");
         let nuclearLaunchSounds = 0;
         let nuclearLaunchPulses = 0;
         const nuclearLaunchUiStub = {
@@ -3057,6 +3072,7 @@
         check(typeof C.MapRenderer.prototype.createGrassTexturePattern === "function" && typeof C.MapRenderer.prototype.drawPlainTexture === "function", "les plaines utilisent une texture d’herbe désaturée sans masquer la couleur du propriétaire");
         check(typeof C.UIController.prototype.positionAttackPanel === "function" && typeof C.UIController.prototype.cancelAttackTarget === "function", "l’ordre tactique peut être positionné près de sa cible et annulé sans modifier la simulation");
         check(typeof C.UIController.prototype.openResearchScreen === "function" && typeof C.UIController.prototype.renderResearchTree === "function", "l’interface expose un écran d’arbre technologique interactif");
+        check(typeof C.UIController.prototype.openSettingsScreen === "function" && typeof C.UIController.prototype.updateMusicVolume === "function", "l’interface expose un écran de paramètres avec volume musical réglable");
         check(typeof C.UIController.prototype.refreshBlackoutStatus === "function" && typeof C.Game.prototype.isFactionBlackoutActive === "function", "l’interface possède un état visuel dédié au Blackout d’équipe");
         check(typeof C.MapRenderer.prototype.panByScreenDelta === "function" && typeof C.MapRenderer.prototype.zoomAt === "function" && typeof C.MapRenderer.prototype.setCameraPosition === "function", "la caméra expose le déplacement, le recentrage et le zoom de la grande carte");
         check(typeof C.MiniMapRenderer === "function", "la mini-carte possède un moteur de rendu indépendant de la simulation");

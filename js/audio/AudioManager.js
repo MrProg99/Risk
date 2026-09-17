@@ -5,7 +5,12 @@
         constructor(options = {}) {
             this.context = null;
             this.masterVolume = C.Geometry.clamp(Number(options.masterVolume ?? 0.18), 0, 1);
-            this.backgroundMusicVolume = C.Geometry.clamp(Number(options.backgroundMusicVolume ?? 0.22), 0, 1);
+            this.storage = options.storage === undefined ? this.getBrowserStorage() : options.storage;
+            this.musicVolumeStorageKey = options.musicVolumeStorageKey || "frontieres.musicVolume";
+            const configuredMusicVolume = options.backgroundMusicVolume === undefined
+                ? this.readStoredMusicVolume(0.22)
+                : Number(options.backgroundMusicVolume);
+            this.backgroundMusicVolume = C.Geometry.clamp(configuredMusicVolume, 0, 1);
             const defaultMusicSources = [
                 "Musique/Music1.mp3",
                 "Musique/Music2.mp3",
@@ -28,6 +33,7 @@
             this.musicEndedHandler = null;
             this.musicRetryScheduled = false;
             this.musicRestoreTimer = null;
+            this.musicDuckMultiplier = 1;
             this.interactionTarget = options.interactionTarget || document;
             this.mediaFactory = options.mediaFactory || ((source) => new Audio(source));
             this.effectMediaFactory = options.effectMediaFactory || this.mediaFactory;
@@ -41,6 +47,48 @@
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 return AudioContextClass ? new AudioContextClass() : null;
             });
+        }
+
+        getBrowserStorage() {
+            try {
+                return window.localStorage || null;
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        readStoredMusicVolume(fallback) {
+            try {
+                const storedValue = this.storage?.getItem?.(this.musicVolumeStorageKey);
+                if (storedValue === null || storedValue === "") return fallback;
+                const volume = Number(storedValue);
+                return Number.isFinite(volume) ? volume : fallback;
+            } catch (_error) {
+                return fallback;
+            }
+        }
+
+        getBackgroundMusicVolume() {
+            return this.backgroundMusicVolume;
+        }
+
+        setBackgroundMusicVolume(volume, persist = true) {
+            const numericVolume = Number(volume);
+            if (!Number.isFinite(numericVolume)) return this.backgroundMusicVolume;
+            this.backgroundMusicVolume = C.Geometry.clamp(numericVolume, 0, 1);
+            this.applyBackgroundMusicVolume();
+            if (persist) {
+                try {
+                    this.storage?.setItem?.(this.musicVolumeStorageKey, String(this.backgroundMusicVolume));
+                } catch (_error) {
+                    // Audio remains adjustable even when private browsing blocks storage.
+                }
+            }
+            return this.backgroundMusicVolume;
+        }
+
+        applyBackgroundMusicVolume() {
+            if (this.music) this.music.volume = this.backgroundMusicVolume * this.musicDuckMultiplier;
         }
 
         getContext() {
@@ -75,7 +123,7 @@
 
             this.music.loop = false;
             this.music.preload = "auto";
-            this.music.volume = this.backgroundMusicVolume;
+            this.applyBackgroundMusicVolume();
             return this.playMusicElement();
         }
 
@@ -91,7 +139,7 @@
             this.musicSource = this.musicSources[this.musicTrackIndex];
             this.music.src = this.musicSource;
             if (typeof this.music.load === "function") this.music.load();
-            this.music.volume = this.backgroundMusicVolume;
+            this.applyBackgroundMusicVolume();
             return this.playMusicElement();
         }
 
@@ -132,9 +180,11 @@
         duckBackgroundMusic(durationMs = 1300) {
             if (!this.music) return;
             clearTimeout(this.musicRestoreTimer);
-            this.music.volume = this.backgroundMusicVolume * 0.42;
+            this.musicDuckMultiplier = 0.42;
+            this.applyBackgroundMusicVolume();
             this.musicRestoreTimer = setTimeout(() => {
-                if (this.music) this.music.volume = this.backgroundMusicVolume;
+                this.musicDuckMultiplier = 1;
+                this.applyBackgroundMusicVolume();
             }, durationMs);
         }
 

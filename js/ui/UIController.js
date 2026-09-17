@@ -44,6 +44,12 @@
                 foodStat: byId("food-stat"),
                 foodSupply: byId("food-supply"),
                 productionRate: byId("production-rate"),
+                openSettings: byId("open-settings"),
+                settingsScreen: byId("settings-screen"),
+                closeSettings: byId("close-settings"),
+                musicVolume: byId("music-volume"),
+                musicVolumeOutput: byId("music-volume-output"),
+                musicVolumeIcon: byId("music-volume-icon"),
                 openResearch: byId("open-research"),
                 researchTopStatus: byId("research-top-status"),
                 researchScreen: byId("research-screen"),
@@ -226,6 +232,12 @@
             this.elements.wonderBuild.addEventListener("click", () => this.buildWonder());
             this.elements.wonderChoice.addEventListener("change", () => this.renderTerritoryPanel());
             this.elements.stopRouteButton.addEventListener("click", () => this.stopContinuousRoute());
+            this.elements.openSettings.addEventListener("click", () => this.openSettingsScreen());
+            this.elements.closeSettings.addEventListener("click", () => this.closeSettingsScreen());
+            this.elements.settingsScreen.addEventListener("click", (event) => {
+                if (event.target === this.elements.settingsScreen) this.closeSettingsScreen();
+            });
+            this.elements.musicVolume.addEventListener("input", () => this.updateMusicVolume());
             this.elements.openResearch.addEventListener("click", () => this.openResearchScreen());
             this.elements.closeResearch.addEventListener("click", () => this.closeResearchScreen());
             this.elements.researchScreen.addEventListener("click", (event) => {
@@ -445,6 +457,7 @@
                 this.localEliminationAtMs = this.game.state.elapsedMs;
             }
             this.closeResearchScreen(false);
+            this.closeSettingsScreen?.(false);
             this.renderVictoryScreen();
             this.elements.victoryScreen.hidden = false;
             this.elements.matchSummary.hidden = true;
@@ -608,6 +621,7 @@
         }
 
         openResearchScreen() {
+            if (this.elements.settingsScreen && !this.elements.settingsScreen.hidden) this.closeSettingsScreen(false);
             this.elements.researchScreen.hidden = false;
             document.body.classList.add("research-open");
             this.researchTreeKey = null;
@@ -619,6 +633,51 @@
             this.elements.researchScreen.hidden = true;
             document.body.classList.remove("research-open");
             if (restoreFocus) this.elements.openResearch.focus();
+        }
+
+        openSettingsScreen() {
+            if (!this.elements.settingsScreen) return;
+            if (this.elements.researchScreen && !this.elements.researchScreen.hidden) this.closeResearchScreen(false);
+            this.refreshSettingsControls();
+            this.elements.settingsScreen.hidden = false;
+            document.body.classList.add("settings-open");
+            this.elements.closeSettings.focus();
+        }
+
+        closeSettingsScreen(restoreFocus = true) {
+            if (!this.elements.settingsScreen) return;
+            this.elements.settingsScreen.hidden = true;
+            document.body.classList.remove("settings-open");
+            if (restoreFocus) this.elements.openSettings.focus();
+        }
+
+        refreshSettingsControls() {
+            if (!this.elements.musicVolume) return;
+            const currentVolume = this.audio?.getBackgroundMusicVolume?.() ?? 0.22;
+            const percent = Math.round(C.Geometry.clamp(Number(currentVolume) || 0, 0, 1) * 100);
+            this.elements.musicVolume.value = String(percent);
+            this.renderMusicVolume(percent);
+        }
+
+        updateMusicVolume() {
+            const percent = C.Geometry.clamp(Number(this.elements.musicVolume?.value) || 0, 0, 100);
+            this.audio?.setBackgroundMusicVolume?.(percent / 100);
+            this.renderMusicVolume(percent);
+        }
+
+        renderMusicVolume(percent) {
+            const roundedPercent = Math.round(C.Geometry.clamp(Number(percent) || 0, 0, 100));
+            if (this.elements.musicVolumeOutput) {
+                this.elements.musicVolumeOutput.value = `${roundedPercent} %`;
+                this.elements.musicVolumeOutput.textContent = `${roundedPercent} %`;
+            }
+            if (this.elements.musicVolume) {
+                this.elements.musicVolume.style.setProperty("--settings-progress", `${roundedPercent}%`);
+                this.elements.musicVolume.setAttribute("aria-valuetext", roundedPercent === 0 ? "Muet" : `${roundedPercent} pour cent`);
+            }
+            if (this.elements.musicVolumeIcon) {
+                this.elements.musicVolumeIcon.textContent = roundedPercent === 0 ? "×" : roundedPercent < 45 ? "♪" : "♫";
+            }
         }
 
         startResearch(technologyId) {
@@ -2143,7 +2202,8 @@
 
         handleGlobalKeydown(event) {
             if (event.key === "Escape") {
-                if (!this.elements.researchScreen.hidden) this.closeResearchScreen();
+                if (this.elements.settingsScreen && !this.elements.settingsScreen.hidden) this.closeSettingsScreen();
+                else if (!this.elements.researchScreen.hidden) this.closeResearchScreen();
                 else if (this.selectedTerritoryId !== null || this.targetTerritoryId !== null ||
                     this.multiSelectedTerritoryIds.size || this.targetingAbilityId) {
                     event.preventDefault();

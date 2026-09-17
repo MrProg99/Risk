@@ -122,6 +122,43 @@
         </div>
     </section>
 
+    <section class="settings-overlay" id="settings-screen" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+        <div class="settings-panel">
+            <header class="settings-header">
+                <div>
+                    <p class="eyebrow">Configuration locale</p>
+                    <h2 id="settings-title">Paramètres</h2>
+                    <p>Personnalisez votre expérience sur cet appareil. Les réglages sont sauvegardés automatiquement.</p>
+                </div>
+                <button class="settings-close" id="close-settings" type="button" aria-label="Fermer les paramètres">×</button>
+            </header>
+
+            <div class="settings-content">
+                <section class="settings-group" aria-labelledby="audio-settings-title">
+                    <div class="settings-group-heading">
+                        <span class="settings-group-icon" id="music-volume-icon" aria-hidden="true">&#9835;</span>
+                        <div>
+                            <p class="eyebrow">Audio</p>
+                            <h3 id="audio-settings-title">Musique</h3>
+                        </div>
+                    </div>
+                    <label class="settings-slider-label" for="music-volume">
+                        <span>Volume musical</span>
+                        <output id="music-volume-output" for="music-volume">22 %</output>
+                    </label>
+                    <input class="settings-slider" id="music-volume" type="range" min="0" max="100" step="1" value="22" aria-describedby="music-volume-help">
+                    <div class="settings-slider-scale" aria-hidden="true"><span>Muet</span><span>Maximum</span></div>
+                    <p class="settings-help" id="music-volume-help">Le volume change immédiatement sans interrompre la piste en cours.</p>
+                </section>
+            </div>
+
+            <footer class="settings-footer">
+                <span class="settings-saved-dot" aria-hidden="true"></span>
+                Enregistré dans ce navigateur
+            </footer>
+        </div>
+    </section>
+
     <section class="research-overlay" id="research-screen" role="dialog" aria-modal="true" aria-labelledby="research-title" hidden>
         <div class="research-panel">
             <header class="research-header">
@@ -280,6 +317,9 @@
                 <a class="button button-secondary help-link top-help-link" href="aide.html" target="_blank" rel="noopener" title="Ouvrir le manuel dans un nouvel onglet" aria-label="Ouvrir l’aide dans un nouvel onglet">
                     <span class="button-icon">?</span>
                 </a>
+                <button class="button button-secondary top-settings-button" id="open-settings" type="button" title="Ouvrir les paramètres" aria-label="Ouvrir les paramètres">
+                    <span class="button-icon" aria-hidden="true">&#9881;</span>
+                </button>
                 <button class="button button-secondary" id="toggle-pause" type="button" aria-pressed="false">
                     <span class="button-icon" id="pause-icon">Ⅱ</span>
                     <span id="pause-label">Pause</span>
