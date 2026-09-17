@@ -2569,13 +2569,46 @@
             const faction = this.state.getFaction(factionId);
             if (!faction) return 0;
             const territories = this.state.getTerritoriesOwnedBy(faction.id);
-            const scienceCenters = territories.filter((territory) => territory.terrain === "science").length;
-            const powerPlants = territories.filter((territory) => territory.terrain === "power").length;
-            const spaceCenters = territories.filter((territory) => territory.rareSite?.id === "space-center").length;
+            const passiveBonus = territories.reduce((sum, territory) =>
+                sum + this.getTerritoryPassiveResearchBonus(territory), 0);
+            const assignedBonus = Math.min(0.50, territories.reduce((sum, territory) =>
+                sum + this.getTerritoryResearchBonus(territory), 0));
+            return 1 + (passiveBonus + assignedBonus) * faction.bonuses.sciencePowerBonusMultiplier;
+        }
+
+        getResearchRateBreakdown(factionId) {
+            const faction = this.state.getFaction(factionId);
+            if (!faction) return {
+                rate: 0,
+                passiveBonus: 0,
+                assignedBonus: 0,
+                effectivePassiveBonus: 0,
+                effectiveAssignedBonus: 0,
+                factionMultiplier: 1
+            };
+            const territories = this.state.getTerritoriesOwnedBy(faction.id);
+            const passiveBonus = territories.reduce((sum, territory) =>
+                sum + this.getTerritoryPassiveResearchBonus(territory), 0);
             const assignedResearchBonus = Math.min(0.50, territories.reduce((sum, territory) =>
                 sum + this.getTerritoryResearchBonus(territory), 0));
-            const territorialBonus = scienceCenters * 0.08 + powerPlants * 0.04 + spaceCenters * 0.15 + assignedResearchBonus;
-            return 1 + territorialBonus * faction.bonuses.sciencePowerBonusMultiplier;
+            const factionMultiplier = faction.bonuses.sciencePowerBonusMultiplier;
+            return {
+                rate: 1 + (passiveBonus + assignedResearchBonus) * factionMultiplier,
+                passiveBonus,
+                assignedBonus: assignedResearchBonus,
+                effectivePassiveBonus: passiveBonus * factionMultiplier,
+                effectiveAssignedBonus: assignedResearchBonus * factionMultiplier,
+                factionMultiplier
+            };
+        }
+
+        getTerritoryPassiveResearchBonus(territory) {
+            if (!territory || territory.ownerId === null || territory.isImpassable || this.isTerritoryUnderConstruction(territory)) return 0;
+            let bonus = 0;
+            if (territory.terrain === "science") bonus += 0.08;
+            if (territory.terrain === "power") bonus += 0.04;
+            if (territory.rareSite?.id === "space-center") bonus += 0.15;
+            return bonus;
         }
 
         getTerritoryResearchBonus(territory) {
@@ -2590,12 +2623,14 @@
             const faction = this.state.getFaction(factionId);
             if (!faction) return null;
             const activeTechnology = C.TECHNOLOGIES[faction.research.activeTechnologyId] || null;
+            const breakdown = this.getResearchRateBreakdown(faction.id);
             return {
                 faction,
                 activeTechnology,
                 completedTechnologyIds: faction.research.completedTechnologyIds.slice(),
                 progressMs: faction.research.progressMs,
-                rate: this.getResearchRate(faction.id)
+                rate: breakdown.rate,
+                breakdown
             };
         }
 

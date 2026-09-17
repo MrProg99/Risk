@@ -97,7 +97,11 @@
             productionMultiplier: 1.1,
             foodCapacity: 40,
             defenseMultiplier: 1,
-            bonuses: ["10 % de production générale"]
+            bonuses: [
+                "10 % de production générale",
+                "+8 % de vitesse scientifique nationale tant que le territoire est contrôlé",
+                "Affectation Recherche : +25 % supplémentaires"
+            ]
         },
         power: {
             id: "power",

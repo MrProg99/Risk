@@ -13,6 +13,7 @@
             this.quickTransferListeners = new Set();
             this.continuousTransferListeners = new Set();
             this.viewChangeListeners = new Set();
+            this.hoverListeners = new Set();
             this.lastPointerDown = null;
             this.middlePointerDown = null;
             this.rightDrag = null;
@@ -23,6 +24,7 @@
         bindEvents() {
             this.canvas.addEventListener("pointermove", (event) => {
                 if (this.rightDrag) {
+                    this.emitTerritoryHover(null, event);
                     const drag = this.rightDrag;
                     const totalDistance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
                     if (totalDistance > 5) drag.moved = true;
@@ -41,6 +43,7 @@
                 }
 
                 if (this.middlePointerDown) {
+                    this.emitTerritoryHover(null, event);
                     const drag = this.middlePointerDown;
                     if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) drag.moved = true;
                     return;
@@ -54,6 +57,7 @@
                         this.renderer.panByScreenDelta(event.clientX - drag.lastX, event.clientY - drag.lastY);
                         this.viewChangeListeners.forEach((listener) => listener("pan"));
                         this.renderer.setHovered(null);
+                        this.emitTerritoryHover(null, event);
                         this.canvas.style.cursor = "grabbing";
                     }
                     drag.lastX = event.clientX;
@@ -62,14 +66,17 @@
                 }
                 const territory = this.renderer.getTerritoryAt(event.clientX, event.clientY);
                 this.renderer.setHovered(territory ? territory.id : null);
+                this.emitTerritoryHover(territory, event);
                 this.canvas.style.cursor = territory ? "pointer" : "grab";
             });
 
-            this.canvas.addEventListener("pointerleave", () => {
+            this.canvas.addEventListener("pointerleave", (event) => {
                 this.renderer.setHovered(null);
+                this.emitTerritoryHover(null, event);
             });
 
             this.canvas.addEventListener("pointerdown", (event) => {
+                this.emitTerritoryHover(null, event);
                 if (event.button === 1) {
                     event.preventDefault();
                     this.middlePointerDown = {
@@ -168,12 +175,14 @@
                 this.middlePointerDown = null;
                 this.rightDrag = null;
                 this.renderer.clearTransferPreview();
+                this.emitTerritoryHover(null, event);
                 this.releasePointer(event.pointerId);
                 this.canvas.style.cursor = "grab";
             });
 
             this.canvas.addEventListener("wheel", (event) => {
                 event.preventDefault();
+                this.emitTerritoryHover(null, event);
                 const factor = Math.exp(-event.deltaY * 0.0012);
                 this.renderer.zoomAt(event.clientX, event.clientY, factor);
                 this.viewChangeListeners.forEach((listener) => listener("zoom"));
@@ -212,6 +221,10 @@
             }
         }
 
+        emitTerritoryHover(territory, event) {
+            this.hoverListeners.forEach((listener) => listener(territory, event));
+        }
+
         onTerritoryClick(listener) {
             this.clickListeners.add(listener);
             return () => this.clickListeners.delete(listener);
@@ -245,6 +258,11 @@
         onViewChange(listener) {
             this.viewChangeListeners.add(listener);
             return () => this.viewChangeListeners.delete(listener);
+        }
+
+        onTerritoryHover(listener) {
+            this.hoverListeners.add(listener);
+            return () => this.hoverListeners.delete(listener);
         }
     }
 

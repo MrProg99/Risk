@@ -364,6 +364,18 @@ button { color: inherit; }
 .game-layout { min-height: 0; display: grid; grid-template-columns: minmax(600px, 1fr) var(--panel-width); gap: 12px; }
 .map-card { min-width: 0; min-height: 630px; position: relative; overflow: hidden; border-radius: var(--radius); background: #07141b; }
 #game-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.territory-tooltip { position: absolute; z-index: 5; width: max-content; min-width: 220px; max-width: min(310px, calc(100% - 20px)); padding: 10px 11px; overflow: hidden; border: 1px solid rgba(165,211,211,.25); border-radius: 8px; color: #dce8e7; background: rgba(3,14,18,.95); box-shadow: 0 12px 30px rgba(0,0,0,.52), inset 0 1px rgba(255,255,255,.035); backdrop-filter: blur(9px); pointer-events: none; font: .58rem/1.35 var(--mono); }
+.territory-tooltip[hidden] { display: none; }
+.territory-tooltip header { display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 9px; padding-bottom: 8px; border-bottom: 1px solid rgba(153,195,196,.14); }
+.territory-tooltip header i { width: 9px; height: 9px; border-radius: 50%; background: #66777d; box-shadow: 0 0 9px currentColor; }
+.territory-tooltip header strong, .territory-tooltip header small { display: block; }
+.territory-tooltip header strong { color: #f0f5f4; font: 750 .7rem/1.2 var(--sans); letter-spacing: .02em; }
+.territory-tooltip header small { margin-top: 2px; color: #688087; font-size: .49rem; letter-spacing: .12em; }
+.territory-tooltip dl { margin: 7px 0 0; }
+.territory-tooltip dl > div { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 10px; margin-top: 3px; }
+.territory-tooltip dt { color: #667d83; }
+.territory-tooltip dd { margin: 0; color: #c5d5d4; text-align: right; overflow-wrap: anywhere; }
+.territory-tooltip p { margin: 8px -2px -2px; padding: 7px 8px; border-radius: 5px; color: #a8c8c5; background: rgba(87,216,208,.055); font-size: .53rem; line-height: 1.45; }
 .blackout-overlay { position: absolute; inset: 0; z-index: 6; padding-top: 62px; display: grid; align-items: start; justify-items: center; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(235,94,255,.025) 0 1px, transparent 1px 5px), radial-gradient(circle at center, transparent 35%, rgba(13,0,20,.22)); box-shadow: inset 0 0 85px rgba(226,70,255,.22); }
 .blackout-overlay[hidden] { display: none; }
 .blackout-alert { min-width: 275px; padding: 11px 18px 10px; border: 1px solid rgba(240,119,255,.62); border-radius: 8px; color: #f8d5ff; background: rgba(21,5,27,.9); box-shadow: 0 0 30px rgba(240,119,255,.2), inset 0 1px rgba(255,255,255,.05); text-align: center; }

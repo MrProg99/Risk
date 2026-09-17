@@ -291,6 +291,24 @@
             <section class="map-card" aria-label="Carte stratégique">
                 <canvas id="game-canvas" aria-label="Carte des territoires générée aléatoirement"></canvas>
 
+                <div class="territory-tooltip" id="territory-tooltip" role="tooltip" hidden>
+                    <header>
+                        <i id="territory-tooltip-swatch"></i>
+                        <div>
+                            <strong id="territory-tooltip-name">Territoire</strong>
+                            <small id="territory-tooltip-id">T-00</small>
+                        </div>
+                    </header>
+                    <dl>
+                        <div><dt>Propriétaire</dt><dd id="territory-tooltip-owner">Neutre</dd></div>
+                        <div><dt>Unités</dt><dd id="territory-tooltip-units">0</dd></div>
+                        <div><dt>Terrain</dt><dd id="territory-tooltip-terrain">Plaine</dd></div>
+                        <div><dt>Ressource</dt><dd id="territory-tooltip-resource">Aucune</dd></div>
+                        <div><dt>Activité</dt><dd id="territory-tooltip-production">Inactive</dd></div>
+                    </dl>
+                    <p id="territory-tooltip-bonus" hidden></p>
+                </div>
+
                 <div class="blackout-overlay" id="blackout-overlay" hidden aria-live="assertive">
                     <div class="blackout-alert">
                         <span>COMMUNICATIONS INTERROMPUES</span>

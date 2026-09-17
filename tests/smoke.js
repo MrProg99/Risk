@@ -292,6 +292,24 @@
         check(researchModeCommand.ok && researchModeTerritories[0].productionMode === "research" && researchModeGame.getProductionMultiplier(researchModeTerritories[0]) === 0, "un territoire peut abandonner le recrutement pour être affecté à la recherche");
         check(Math.abs(researchModeGame.getResearchRate(1) - 1.50) < 0.0001, "six laboratoires standards restent plafonnés à +50 % de vitesse scientifique");
         check(researchModeGame.getTerritoryPassiveFoodCapacity(researchModeTerritories[1]) === 10, "un laboratoire conserve la nourriture passive de son territoire");
+        const researchCenterGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        researchCenterGame.newGame(424244);
+        researchCenterGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) territory.ownerId = null;
+        });
+        const researchCenter = researchCenterGame.state.territories.find((territory) => !territory.isImpassable);
+        researchCenter.ownerId = 1;
+        researchCenter.terrain = "science";
+        researchCenter.rareSite = null;
+        researchCenter.productionMode = "units";
+        const passiveResearchCenter = researchCenterGame.getResearchRateBreakdown(1);
+        check(Math.abs(passiveResearchCenter.passiveBonus - 0.08) < 0.0001 && Math.abs(passiveResearchCenter.rate - 1.08) < 0.0001, "un Centre scientifique contrôlé donne toujours +8 % de recherche nationale");
+        researchCenter.productionMode = "research";
+        const activeResearchCenter = researchCenterGame.getResearchRateBreakdown(1);
+        check(Math.abs(activeResearchCenter.assignedBonus - 0.25) < 0.0001 && Math.abs(activeResearchCenter.rate - 1.33) < 0.0001, "un Centre scientifique affecté à la recherche fournit 25 % supplémentaires, soit 33 % au total");
+        researchCenter.railroadConstructionActive = true;
+        researchCenter.productionMode = "construction";
+        check(researchCenterGame.getTerritoryPassiveResearchBonus(researchCenter) === 0 && researchCenterGame.getResearchRate(1) === 1, "un chantier suspend temporairement le bonus scientifique passif du territoire");
         const researchModeSnapshot = researchModeGame.createNetworkSnapshot();
         check(researchModeSnapshot.territories.filter((territory) => territory.productionMode === "research").length === 6, "l’affectation Recherche est incluse dans les instantanés multijoueurs");
         researchModeTerritories.forEach((territory) => {
@@ -3027,6 +3045,7 @@
         check(typeof C.InputManager.prototype.onContinuousTransfer === "function", "l’interface expose le flux continu par Alt + glisser droit");
         check(typeof C.InputManager.prototype.onTerritoryMiddleClick === "function" && typeof C.LogisticsMenuController === "function", "l’interface expose le menu de convergence au clic milieu");
         check(typeof C.InputManager.prototype.onViewChange === "function", "l’interface signale un déplacement de caméra afin de fermer un ordre contextuel devenu obsolète");
+        check(typeof C.InputManager.prototype.onTerritoryHover === "function" && typeof C.UIController.prototype.handleTerritoryHover === "function", "l’interface expose les informations territoriales au survol");
         check(typeof C.UIController.prototype.handleTerritoryRightClick === "function", "le contrôleur sait préparer un itinéraire de convoi");
         check(typeof C.MapRenderer.prototype.setTransferPreview === "function", "le rendu sait afficher l’aperçu des transferts ponctuels et continus");
         check(typeof C.MapRenderer.prototype.fireCannon === "function", "le rendu expose l’animation des tirs de canon");
@@ -3070,11 +3089,16 @@
         let regularRightClicks = 0;
         let middleClickTerritoryId = null;
         let viewChanges = 0;
+        const hoveredTerritoryIds = [];
         gestureInput.onQuickTransfer((source, target) => { quickGesture = [source.id, target.id]; });
         gestureInput.onContinuousTransfer((source, target) => { continuousGesture = [source.id, target.id]; });
         gestureInput.onTerritoryRightClick(() => { regularRightClicks += 1; });
         gestureInput.onTerritoryMiddleClick((territory) => { middleClickTerritoryId = territory?.id ?? null; });
         gestureInput.onViewChange(() => { viewChanges += 1; });
+        gestureInput.onTerritoryHover((territory) => { hoveredTerritoryIds.push(territory?.id ?? null); });
+        gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10, pointerId: 39 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerleave", { clientX: 10, clientY: 10, pointerId: 39 }));
+        check(hoveredTerritoryIds[0] === 1 && hoveredTerritoryIds.at(-1) === null, "le survol identifie un territoire puis masque l’infobulle à la sortie de la carte");
         gestureCanvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 80, clientX: 20, clientY: 20 }));
         check(viewChanges === 1, "zoomer la carte ferme le panneau tactique contextuel");
         gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 1, clientX: 10, clientY: 10, pointerId: 40 }));
@@ -3093,6 +3117,72 @@
         gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, altKey: true, clientX: 90, clientY: 10, pointerId: 42 }));
         gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, altKey: true, clientX: 90, clientY: 10 }));
         check(Boolean(continuousGesture && continuousGesture[0] === 1 && continuousGesture[1] === 2 && previewModes.includes("continuous")), "Alt + glisser droit produit un ordre de flux continu distinct");
+
+        const tooltipContainer = document.createElement("section");
+        const tooltipElement = document.createElement("div");
+        tooltipContainer.append(tooltipElement);
+        document.body.append(tooltipContainer);
+        tooltipContainer.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 360, right: 500, bottom: 360 });
+        Object.defineProperty(tooltipElement, "offsetWidth", { configurable: true, value: 240 });
+        Object.defineProperty(tooltipElement, "offsetHeight", { configurable: true, value: 170 });
+        const tooltipPart = () => document.createElement("span");
+        const tooltipElements = {
+            territoryTooltip: tooltipElement,
+            territoryTooltipSwatch: tooltipPart(),
+            territoryTooltipName: tooltipPart(),
+            territoryTooltipId: tooltipPart(),
+            territoryTooltipOwner: tooltipPart(),
+            territoryTooltipUnits: tooltipPart(),
+            territoryTooltipTerrain: tooltipPart(),
+            territoryTooltipResource: tooltipPart(),
+            territoryTooltipProduction: tooltipPart(),
+            territoryTooltipBonus: tooltipPart()
+        };
+        let tooltipTerritoryVisible = true;
+        const tooltipFaction = { id: 1, name: "Empire", color: "#f0b84d", bonuses: { sciencePowerBonusMultiplier: 1 } };
+        const tooltipTerritory = {
+            id: 12,
+            name: "Passe d’Onyx",
+            terrain: "science",
+            resource: "Recherche",
+            ownerId: 1,
+            units: 47,
+            productionMode: "research",
+            isImpassable: false,
+            isCapital: false,
+            rareSite: null,
+            installation: null,
+            railroad: false,
+            buildings: [],
+            wonderId: null,
+            wonderConstruction: null,
+            minefield: false
+        };
+        const tooltipUiStub = {
+            elements: tooltipElements,
+            game: {
+                playerId: 1,
+                isTerritoryVisible: () => tooltipTerritoryVisible,
+                areAllied: () => true,
+                state: { getFaction: () => tooltipFaction },
+                getTerritoryPassiveResearchBonus: () => 0.08,
+                getTerritoryResearchBonus: () => 0.25,
+                isTerritoryUnderConstruction: () => false,
+                getTerritoryPassiveFoodCapacity: () => 10,
+                getTerritoryFoodCapacity: () => 0,
+                getTerritoryProductionPerMinute: () => 12
+            },
+            formatNumber: C.UIController.prototype.formatNumber,
+            positionTerritoryTooltip: C.UIController.prototype.positionTerritoryTooltip,
+            hideTerritoryTooltip: C.UIController.prototype.hideTerritoryTooltip
+        };
+        C.UIController.prototype.handleTerritoryHover.call(tooltipUiStub, tooltipTerritory, { clientX: 490, clientY: 350 });
+        check(!tooltipElement.hidden && tooltipElements.territoryTooltipName.textContent === "Passe d’Onyx" && tooltipElements.territoryTooltipUnits.textContent === "47" && /33 % recherche/.test(tooltipElements.territoryTooltipProduction.textContent), "l’infobulle affiche les unités, le terrain et l’activité réelle du territoire");
+        check(parseFloat(tooltipElement.style.left) + 240 <= 490 && parseFloat(tooltipElement.style.top) + 170 <= 350, "l’infobulle se replace au-dessus du pointeur près des bords de la carte");
+        tooltipTerritoryVisible = false;
+        C.UIController.prototype.handleTerritoryHover.call(tooltipUiStub, tooltipTerritory, { clientX: 100, clientY: 100 });
+        check(tooltipElement.hidden, "le brouillard de guerre masque entièrement l’infobulle territoriale");
+        tooltipContainer.remove();
 
         const cameraCanvas = document.createElement("canvas");
         cameraCanvas.style.width = "800px";

@@ -20,6 +20,9 @@
             this.victoryScreenPresented = false;
             this.victoryPresentationKey = null;
             this.localEliminationAtMs = null;
+            this.tooltipHover = null;
+            this.tooltipTerritoryId = null;
+            this.tooltipContentUpdatedAt = 0;
             this.elements = this.collectElements();
             this.replay = this.elements.replayCanvas && C.VictoryReplayController
                 ? new C.VictoryReplayController(game, this.elements)
@@ -99,6 +102,16 @@
                 zoomLevel: byId("zoom-level"),
                 centerMap: byId("center-map"),
                 toast: byId("toast"),
+                territoryTooltip: byId("territory-tooltip"),
+                territoryTooltipSwatch: byId("territory-tooltip-swatch"),
+                territoryTooltipName: byId("territory-tooltip-name"),
+                territoryTooltipId: byId("territory-tooltip-id"),
+                territoryTooltipOwner: byId("territory-tooltip-owner"),
+                territoryTooltipUnits: byId("territory-tooltip-units"),
+                territoryTooltipTerrain: byId("territory-tooltip-terrain"),
+                territoryTooltipResource: byId("territory-tooltip-resource"),
+                territoryTooltipProduction: byId("territory-tooltip-production"),
+                territoryTooltipBonus: byId("territory-tooltip-bonus"),
                 territoryName: byId("territory-name"),
                 territoryId: byId("territory-id"),
                 emptySelection: byId("empty-selection"),
@@ -177,6 +190,7 @@
 
         bindEvents() {
             this.input.onTerritoryClick((territory, event) => this.handleTerritoryClick(territory, event));
+            this.input.onTerritoryHover((territory, event) => this.handleTerritoryHover(territory, event));
             this.input.onTerritoryRightClick((territory) => this.handleTerritoryRightClick(territory));
             this.input.onQuickTransfer((source, target) => this.handleQuickTransfer(source, target));
             this.input.onContinuousTransfer((source, target) => this.handleContinuousTransfer(source, target));
@@ -624,7 +638,7 @@
         refreshResearchStatus() {
             const status = this.game.getResearchState(this.game.playerId);
             if (!status) return;
-            const { faction, activeTechnology, progressMs, rate } = status;
+            const { faction, activeTechnology, progressMs, rate, breakdown } = status;
             const completed = faction.research.completedTechnologyIds.length;
             const total = Object.keys(C.TECHNOLOGIES).length;
             const treeKey = `${completed}|${faction.research.activeTechnologyId || "none"}|${faction.constructedWonderId || "no-wonder"}`;
@@ -633,7 +647,12 @@
                 this.renderResearchTree(faction);
             }
 
-            this.elements.researchRate.textContent = `Vitesse scientifique ×${rate.toFixed(2).replace(".", ",")}`;
+            const researchSources = [];
+            const passivePercent = Math.round((breakdown?.effectivePassiveBonus || 0) * 100);
+            const assignedPercent = Math.round((breakdown?.effectiveAssignedBonus || 0) * 100);
+            if (passivePercent > 0) researchSources.push(`sites +${passivePercent} %`);
+            if (assignedPercent > 0) researchSources.push(`laboratoires +${assignedPercent} %`);
+            this.elements.researchRate.textContent = `Vitesse scientifique ×${rate.toFixed(2).replace(".", ",")}${researchSources.length ? ` · ${researchSources.join(" · ")}` : ""}`;
             if (!activeTechnology) {
                 this.elements.researchTopStatus.textContent = completed === total ? "Arbre complété" : "Disponible";
                 this.elements.researchCurrentIcon.textContent = completed === total ? "✓" : "⌬";
@@ -828,6 +847,100 @@
             }
 
             this.syncSelection();
+        }
+
+        handleTerritoryHover(territory, event = null) {
+            const tooltip = this.elements.territoryTooltip;
+            const visible = territory && (this.renderer?.isTerritoryVisible
+                ? this.renderer.isTerritoryVisible(territory.id)
+                : this.game.isTerritoryVisible(territory.id, this.game.playerId));
+            if (!tooltip || !territory || !event || !visible) {
+                this.hideTerritoryTooltip();
+                return;
+            }
+
+            this.tooltipHover = { territoryId: territory.id, clientX: event.clientX, clientY: event.clientY };
+            const now = performance.now();
+            if (!tooltip.hidden && this.tooltipTerritoryId === territory.id && now - this.tooltipContentUpdatedAt < 160) {
+                this.positionTerritoryTooltip(event.clientX, event.clientY);
+                return;
+            }
+            this.tooltipTerritoryId = territory.id;
+            this.tooltipContentUpdatedAt = now;
+
+            const type = C.TERRITORY_TYPES[territory.terrain];
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const allied = faction && this.game.areAllied(faction.id, this.game.playerId);
+            const researchMultiplier = faction?.bonuses.sciencePowerBonusMultiplier || 1;
+            const researchPercent = Math.round((
+                this.game.getTerritoryPassiveResearchBonus(territory) +
+                this.game.getTerritoryResearchBonus(territory)
+            ) * researchMultiplier * 100);
+            let activity = territory.isImpassable
+                ? "Infranchissable"
+                : this.game.isTerritoryUnderConstruction(territory)
+                    ? "Travaux en cours"
+                    : territory.ownerId === null
+                        ? "Inactive"
+                        : territory.productionMode === "food"
+                            ? `+${this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory)} nourriture`
+                            : territory.productionMode === "research"
+                                ? `+${researchPercent} % recherche`
+                                : `+${this.formatNumber(this.game.getTerritoryProductionPerMinute(territory))} unités/min`;
+
+            this.elements.territoryTooltipSwatch.style.background = faction?.color || (territory.isImpassable ? type.color : "#66777d");
+            this.elements.territoryTooltipSwatch.style.color = faction?.color || type.color;
+            this.elements.territoryTooltipName.textContent = territory.name;
+            this.elements.territoryTooltipId.textContent = `T-${String(territory.id).padStart(2, "0")}`;
+            this.elements.territoryTooltipOwner.textContent = territory.isImpassable ? "Zone infranchissable" : faction?.name || "Forces neutres";
+            this.elements.territoryTooltipUnits.textContent = territory.isImpassable ? "—" : this.formatNumber(territory.units);
+            this.elements.territoryTooltipTerrain.textContent = type.name;
+            this.elements.territoryTooltipResource.textContent = territory.resource || type.resource || "Aucune";
+            this.elements.territoryTooltipProduction.textContent = activity;
+
+            const bonuses = [...(type.bonuses || [])];
+            if (territory.isCapital) bonuses.unshift("Capitale nationale");
+            if (territory.rareSite) bonuses.unshift(`Site rare : ${territory.rareSite.name}`);
+            if (territory.installation) {
+                const installation = C.INSTALLATION_TYPES[territory.installation.type];
+                if (installation) bonuses.unshift(`Installation : ${installation.name}`);
+            }
+            if (territory.railroad) bonuses.unshift("Chemin de fer opérationnel");
+            (territory.buildings || []).forEach((buildingId) => {
+                const building = C.getBuildingType(buildingId);
+                if (building) bonuses.unshift(`Bâtiment : ${building.name}`);
+            });
+            const wonder = C.getWonderType(territory.wonderId || territory.wonderConstruction?.wonderId);
+            if (wonder) bonuses.unshift(`Merveille : ${wonder.name}`);
+            if (allied && territory.minefield) bonuses.unshift("Champ de mines armé");
+            this.elements.territoryTooltipBonus.hidden = bonuses.length === 0;
+            this.elements.territoryTooltipBonus.textContent = bonuses.join(" · ");
+
+            tooltip.hidden = false;
+            this.positionTerritoryTooltip(event.clientX, event.clientY);
+        }
+
+        positionTerritoryTooltip(clientX, clientY) {
+            const tooltip = this.elements.territoryTooltip;
+            const container = tooltip?.parentElement;
+            if (!tooltip || !container) return;
+            const rect = container.getBoundingClientRect();
+            const width = tooltip.offsetWidth || 250;
+            const height = tooltip.offsetHeight || 190;
+            const pointerX = Number(clientX) - rect.left;
+            const pointerY = Number(clientY) - rect.top;
+            let left = pointerX + 16;
+            let top = pointerY + 16;
+            if (left + width > rect.width - 10) left = pointerX - width - 16;
+            if (top + height > rect.height - 10) top = pointerY - height - 16;
+            tooltip.style.left = `${Math.round(C.Geometry.clamp(left, 10, Math.max(10, rect.width - width - 10)))}px`;
+            tooltip.style.top = `${Math.round(C.Geometry.clamp(top, 10, Math.max(10, rect.height - height - 10)))}px`;
+        }
+
+        hideTerritoryTooltip() {
+            if (this.elements.territoryTooltip) this.elements.territoryTooltip.hidden = true;
+            this.tooltipHover = null;
+            this.tooltipTerritoryId = null;
         }
 
         handleTerritoryRightClick(territory) {
@@ -1298,6 +1411,9 @@
             const faction = this.game.state.getFaction(territory.ownerId);
             const type = C.TERRITORY_TYPES[territory.terrain];
             const ownerColor = faction ? faction.color : "#66777d";
+            const researchMultiplier = faction?.bonuses.sciencePowerBonusMultiplier || 1;
+            const passiveResearchPercent = Math.round(this.game.getTerritoryPassiveResearchBonus(territory) * researchMultiplier * 100);
+            const assignedResearchPercent = Math.round(this.game.getTerritoryResearchBonus(territory) * researchMultiplier * 100);
             this.elements.emptySelection.hidden = true;
             this.elements.territoryDetails.hidden = false;
             this.elements.selectionTip.querySelector("p").textContent = "Clic gauche sur un voisin pour agir. Recliquer désélectionne. Clic milieu fait converger la production ; Ctrl transfère et Alt crée un flux.";
@@ -1317,7 +1433,7 @@
                 : territory.productionMode === "food"
                 ? `+${this.game.getTerritoryPassiveFoodCapacity(territory) + this.game.getTerritoryFoodCapacity(territory)} nourriture`
                 : territory.productionMode === "research"
-                ? `+${Math.round(this.game.getTerritoryResearchBonus(territory) * 100)} % recherche`
+                ? `+${passiveResearchPercent + assignedResearchPercent} % recherche${passiveResearchPercent ? ` · ${passiveResearchPercent} % passifs` : ""}`
                 : territory.ownerId === null
                 ? "Inactive"
                 : `+${this.formatNumber(this.game.getTerritoryProductionPerMinute(territory))}/min`;
@@ -1410,6 +1526,10 @@
                 ? this.game.capitalFoodCapacity
                 : this.game.getFactionTerritoryBaseFoodCapacity(territory.ownerId);
             const famine = this.game.eventSystem.isTerritoryAffected(territory.id, "famine");
+            const faction = this.game.state.getFaction(territory.ownerId);
+            const scienceMultiplier = faction?.bonuses.sciencePowerBonusMultiplier || 1;
+            const passiveResearchPercent = Math.round(this.game.getTerritoryPassiveResearchBonus(territory) * scienceMultiplier * 100);
+            const assignedResearchPercent = Math.round(this.game.getTerritoryResearchBonus(territory) * scienceMultiplier * 100);
             this.elements.modeUnits.disabled = constructionMode;
             this.elements.modeFood.disabled = constructionMode;
             this.elements.modeResearch.disabled = constructionMode;
@@ -1420,7 +1540,7 @@
             this.elements.productionModeDetail.textContent = constructionMode
                 ? "Le chantier suspend le recrutement, la nourriture passive, la production alimentaire et la contribution scientifique. Les convois peuvent toujours traverser ce territoire."
                 : researchMode
-                ? `Ce territoire ne recrute plus, conserve sa nourriture passive et augmente la vitesse scientifique de ${Math.round(this.game.getTerritoryResearchBonus(territory) * 100)} %. Le bonus cumulé des affectations est plafonné à 50 %.`
+                ? `Ce territoire ne recrute plus, conserve sa nourriture passive et ajoute ${assignedResearchPercent} % de recherche${passiveResearchPercent ? `, en plus de ses ${passiveResearchPercent} % passifs` : ""}. Le bonus cumulé des affectations est plafonné à 50 % avant les avantages de faction.`
                 : foodMode
                 ? territory.isCapital
                     ? `La capitale ne recrute plus, conserve ses ${passiveCapacity} nourritures et ${famine ? `voit son bonus local de ${foodCapacity} suspendu par la famine` : `ajoute ${foodCapacity} points grâce à son terrain`}.`
@@ -2089,6 +2209,10 @@
             this.refreshBlackoutStatus();
             this.renderZoomLevel();
             if (this.selectedTerritoryId) this.renderTerritoryPanel();
+            if (this.tooltipHover && this.elements.territoryTooltip && !this.elements.territoryTooltip.hidden) {
+                const hoveredTerritory = this.game.state.getTerritory(this.tooltipHover.territoryId);
+                this.handleTerritoryHover(hoveredTerritory, this.tooltipHover);
+            }
         }
 
         showToast(message) {
