@@ -170,7 +170,9 @@ Chaque carte contient exactement **deux canons de campagne**, placés sur des te
 
 ### Aéroports
 
-La carte actuelle possède au minimum **quatre aéroports**, et la grande carte au minimum **six**. Ils sont reconnaissables à leur symbole `✈` et à leur teinte bleue. Un aéroport contrôlé recherche automatiquement une force hostile visible dans un rayon de quatre territoires. Il privilégie les grosses garnisons et les objectifs stratégiques, survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis recharge ses bombardiers pendant environ 38 secondes. La recherche **Bombardier lourd**, accessible dans l’axe Attaque après les Colonnes motorisées, porte ces dégâts à **15 %**. Les territoires neutres ne sont pas bombardés automatiquement.
+La carte actuelle possède au minimum **quatre aéroports**, et la grande carte au minimum **six**. Ils sont reconnaissables à leur symbole `✈` et à leur teinte bleue. Deux aéroports alliés forment automatiquement un **pont aérien direct** : les renforts et les flux continus voyagent environ 2,35 fois plus vite, sans relais, et peuvent survoler l’eau comme les montagnes. Les offensives restent terrestres et ne profitent jamais de cette liaison. L’IA sait employer les ponts aériens pour concentrer ses réserves ou fortifier un allié.
+
+Un aéroport contrôlé recherche aussi automatiquement une force hostile visible dans un rayon de quatre territoires. Il privilégie les grosses garnisons et les objectifs stratégiques, survole les montagnes, détruit 10 % de la garnison visée sans éliminer sa dernière unité, puis recharge ses bombardiers pendant environ 38 secondes. La recherche **Bombardier lourd**, accessible dans l’axe Attaque après les Colonnes motorisées, porte ces dégâts à **15 %**. Les territoires neutres ne sont pas bombardés automatiquement.
 
 ### Recherche
 
@@ -247,7 +249,8 @@ js/
   ui/         Panneaux, commandes et notifications
   main.js     Boucle d’exécution et assemblage des composants
 tests/
-  smoke.html  Vérifications exécutables directement dans le navigateur
+  smoke.html        Vérifications exécutables directement dans le navigateur
+  performance.html  Benchmark reproductible du rendu, de la simulation et des instantanés réseau
 ```
 
 Les règles Realtime Database sont fournies comme fragment isolé dans `firebase/frontieres.rules.fragment.json` afin de préserver les namespaces Firebase déjà utilisés par les autres jeux du projet.
@@ -294,3 +297,5 @@ Cette frontière permet de remplacer plus tard les commandes locales par des com
 ## Vérification
 
 Ouvrir `tests/smoke.html`. La page contrôle la génération, la connexité du graphe, les départs des factions, la production, une attaque complète et la sérialisation de l’état.
+
+Ouvrir `tests/performance.html` pour mesurer une grande carte chargée avec 166 territoires et 70 armées mobiles. Le rapport sépare le coût du rendu Canvas, de la simulation, des instantanés multijoueurs et des deltas réseau. Le rendu principal met en cache les couches statiques de la vue et ignore les territoires hors écran; les unités et animations restent dessinées à chaque image. En multijoueur, Firebase reçoit un instantané complet toutes les 15 secondes et un delta cumulatif compact entre les instantanés. Une reconnexion peut donc reconstruire l’état courant sans rejouer tout l’historique, et ce protocole utilise le nœud `snapshot` existant sans demander de nouvelles règles Firebase.

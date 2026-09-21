@@ -685,6 +685,66 @@
         for (let tick = 0; tick < 8 && teamGame.state.armies.length; tick += 1) teamGame.update(1000);
         check(alliedTransfer.ok && teamDestination.ownerId === 2 && teamDestination.units >= 12, "un joueur peut donner des renforts à un territoire allié sans en prendre le contrôle");
 
+        const airliftGame = new C.Game({ playerId: 1, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        airliftGame.newGame(919191);
+        const passableAirliftTerritories = airliftGame.state.territories.filter((territory) => !territory.isImpassable);
+        const airliftSource = passableAirliftTerritories[0];
+        const airliftDestination = passableAirliftTerritories
+            .filter((territory) => territory.id !== airliftSource.id && !airliftSource.isNeighbor(territory.id))
+            .sort((first, second) => C.Geometry.distance(airliftSource.center, second.center) - C.Geometry.distance(airliftSource.center, first.center))[0];
+        airliftGame.state.territories.forEach((territory) => {
+            if (!territory.isImpassable) territory.ownerId = null;
+        });
+        airliftSource.terrain = "airport";
+        airliftSource.ownerId = 1;
+        airliftSource.units = 50;
+        airliftDestination.terrain = "airport";
+        airliftDestination.ownerId = 2;
+        airliftDestination.units = 9;
+        check(!airliftGame.findAlliedPath(1, airliftSource.id, airliftDestination.id) &&
+            airliftGame.findReinforcementPath(1, airliftSource.id, airliftDestination.id)?.join(",") === `${airliftSource.id},${airliftDestination.id}`,
+        "deux aéroports alliés créent un pont aérien direct même sans corridor terrestre");
+        const airliftOrder = airliftGame.executeCommand({
+            type: "SEND_REINFORCEMENT_ROUTE",
+            playerId: 1,
+            fromTerritoryId: airliftSource.id,
+            toTerritoryId: airliftDestination.id,
+            units: 20
+        });
+        check(airliftOrder.ok && airliftOrder.army.isAirlift && airliftOrder.army.toJSON().isAirlift && airliftOrder.army.route.length === 0 &&
+            airliftOrder.army.durationMs === airliftGame.getAirliftTravelDuration(airliftSource, airliftDestination, airliftGame.state.getFaction(1)),
+        "le pont aérien envoie un vol unique rapide au-dessus des obstacles");
+        const remoteAirliftGame = new C.Game({ playerId: 2, factionSetups: multiplayerSetups, enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        remoteAirliftGame.newGame(919191);
+        remoteAirliftGame.applyNetworkSnapshot(airliftGame.createNetworkSnapshot());
+        check(remoteAirliftGame.state.armies[0]?.isAirlift, "un pont aérien en mouvement est conservé dans les instantanés multijoueurs");
+        for (let tick = 0; tick < 8 && airliftGame.state.armies.includes(airliftOrder.army); tick += 1) airliftGame.update(1000);
+        check(airliftDestination.ownerId === 2 && airliftDestination.units >= 29, "les troupes aéroportées renforcent l’allié sans changer le propriétaire");
+        airliftSource.units = 30;
+        const continuousAirlift = airliftGame.executeCommand({
+            type: "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE",
+            playerId: 1,
+            fromTerritoryId: airliftSource.id,
+            toTerritoryId: airliftDestination.id
+        });
+        check(continuousAirlift.ok && continuousAirlift.route.usesAirlift && continuousAirlift.route.toJSON().usesAirlift,
+            "les flux continus mémorisent leur pont aérien dans l’état sérialisable");
+        remoteAirliftGame.applyNetworkSnapshot(airliftGame.createNetworkSnapshot());
+        check(remoteAirliftGame.state.reinforcementRoutes[0]?.usesAirlift, "un flux aérien continu est restauré chez les clients multijoueurs");
+        airliftDestination.ownerId = 3;
+        check(!airliftGame.canUseAirlift(1, airliftSource, airliftDestination) &&
+            !airliftGame.executeCommand({ type: "SEND_REINFORCEMENT_ROUTE", playerId: 1, fromTerritoryId: airliftSource.id, toTerritoryId: airliftDestination.id, units: 5 }).ok,
+        "un aéroport ennemi ne peut jamais être attaqué par la commande de pont aérien");
+        airliftDestination.ownerId = 1;
+        airliftSource.units = 100;
+        const airliftDonors = airliftGame.aiSystem.rankOffensiveDonors(
+            airliftGame.state.getFaction(1),
+            [airliftSource, airliftDestination],
+            airliftDestination
+        );
+        check(airliftDonors[0]?.territory.id === airliftSource.id && airliftDonors[0].path.length === 2,
+            "l’IA sait concentrer ses réserves entre deux aéroports isolés");
+
         const existingTeamFixtureIds = new Set([teamSource.id, teamDestination.id]);
         const alliedAidTarget = teamGame.state.territories.find((territory) => !territory.isImpassable && !territory.isCapital && !existingTeamFixtureIds.has(territory.id) && territory.neighbors.filter((id) => {
             const neighbor = teamGame.state.getTerritory(id);
@@ -719,6 +779,43 @@
         check(remoteTeamGame.applyNetworkSnapshot(networkSnapshot) && remoteTeamGame.state.getTerritory(teamDestination.id).units === teamDestination.units, "un instantané réseau léger reproduit l’état dynamique chez un autre joueur");
         check(remoteTeamGame.state.getTerritory(teamSource.id).productionMode === "food", "le mode alimentaire est synchronisé dans les instantanés multijoueurs");
         check(!Object.prototype.hasOwnProperty.call(networkSnapshot, "matchTimeline"), "la chronologie complète n’alourdit pas les instantanés Firebase pendant une partie active");
+
+        const patchDestinationUnits = teamDestination.units + 9;
+        teamDestination.units = patchDestinationUnits;
+        teamSource.railroad = true;
+        const compactPatchArmy = new C.Army({
+            id: teamGame.state.nextArmyId++,
+            ownerId: 1,
+            fromTerritoryId: teamSource.id,
+            toTerritoryId: teamDestination.id,
+            units: 7,
+            durationMs: 4321,
+            start: teamSource.center,
+            end: teamDestination.center,
+            route: [teamDestination.id],
+            isConvoy: true,
+            isAirlift: true,
+            reinforcementRouteId: 77,
+            logisticsPurpose: "allied-support",
+            visitedTerritoryIds: [teamSource.id],
+            relayCount: 2
+        });
+        compactPatchArmy.elapsedMs = 1234;
+        teamGame.state.armies.push(compactPatchArmy);
+        teamGame.state.revision += 1;
+        const currentNetworkSnapshot = teamGame.createNetworkSnapshot();
+        const networkPatch = teamGame.createNetworkPatch(networkSnapshot, currentNetworkSnapshot);
+        check(remoteTeamGame.applyNetworkSnapshotEnvelope(networkSnapshot, networkPatch) &&
+            remoteTeamGame.state.getTerritory(teamDestination.id).units === patchDestinationUnits &&
+            remoteTeamGame.state.getTerritory(teamSource.id).railroad,
+        "un delta Firebase cumulatif synchronise les unités et les changements structurels");
+        const restoredPatchArmy = remoteTeamGame.state.armies.find((army) => army.id === compactPatchArmy.id);
+        check(restoredPatchArmy?.isAirlift && restoredPatchArmy.isConvoy && restoredPatchArmy.reinforcementRouteId === 77 &&
+            restoredPatchArmy.elapsedMs === 1234 && restoredPatchArmy.start.x === teamSource.center.x &&
+            restoredPatchArmy.visitedTerritoryIds[0] === teamSource.id && restoredPatchArmy.relayCount === 2,
+        "le delta compact restaure aussi les convois, ponts aériens et routes en déplacement");
+        check(JSON.stringify(networkPatch).length < JSON.stringify(currentNetworkSnapshot).length,
+            "le delta Firebase est plus petit que l’instantané complet correspondant");
 
         const timelineUnit = new C.MatchTimeline().reset([
             { id: 1, ownerId: 1 },
@@ -3134,6 +3231,12 @@
         gestureCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, altKey: true, clientX: 90, clientY: 10, pointerId: 42 }));
         gestureCanvas.dispatchEvent(new MouseEvent("contextmenu", { button: 2, altKey: true, clientX: 90, clientY: 10 }));
         check(Boolean(continuousGesture && continuousGesture[0] === 1 && continuousGesture[1] === 2 && previewModes.includes("continuous")), "Alt + glisser droit produit un ordre de flux continu distinct");
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 10, clientY: 10, pointerId: 43 }));
+        gestureCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 0, clientX: 12, clientY: 10, pointerId: 43 }));
+        check(gestureInput.lastPointerDown === null && gestureInput.getActivePointerIds().length === 0, "un mouvement sans bouton enfoncé répare automatiquement un relâchement manqué");
+        gestureCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 10, clientY: 10, pointerId: 44 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { button: 0, clientX: 900, clientY: 700, pointerId: 44 }));
+        check(gestureInput.lastPointerDown === null && gestureInput.getActivePointerIds().length === 0, "un relâchement hors du canvas libère automatiquement les commandes de la carte");
 
         const tooltipContainer = document.createElement("section");
         const tooltipElement = document.createElement("div");
@@ -3229,6 +3332,29 @@
         popupController.syncSelection = () => { popupSelectionSyncs += 1; };
         popupController.cancelAttackTarget();
         check(popupController.targetTerritoryId === null && popupController.plannedRoute.length === 0 && !popupController.elements.continuousRoute.checked && popupSelectionSyncs === 1, "fermer l’ordre tactique conserve l’origine mais retire proprement la cible et ses options");
+        let stalledOrderRecoveryCount = 0;
+        let stalledOrderToast = "";
+        const stalledOrderController = {
+            game: {
+                playerId: 1,
+                state: { getTerritory: (territoryId) => ({ id: territoryId, units: 20 }) },
+                canUseAirlift: () => false,
+                executeCommand: () => undefined
+            },
+            selectedTerritoryId: 12,
+            targetTerritoryId: 18,
+            plannedRoute: [],
+            elements: {
+                continuousRoute: { checked: false },
+                relayAllReinforcements: { checked: false },
+                attackUnits: { value: "11" }
+            },
+            input: { cancelActiveGesture: () => { stalledOrderRecoveryCount += 1; } },
+            clearSelection: () => { stalledOrderRecoveryCount += 1; },
+            showToast: (message) => { stalledOrderToast = message; }
+        };
+        C.UIController.prototype.launchAttack.call(stalledOrderController);
+        check(stalledOrderRecoveryCount === 2 && /réinitialisée/i.test(stalledOrderToast), "une réponse tactique anormale réinitialise l’interface au lieu de bloquer les actions suivantes");
 
         const miniMapPanel = document.createElement("section");
         const miniMapToggle = document.createElement("button");

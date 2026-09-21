@@ -218,6 +218,7 @@
 
             this.elements.attackButton.addEventListener("click", () => this.launchAttack());
             this.elements.attackCancelButton.addEventListener("click", () => this.cancelAttackTarget());
+            this.elements.attackPanel.addEventListener("pointerdown", () => this.input?.cancelActiveGesture?.(), { capture: true });
             this.elements.abilityMissile.addEventListener("click", () => this.toggleAbilityTargeting("missile"));
             this.elements.abilityReinforcement.addEventListener("click", () => this.toggleAbilityTargeting("reinforcement"));
             this.elements.abilityParatrooper.addEventListener("click", () => this.toggleAbilityTargeting("paratrooper"));
@@ -1060,7 +1061,7 @@
                 return;
             }
 
-            const path = this.game.findAlliedPath(this.game.playerId, source.id, territory.id);
+            const path = this.game.findReinforcementPath(this.game.playerId, source.id, territory.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -1109,7 +1110,7 @@
                 return;
             }
 
-            const path = this.game.findAlliedPath(this.game.playerId, source.id, target.id);
+            const path = this.game.findReinforcementPath(this.game.playerId, source.id, target.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -1165,7 +1166,7 @@
                 return;
             }
 
-            const path = this.game.findAlliedPath(this.game.playerId, source.id, target.id);
+            const path = this.game.findReinforcementPath(this.game.playerId, source.id, target.id);
             if (!path) {
                 this.showToast("Aucun itinéraire allié ne contourne les montagnes jusqu’à cette destination.");
                 return;
@@ -1194,12 +1195,19 @@
         launchAttack() {
             const source = this.game.state.getTerritory(this.selectedTerritoryId);
             const target = this.game.state.getTerritory(this.targetTerritoryId);
-            if (!source || !target) return;
-            const createContinuousRoute = this.plannedRoute.length > 1 && this.elements.continuousRoute.checked;
+            if (!source || !target) {
+                this.input?.cancelActiveGesture?.();
+                this.clearSelection();
+                this.showToast("L’ordre tactique n’est plus valide. Sélectionnez de nouveau une origine et une cible.");
+                return;
+            }
+            const usesAirlift = this.game.canUseAirlift(this.game.playerId, source, target);
+            const isRoutedReinforcement = this.plannedRoute.length > 1 || usesAirlift;
+            const createContinuousRoute = isRoutedReinforcement && this.elements.continuousRoute.checked;
             const command = {
                 type: createContinuousRoute
                     ? "CREATE_CONTINUOUS_REINFORCEMENT_ROUTE"
-                    : this.plannedRoute.length > 1
+                    : isRoutedReinforcement
                         ? "SEND_REINFORCEMENT_ROUTE"
                         : "SEND_ARMY",
                 playerId: this.game.playerId,
@@ -1208,7 +1216,22 @@
                 units: Number(this.elements.attackUnits.value),
                 relayAllReinforcements: createContinuousRoute && this.elements.relayAllReinforcements.checked
             };
-            const result = this.game.executeCommand(command);
+            let result;
+            try {
+                result = this.game.executeCommand(command);
+            } catch (error) {
+                console.error("Impossible d’exécuter l’ordre tactique.", error);
+                this.input?.cancelActiveGesture?.();
+                this.clearSelection();
+                this.showToast("L’ordre a été annulé afin de libérer les commandes.");
+                return;
+            }
+            if (!result || typeof result.ok !== "boolean") {
+                this.input?.cancelActiveGesture?.();
+                this.clearSelection();
+                this.showToast("Réponse de commande invalide : l’interface a été réinitialisée.");
+                return;
+            }
             if (!result.ok) {
                 this.showToast(result.error);
                 return;
@@ -2067,23 +2090,26 @@
             if (!canCommand || !target) return;
 
             const isReinforcement = this.game.areAllied(target.ownerId, source.ownerId);
+            const usesAirlift = this.game.canUseAirlift(this.game.playerId, source, target);
             this.elements.attackPanel.classList.toggle("reinforcement", isReinforcement);
             this.elements.attackSource.textContent = source.name;
             this.elements.attackTarget.textContent = target.name;
-            const isLongRoute = this.plannedRoute.length > 1;
-            this.elements.routeArrow.textContent = isLongRoute ? "⇢" : "⟶";
-            this.elements.routeSummary.hidden = !isLongRoute;
-            this.elements.continuousControl.hidden = !isLongRoute;
-            if (!isLongRoute) {
+            const isRoutedReinforcement = this.plannedRoute.length > 1 || usesAirlift;
+            this.elements.routeArrow.textContent = isRoutedReinforcement ? "⇢" : "⟶";
+            this.elements.routeSummary.hidden = !isRoutedReinforcement;
+            this.elements.continuousControl.hidden = !isRoutedReinforcement;
+            if (!isRoutedReinforcement) {
                 this.elements.continuousRoute.checked = false;
                 this.elements.relayAllReinforcements.checked = false;
             }
-            if (isLongRoute) {
+            if (isRoutedReinforcement) {
                 const intermediateStops = Math.max(0, this.plannedRoute.length - 2);
-                this.elements.routeSummary.textContent = `CONVOI · ${this.plannedRoute.length - 1} étapes · ${intermediateStops} relais intermédiaire${intermediateStops > 1 ? "s" : ""}`;
+                this.elements.routeSummary.textContent = usesAirlift
+                    ? "PONT AÉRIEN · VOL DIRECT · SURVOLE LES OBSTACLES"
+                    : `CONVOI · ${this.plannedRoute.length - 1} étapes · ${intermediateStops} relais intermédiaire${intermediateStops > 1 ? "s" : ""}`;
             }
             const maxUnits = Math.max(1, source.units - 1);
-            const routeKey = `${source.id}-${target.id}-${this.plannedRoute.join(".")}`;
+            const routeKey = `${source.id}-${target.id}-${usesAirlift ? "air" : "ground"}-${this.plannedRoute.join(".")}`;
             this.elements.attackUnits.max = String(maxUnits);
             this.elements.attackMax.textContent = `${maxUnits} max.`;
             if (this.lastRouteKey !== routeKey) {
@@ -2097,7 +2123,7 @@
                 this.elements.attackUnits.value = String(maxUnits);
             }
             this.elements.attackOutput.value = this.elements.attackUnits.value;
-            const continuousEnabled = isLongRoute && this.elements.continuousRoute.checked;
+            const continuousEnabled = isRoutedReinforcement && this.elements.continuousRoute.checked;
             this.elements.relayAllReinforcements.disabled = !continuousEnabled;
             this.elements.relayAllControl.classList.toggle("disabled", !continuousEnabled);
             this.elements.unitSendControls.hidden = continuousEnabled;
@@ -2106,7 +2132,9 @@
                 ? this.elements.relayAllReinforcements.checked
                     ? "Activer le hub "
                     : "Activer le flux continu "
-                : isLongRoute
+                : usesAirlift
+                    ? "Lancer le pont aérien "
+                : isRoutedReinforcement
                     ? "Acheminer les renforts "
                 : isReinforcement
                     ? "Envoyer le renfort "
@@ -2202,6 +2230,7 @@
 
         handleGlobalKeydown(event) {
             if (event.key === "Escape") {
+                this.input?.cancelActiveGesture?.();
                 if (this.elements.settingsScreen && !this.elements.settingsScreen.hidden) this.closeSettingsScreen();
                 else if (!this.elements.researchScreen.hidden) this.closeResearchScreen();
                 else if (this.selectedTerritoryId !== null || this.targetTerritoryId !== null ||

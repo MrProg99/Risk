@@ -15,19 +15,37 @@
             this.cannonShots = [];
             this.capturePulses = [];
             this.visibilityMap = new Map();
+            this.visibilitySignature = null;
+            this.frameTerritories = [];
+            this.frameTerritoryIds = new Set();
+            this.frameTerritorySource = null;
+            this.territoryBounds = new WeakMap();
+            this.mountainBarrierSource = null;
+            this.mountainBarriers = [];
+            this.monoFont = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
+            this.oceanBackground = document.createElement("canvas");
+            this.oceanBackgroundValid = false;
+            this.baseMapCanvas = document.createElement("canvas");
+            this.baseMapSignature = null;
+            this.baseMapSource = null;
+            this.waterTextureTile = null;
             this.waterTexturePattern = null;
             this.waterTexture = new Image();
             this.waterTexture.addEventListener("load", () => {
                 this.waterTexturePattern = this.createWaterTexturePattern();
+                this.oceanBackgroundValid = false;
+                this.baseMapSignature = null;
             });
             this.waterTexture.addEventListener("error", () => {
                 this.waterTexturePattern = null;
+                this.oceanBackgroundValid = false;
             });
             this.waterTexture.src = "Image/Water1.jpg";
             this.grassTexturePattern = null;
             this.grassTexture = new Image();
             this.grassTexture.addEventListener("load", () => {
                 this.grassTexturePattern = this.createGrassTexturePattern();
+                this.baseMapSignature = null;
             });
             this.grassTexture.addEventListener("error", () => {
                 this.grassTexturePattern = null;
@@ -71,6 +89,7 @@
                 }
             }
 
+            this.waterTextureTile = tile;
             return this.context.createPattern(tile, "repeat");
         }
 
@@ -128,6 +147,8 @@
             if (this.canvas.width !== width || this.canvas.height !== height) {
                 this.canvas.width = width;
                 this.canvas.height = height;
+                this.oceanBackgroundValid = false;
+                this.baseMapSignature = null;
             }
             this.updateViewTransform();
         }
@@ -207,15 +228,17 @@
             const ctx = this.context;
             const state = this.game.state;
             if (!state.territories.length) return;
-            this.visibilityMap = this.game.getTerritoryVisibilityMap(this.game.playerId);
-            this.resize();
+            const visibilitySignature = this.getVisibilitySignature(state);
+            if (visibilitySignature !== this.visibilitySignature) {
+                this.visibilitySignature = visibilitySignature;
+                this.visibilityMap = this.game.getTerritoryVisibilityMap(this.game.playerId);
+            }
+            this.updateFrameTerritories(state);
             this.drawOcean(ctx);
+            this.drawBaseMap(ctx, state, now);
             ctx.save();
             ctx.setTransform(this.viewScale, 0, 0, this.viewScale, this.offsetX, this.offsetY);
-            this.drawIslandShadow(ctx, state);
-            this.drawTerritories(ctx, state, now);
-            this.drawRailroads(ctx, state);
-            this.drawFogOfWar(ctx, state, now);
+            this.drawAnimatedTerritoryOverlays(ctx, state, now);
             this.drawReinforcementRoutes(ctx, state, now);
             this.drawSelection(ctx, state, now);
             this.drawMountainBarriers(ctx, state);
@@ -236,30 +259,134 @@
             ctx.restore();
         }
 
+        getVisibilitySignature(state) {
+            let hash = 2166136261;
+            state.territories.forEach((territory) => {
+                const owner = territory.ownerId === null ? 0 : Number(territory.ownerId) + 1;
+                const orbitalActive = territory.wonderId === "orbital-station" && this.game.isWonderActive(territory) ? 1 : 0;
+                hash ^= territory.id * 31 + owner * 131 + orbitalActive * 8191;
+                hash = Math.imul(hash, 16777619);
+            });
+            const blackoutActive = this.game.isFactionBlackoutActive(this.game.playerId) ? 1 : 0;
+            return `${this.game.playerId}:${this.game.visibilityRange}:${blackoutActive}:${hash >>> 0}`;
+        }
+
+        getTerritoryBounds(territory) {
+            const cached = this.territoryBounds.get(territory);
+            if (cached) return cached;
+            const bounds = territory.polygon.reduce((result, point) => ({
+                minX: Math.min(result.minX, point.x),
+                minY: Math.min(result.minY, point.y),
+                maxX: Math.max(result.maxX, point.x),
+                maxY: Math.max(result.maxY, point.y)
+            }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+            this.territoryBounds.set(territory, bounds);
+            return bounds;
+        }
+
+        updateFrameTerritories(state) {
+            const margin = 90;
+            const left = -this.offsetX / this.viewScale - margin;
+            const top = -this.offsetY / this.viewScale - margin;
+            const right = (this.canvas.width - this.offsetX) / this.viewScale + margin;
+            const bottom = (this.canvas.height - this.offsetY) / this.viewScale + margin;
+            this.frameTerritories = state.territories.filter((territory) => {
+                const bounds = this.getTerritoryBounds(territory);
+                return bounds.maxX >= left && bounds.minX <= right && bounds.maxY >= top && bounds.minY <= bottom;
+            });
+            this.frameTerritoryIds = new Set(this.frameTerritories.map((territory) => territory.id));
+            this.frameTerritorySource = state.territories;
+        }
+
+        getFrameTerritories(state) {
+            return this.frameTerritorySource === state.territories ? this.frameTerritories : state.territories;
+        }
+
+        getBaseMapSignature(state) {
+            let infrastructureHash = 2166136261;
+            state.territories.forEach((territory) => {
+                infrastructureHash ^= territory.id * 31 + (territory.railroad ? 8191 : 0);
+                infrastructureHash = Math.imul(infrastructureHash, 16777619);
+            });
+            return [
+                this.visibilitySignature,
+                infrastructureHash >>> 0,
+                this.canvas.width,
+                this.canvas.height,
+                this.viewScale.toFixed(5),
+                this.offsetX.toFixed(2),
+                this.offsetY.toFixed(2),
+                this.grassTexturePattern ? 1 : 0,
+                this.waterTexturePattern ? 1 : 0
+            ].join(":");
+        }
+
+        drawBaseMap(ctx, state, now) {
+            const signature = this.getBaseMapSignature(state);
+            if (this.baseMapSource !== state.territories || this.baseMapSignature !== signature) {
+                this.baseMapSource = state.territories;
+                this.baseMapSignature = signature;
+                this.baseMapCanvas.width = this.canvas.width;
+                this.baseMapCanvas.height = this.canvas.height;
+                const baseContext = this.baseMapCanvas.getContext("2d");
+                baseContext.clearRect(0, 0, this.baseMapCanvas.width, this.baseMapCanvas.height);
+                baseContext.setTransform(this.viewScale, 0, 0, this.viewScale, this.offsetX, this.offsetY);
+                this.drawIslandShadow(baseContext, state);
+                this.drawTerritories(baseContext, state, now, false);
+                this.drawRailroads(baseContext, state);
+                this.drawFogOfWar(baseContext, state, now);
+                baseContext.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(this.baseMapCanvas, 0, 0);
+        }
+
+        drawAnimatedTerritoryOverlays(ctx, state, now) {
+            this.getFrameTerritories(state).forEach((territory) => {
+                if (territory.terrain === "volcano") this.drawVolcanoSurface(ctx, territory, now);
+                if (territory.id !== this.hoveredTerritoryId || !this.isTerritoryVisible(territory.id)) return;
+                this.tracePolygon(ctx, territory.polygon);
+                ctx.fillStyle = "rgba(235, 255, 245, .10)";
+                ctx.fill();
+            });
+        }
+
         drawOcean(ctx) {
             ctx.setTransform(1, 0, 0, 1, 0, 0);
+            if (!this.oceanBackgroundValid ||
+                this.oceanBackground.width !== this.canvas.width ||
+                this.oceanBackground.height !== this.canvas.height) {
+                this.rebuildOceanBackground();
+            }
+            ctx.drawImage(this.oceanBackground, 0, 0);
+        }
+
+        rebuildOceanBackground() {
+            this.oceanBackground.width = this.canvas.width;
+            this.oceanBackground.height = this.canvas.height;
+            const ctx = this.oceanBackground.getContext("2d");
             const gradient = ctx.createRadialGradient(
-                this.canvas.width * 0.48, this.canvas.height * 0.46, 20,
-                this.canvas.width * 0.48, this.canvas.height * 0.46, this.canvas.width * 0.68
+                this.oceanBackground.width * 0.48, this.oceanBackground.height * 0.46, 20,
+                this.oceanBackground.width * 0.48, this.oceanBackground.height * 0.46, this.oceanBackground.width * 0.68
             );
             gradient.addColorStop(0, "#102a34");
             gradient.addColorStop(0.55, "#091c25");
             gradient.addColorStop(1, "#061219");
             ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            ctx.fillRect(0, 0, this.oceanBackground.width, this.oceanBackground.height);
 
-            if (this.waterTexturePattern) {
+            if (this.waterTextureTile) {
                 ctx.save();
                 ctx.globalAlpha = 0.12;
-                ctx.fillStyle = this.waterTexturePattern;
-                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                ctx.fillStyle = ctx.createPattern(this.waterTextureTile, "repeat");
+                ctx.fillRect(0, 0, this.oceanBackground.width, this.oceanBackground.height);
                 ctx.restore();
             }
 
             const spacing = 24 * this.pixelRatio;
             ctx.fillStyle = "rgba(137, 195, 203, 0.055)";
-            for (let y = spacing / 2; y < this.canvas.height; y += spacing) {
-                for (let x = spacing / 2; x < this.canvas.width; x += spacing) {
+            for (let y = spacing / 2; y < this.oceanBackground.height; y += spacing) {
+                for (let x = spacing / 2; x < this.oceanBackground.width; x += spacing) {
                     ctx.fillRect(Math.round(x), Math.round(y), 1.2 * this.pixelRatio, 1.2 * this.pixelRatio);
                 }
             }
@@ -267,15 +394,16 @@
             ctx.strokeStyle = "rgba(82, 151, 162, 0.045)";
             ctx.lineWidth = this.pixelRatio;
             for (let band = 0; band < 5; band += 1) {
-                const y = this.canvas.height * (0.18 + band * 0.17);
+                const y = this.oceanBackground.height * (0.18 + band * 0.17);
                 ctx.beginPath();
-                for (let x = 0; x <= this.canvas.width; x += 30 * this.pixelRatio) {
+                for (let x = 0; x <= this.oceanBackground.width; x += 30 * this.pixelRatio) {
                     const wave = Math.sin(x / (80 * this.pixelRatio) + band) * 5 * this.pixelRatio;
                     if (x === 0) ctx.moveTo(x, y + wave);
                     else ctx.lineTo(x, y + wave);
                 }
                 ctx.stroke();
             }
+            this.oceanBackgroundValid = true;
         }
 
         drawIslandShadow(ctx, state) {
@@ -292,8 +420,8 @@
             ctx.fill();
         }
 
-        drawTerritories(ctx, state, now = performance.now()) {
-            state.territories.forEach((territory) => {
+        drawTerritories(ctx, state, now = performance.now(), includeDynamicOverlays = true) {
+            this.getFrameTerritories(state).forEach((territory) => {
                 const type = C.TERRITORY_TYPES[territory.terrain];
                 const faction = state.getFaction(territory.ownerId);
                 const ownerColor = faction ? faction.color : "#53636a";
@@ -321,7 +449,7 @@
                     ctx.restore();
                 }
 
-                if (isVolcano) this.drawVolcanoSurface(ctx, territory, now);
+                if (isVolcano && includeDynamicOverlays) this.drawVolcanoSurface(ctx, territory, now);
 
                 this.drawPlainTexture(ctx, territory, faction, isVisible);
 
@@ -335,7 +463,7 @@
                     : territory.ownerId === null ? "rgba(7, 18, 23, .28)" : "rgba(7, 17, 20, .12)";
                 ctx.fill();
 
-                if (territory.id === this.hoveredTerritoryId && isVisible) {
+                if (includeDynamicOverlays && territory.id === this.hoveredTerritoryId && isVisible) {
                     this.tracePolygon(ctx, territory.polygon);
                     ctx.fillStyle = "rgba(235, 255, 245, .10)";
                     ctx.fill();
@@ -391,7 +519,7 @@
 
         drawFogOfWar(ctx, state, now) {
             const outerRange = this.game.visibilityRange;
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if (territory.isImpassable) return;
                 const distance = this.visibilityMap.get(territory.id);
                 if (distance !== undefined && distance < outerRange) return;
@@ -476,12 +604,13 @@
                 const route = this.plannedRoute.length > 1
                     ? this.plannedRoute.map((id) => state.getTerritory(id)).filter(Boolean)
                     : [selected, target];
+                const usesAirlift = this.game.canUseAirlift(this.game.playerId, selected, target);
                 ctx.moveTo(route[0].center.x, route[0].center.y);
                 for (let index = 1; index < route.length; index += 1) {
                     ctx.lineTo(route[index].center.x, route[index].center.y);
                 }
                 const isConvoy = this.plannedRoute.length > 1;
-                ctx.strokeStyle = isConvoy ? "rgba(78, 215, 208, .9)" : "rgba(255, 104, 95, .75)";
+                ctx.strokeStyle = usesAirlift ? "rgba(126, 220, 255, .96)" : isConvoy ? "rgba(78, 215, 208, .9)" : "rgba(255, 104, 95, .75)";
                 ctx.lineWidth = isConvoy ? 3 : 2;
                 ctx.setLineDash([8, 7]);
                 ctx.lineDashOffset = -(now / 70) % 15;
@@ -489,9 +618,9 @@
                 ctx.restore();
 
                 this.tracePolygon(ctx, target.polygon);
-                ctx.strokeStyle = this.plannedRoute.length > 1 ? "rgba(78, 215, 208, .98)" : "rgba(255, 118, 108, .98)";
+                ctx.strokeStyle = usesAirlift ? "rgba(126, 220, 255, .98)" : this.plannedRoute.length > 1 ? "rgba(78, 215, 208, .98)" : "rgba(255, 118, 108, .98)";
                 ctx.lineWidth = 4;
-                ctx.shadowColor = this.plannedRoute.length > 1 ? "rgba(78, 215, 208, .65)" : "rgba(255, 104, 95, .65)";
+                ctx.shadowColor = usesAirlift ? "rgba(126, 220, 255, .72)" : this.plannedRoute.length > 1 ? "rgba(78, 215, 208, .65)" : "rgba(255, 104, 95, .65)";
                 ctx.shadowBlur = 12;
                 ctx.stroke();
                 ctx.shadowBlur = 0;
@@ -504,7 +633,7 @@
                 const path = route.path.map((territoryId) => state.getTerritory(territoryId)).filter(Boolean);
                 if (path.length < 2) return;
                 const faction = state.getFaction(route.ownerId);
-                const color = route.isPaused ? "#b4a37d" : faction.color;
+                const color = route.isPaused ? "#b4a37d" : route.usesAirlift ? "#7edcff" : faction.color;
 
                 ctx.save();
                 ctx.beginPath();
@@ -545,7 +674,10 @@
         }
 
         drawMountainBarriers(ctx, state) {
-            state.territories.forEach((territory) => {
+            if (this.mountainBarrierSource !== state.territories) {
+                this.mountainBarrierSource = state.territories;
+                this.mountainBarriers = [];
+                state.territories.forEach((territory) => {
                 territory.blockedNeighbors.forEach((neighborId) => {
                     if (territory.id >= neighborId) return;
                     const neighbor = state.getTerritory(neighborId);
@@ -561,16 +693,8 @@
                     const nx = -uy;
                     const ny = ux;
 
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.moveTo(segment.start.x, segment.start.y);
-                    ctx.lineTo(segment.end.x, segment.end.y);
-                    ctx.strokeStyle = "rgba(7, 12, 14, .92)";
-                    ctx.lineWidth = 11;
-                    ctx.lineCap = "round";
-                    ctx.stroke();
-
                     const peakCount = Math.max(2, Math.floor(length / 18));
+                    const peaks = [];
                     for (let index = 0; index < peakCount; index += 1) {
                         const t = (index + 0.5) / peakCount;
                         const centerX = C.Geometry.lerp(segment.start.x, segment.end.x, t);
@@ -578,26 +702,52 @@
                         const halfBase = Math.min(7.5, length / peakCount * 0.42);
                         const direction = index % 2 === 0 ? 1 : -1;
                         const height = 8.5 + (index % 3) * 1.5;
+                        peaks.push({
+                            index,
+                            leftX: centerX - ux * halfBase,
+                            leftY: centerY - uy * halfBase,
+                            topX: centerX + nx * height * direction,
+                            topY: centerY + ny * height * direction,
+                            rightX: centerX + ux * halfBase,
+                            rightY: centerY + uy * halfBase
+                        });
+                    }
+                    this.mountainBarriers.push({ territoryId: territory.id, neighborId, segment, peaks });
+                });
+                });
+            }
 
+            this.mountainBarriers.forEach((barrier) => {
+                    if (!this.frameTerritoryIds.has(barrier.territoryId) && !this.frameTerritoryIds.has(barrier.neighborId)) return;
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(barrier.segment.start.x, barrier.segment.start.y);
+                    ctx.lineTo(barrier.segment.end.x, barrier.segment.end.y);
+                    ctx.strokeStyle = "rgba(7, 12, 14, .92)";
+                    ctx.lineWidth = 11;
+                    ctx.lineCap = "round";
+                    ctx.stroke();
+
+                    barrier.peaks.forEach((peak) => {
                         ctx.beginPath();
-                        ctx.moveTo(centerX - ux * halfBase, centerY - uy * halfBase);
-                        ctx.lineTo(centerX + nx * height * direction, centerY + ny * height * direction);
-                        ctx.lineTo(centerX + ux * halfBase, centerY + uy * halfBase);
+                        ctx.moveTo(peak.leftX, peak.leftY);
+                        ctx.lineTo(peak.topX, peak.topY);
+                        ctx.lineTo(peak.rightX, peak.rightY);
                         ctx.closePath();
-                        ctx.fillStyle = index % 2 === 0 ? "#aeb9b4" : "#7f8d89";
+                        ctx.fillStyle = peak.index % 2 === 0 ? "#aeb9b4" : "#7f8d89";
                         ctx.fill();
                         ctx.strokeStyle = "rgba(224, 233, 228, .75)";
                         ctx.lineWidth = 1;
                         ctx.stroke();
-                    }
+                    });
                     ctx.restore();
-                });
             });
         }
 
         drawRailroads(ctx, state) {
             ctx.save();
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if (!territory.railroad || !this.isTerritoryVisible(territory.id)) return;
                 territory.neighbors.forEach((neighborId) => {
                     if (territory.id >= neighborId || territory.isPathBlocked(neighborId)) return;
@@ -624,7 +774,7 @@
         }
 
         drawRailroadMarkers(ctx, state) {
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if ((!territory.railroad && !territory.railroadConstructionActive) || !this.isTerritoryVisible(territory.id)) return;
                 const x = territory.center.x - 25;
                 const y = territory.center.y + 28;
@@ -654,7 +804,7 @@
         }
 
         drawBuildingMarkers(ctx, state) {
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 const construction = territory.buildingConstruction;
                 const definition = C.getBuildingType(construction?.buildingId || territory.buildings?.[0]);
                 if (!definition || (!construction && !territory.buildings.includes(definition.id)) || !this.isTerritoryVisible(territory.id)) return;
@@ -686,7 +836,7 @@
         }
 
         drawMinefieldMarkers(ctx, state) {
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if ((!territory.minefield && !territory.minefieldConstructionActive) ||
                     !this.isTerritoryVisible(territory.id) ||
                     !this.game.areAllied(territory.ownerId, this.game.playerId)) return;
@@ -718,7 +868,7 @@
         }
 
         drawWonderMarkers(ctx, state, now) {
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if (!this.isTerritoryVisible(territory.id)) return;
                 const construction = territory.wonderConstruction;
                 const definition = C.getWonderType(construction?.wonderId || territory.wonderId);
@@ -768,7 +918,7 @@
         }
 
         drawTerritoryMarkers(ctx, state) {
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 const faction = state.getFaction(territory.ownerId);
                 const type = C.TERRITORY_TYPES[territory.terrain];
                 const center = territory.center;
@@ -832,7 +982,7 @@
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
                 ctx.fillStyle = "#f1f6f4";
-                ctx.font = `700 ${label.length > 2 ? 11 : 13}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+                ctx.font = `700 ${label.length > 2 ? 11 : 13}px ${this.monoFont}`;
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText(label, center.x, center.y + 1.5);
@@ -934,7 +1084,7 @@
 
         drawCannonInstallations(ctx, state, now) {
             const definition = C.INSTALLATION_TYPES.cannon;
-            state.territories.forEach((territory) => {
+            this.getFrameTerritories(state).forEach((territory) => {
                 if (territory.installation?.type !== definition.id) return;
                 if (!this.isTerritoryVisible(territory.id)) return;
                 const faction = state.getFaction(territory.ownerId);
@@ -1391,7 +1541,31 @@
                 ctx.setLineDash([]);
 
                 ctx.translate(x, y);
-                if (army.logisticsPurpose === "paratrooper") {
+                if (army.isAirlift) {
+                    ctx.rotate(angle);
+                    ctx.beginPath();
+                    ctx.moveTo(16, 0);
+                    ctx.lineTo(2, -4);
+                    ctx.lineTo(-4, -13);
+                    ctx.lineTo(-8, -12);
+                    ctx.lineTo(-5, -3);
+                    ctx.lineTo(-14, -5);
+                    ctx.lineTo(-14, 5);
+                    ctx.lineTo(-5, 3);
+                    ctx.lineTo(-8, 12);
+                    ctx.lineTo(-4, 13);
+                    ctx.lineTo(2, 4);
+                    ctx.closePath();
+                    ctx.fillStyle = "#dff7ff";
+                    ctx.strokeStyle = faction.color;
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = "#7edcff";
+                    ctx.shadowBlur = 12;
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.rotate(-angle);
+                } else if (army.logisticsPurpose === "paratrooper") {
                     const sway = Math.sin(now / 180 + army.id) * 2;
                     ctx.translate(sway, 0);
                     ctx.beginPath();
@@ -1432,7 +1606,7 @@
                     ctx.rotate(-angle);
                 }
 
-                const labelY = army.logisticsPurpose === "paratrooper" ? 23 : 12;
+                const labelY = army.logisticsPurpose === "paratrooper" || army.isAirlift ? 23 : 12;
                 ctx.fillStyle = "rgba(4, 10, 13, .9)";
                 ctx.fillRect(-12, labelY, 24, 15);
                 ctx.fillStyle = "#fff";
@@ -1462,7 +1636,7 @@
             const candidates = previewSources.map((candidateSource) => ({
                 source: candidateSource,
                 path: isAlliedDestination
-                    ? this.game.findAlliedPath(this.game.playerId, candidateSource.id, target.id)
+                    ? this.game.findReinforcementPath(this.game.playerId, candidateSource.id, target.id)
                     : null,
                 units: candidateSource.units > 1
                     ? Math.max(1, Math.floor((candidateSource.units - 1) * this.game.quickTransferRatio))

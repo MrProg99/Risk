@@ -2,7 +2,7 @@
     "use strict";
 
     class ReinforcementRoute {
-        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, path, createdAt = 0, relayAllReinforcements = false }) {
+        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, path, createdAt = 0, relayAllReinforcements = false, usesAirlift = false }) {
             this.id = id;
             this.ownerId = ownerId;
             this.fromTerritoryId = fromTerritoryId;
@@ -15,6 +15,7 @@
             this.unitsDispatched = 0;
             this.unitsDelivered = 0;
             this.relayAllReinforcements = relayAllReinforcements;
+            this.usesAirlift = usesAirlift;
             this.unitsRelayed = 0;
             this.initialGarrisonDispatched = 0;
         }
@@ -33,6 +34,7 @@
                 unitsDispatched: this.unitsDispatched,
                 unitsDelivered: this.unitsDelivered,
                 relayAllReinforcements: this.relayAllReinforcements,
+                usesAirlift: this.usesAirlift,
                 unitsRelayed: this.unitsRelayed,
                 initialGarrisonDispatched: this.initialGarrisonDispatched
             };

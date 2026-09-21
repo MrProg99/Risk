@@ -19,6 +19,8 @@
             this.lastSignatureCheckAt = -Infinity;
             this.isNavigating = false;
             this.pointerId = null;
+            this.resizeObserver = new ResizeObserver(() => this.resize());
+            this.resizeObserver.observe(canvas);
             this.bindEvents();
             this.resize();
         }
@@ -61,6 +63,7 @@
                 this.toggleButton.textContent = collapsed ? "+" : "−";
                 this.toggleButton.title = collapsed ? "Déployer la mini-carte" : "Réduire la mini-carte";
                 this.baseSignature = "";
+                requestAnimationFrame(() => this.resize());
             });
         }
 
@@ -103,7 +106,6 @@
 
         render(now = performance.now()) {
             if (!this.game.state.territories.length || this.panel?.classList.contains("collapsed")) return;
-            this.resize();
             if (now - this.lastSignatureCheckAt >= 140 || !this.baseSignature) {
                 this.lastSignatureCheckAt = now;
                 const visibilityMap = this.game.getTerritoryVisibilityMap(this.game.playerId);

@@ -57,3 +57,8 @@
 [0917/100605.061:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
 [0917/100607.139:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
 [0917/100608.194:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
+[0917/145812.234:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
+[0917/145813.401:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
+[0917/145814.440:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
+[0917/150153.323:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)
+[0917/150154.425:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Accès refusé. (0x5)

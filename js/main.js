@@ -1,6 +1,9 @@
 (function (C) {
     "use strict";
 
+    const NETWORK_PATCH_INTERVAL_MS = 400;
+    const NETWORK_FULL_INTERVAL_MS = 15000;
+
     function launchGame(configuration, lobby) {
         const canvas = document.getElementById("game-canvas");
         const multiplayer = configuration.mode === "multiplayer";
@@ -35,29 +38,42 @@
         game.newGame(configuration.seed);
         lobby.close();
 
+        let lastFrame = performance.now();
+        let lastUiRefresh = 0;
+        let lastNetworkPublish = 0;
+        let lastFullNetworkPublish = 0;
+        let lastPresenceReview = 0;
+        let publishedRevision = -1;
+        let networkBaselineSnapshot = null;
+        let publishing = false;
+        let victoryPublished = false;
+
         if (multiplayer) {
             document.getElementById("toggle-pause").disabled = true;
             document.getElementById("toggle-pause").title = "Une partie en ligne ne peut pas être mise en pause";
             if (configuration.isHost) {
+                configuration.network.watchPlayers();
                 configuration.network.watchCommands((command) => {
                     const player = configuration.network.room?.players?.[command.uid];
                     if (!player || player.connected === false) return;
                     game.executeAuthoritativeCommand({ ...command, playerId: Number(player.slot) });
                 });
-                configuration.network.publishSnapshot(game.createNetworkSnapshot());
+                const initialSnapshot = game.createNetworkSnapshot();
+                publishing = true;
+                configuration.network.publishFullSnapshot(initialSnapshot)
+                    .then(() => {
+                        networkBaselineSnapshot = initialSnapshot;
+                        publishedRevision = Number(initialSnapshot.revision) || 0;
+                        lastFullNetworkPublish = performance.now();
+                    })
+                    .catch(() => {})
+                    .finally(() => { publishing = false; });
             } else {
                 game.setCommandTransport((command) => configuration.network.sendCommand(command));
-                configuration.network.watchSnapshot((snapshot) => game.applyNetworkSnapshot(snapshot));
+                configuration.network.watchSnapshot((snapshot, patch) => game.applyNetworkSnapshotEnvelope(snapshot, patch));
             }
         }
 
-        let lastFrame = performance.now();
-        let lastUiRefresh = 0;
-        let lastNetworkPublish = 0;
-        let lastPresenceReview = 0;
-        let publishedRevision = -1;
-        let publishing = false;
-        let victoryPublished = false;
         function frame(now) {
             const deltaMs = Math.min(now - lastFrame, 250);
             lastFrame = now;
@@ -78,11 +94,24 @@
                 });
                 lastPresenceReview = now;
             }
-            if (multiplayer && configuration.isHost && !publishing && now - lastNetworkPublish >= 250 && game.state.revision !== publishedRevision) {
+            if (multiplayer && configuration.isHost && !publishing && now - lastNetworkPublish >= NETWORK_PATCH_INTERVAL_MS && game.state.revision !== publishedRevision) {
                 publishing = true;
                 const revision = game.state.revision;
-                configuration.network.publishSnapshot(game.createNetworkSnapshot())
-                    .then(() => { publishedRevision = revision; })
+                const snapshot = game.createNetworkSnapshot();
+                const publishFull = !networkBaselineSnapshot || now - lastFullNetworkPublish >= NETWORK_FULL_INTERVAL_MS;
+                const patch = publishFull ? null : game.createNetworkPatch(networkBaselineSnapshot, snapshot);
+                const operation = publishFull
+                    ? configuration.network.publishFullSnapshot(snapshot)
+                    : configuration.network.publishSnapshotPatch(patch);
+                operation
+                    .then(() => {
+                        publishedRevision = revision;
+                        if (publishFull) {
+                            networkBaselineSnapshot = snapshot;
+                            lastFullNetworkPublish = now;
+                        }
+                    })
+                    .catch(() => {})
                     .finally(() => { publishing = false; });
                 lastNetworkPublish = now;
             }

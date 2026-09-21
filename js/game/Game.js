@@ -38,6 +38,7 @@
             this.airstrikeRangeHops = C.Geometry.clamp(Math.round(Number(options.airstrikeRangeHops ?? 4)), 1, 10);
             this.airstrikeCooldownMs = C.Geometry.clamp(Number(options.airstrikeCooldownMs ?? 38000), 5000, 120000);
             this.airstrikeDamageRatio = C.Geometry.clamp(Number(options.airstrikeDamageRatio ?? 0.10), 0.01, 0.9);
+            this.airliftTravelSpeedMultiplier = C.Geometry.clamp(Number(options.airliftTravelSpeedMultiplier ?? 2.35), 1.25, 5);
             this.railroadConstructionDurationMs = C.Geometry.clamp(Number(options.railroadConstructionDurationMs ?? 45000), 10000, 300000);
             this.railroadTravelSpeedMultiplier = C.Geometry.clamp(Number(options.railroadTravelSpeedMultiplier ?? 1.35), 1, 3);
             this.minefieldConstructionDurationMs = C.Geometry.clamp(Number(options.minefieldConstructionDurationMs ?? 40000), 5000, 300000);
@@ -1623,7 +1624,8 @@
             if (!Number.isFinite(units) || units < 1) return { ok: false, error: "Choisissez au moins une unité." };
             if (units >= from.units) return { ok: false, error: "Une unité doit rester pour tenir le territoire." };
 
-            const path = this.findAlliedPath(playerId, from.id, destination.id);
+            const usesAirlift = this.canUseAirlift(playerId, from, destination);
+            const path = this.findReinforcementPath(playerId, from.id, destination.id);
             if (!path || path.length < 2) {
                 return { ok: false, error: "Aucun itinéraire allié ne permet de contourner les montagnes." };
             }
@@ -1636,12 +1638,15 @@
                 fromTerritoryId: from.id,
                 toTerritoryId: firstStop.id,
                 units,
-                durationMs: this.getTravelDuration(from, firstStop, faction),
+                durationMs: usesAirlift
+                    ? this.getAirliftTravelDuration(from, firstStop, faction)
+                    : this.getTravelDuration(from, firstStop, faction),
                 start: from.center,
                 end: firstStop.center,
                 route: path.slice(2),
                 finalTerritoryId: destination.id,
                 isConvoy: true,
+                isAirlift: usesAirlift,
                 reinforcementRouteId: command.reinforcementRouteId || null,
                 visitedTerritoryIds: Array.isArray(command.visitedTerritoryIds)
                     ? [...new Set(command.visitedTerritoryIds.map(Number).concat(from.id))]
@@ -1653,7 +1658,8 @@
             this.state.armies.push(army);
             this.state.touch();
             if (!command.reinforcementRouteId && !command.silentLog) {
-                this.addLogisticsEvent(`${faction.name} achemine ${units} renforts vers ${destination.name} — ${path.length - 1} étapes.`, playerId);
+                const transport = usesAirlift ? "par pont aérien direct" : `par convoi — ${path.length - 1} étapes`;
+                this.addLogisticsEvent(`${faction.name} achemine ${units} renforts vers ${destination.name} ${transport}.`, playerId);
             }
             this.notify({ type: "ARMY_SENT", armyId: army.id, route: path });
             return { ok: true, army, path };
@@ -1673,7 +1679,7 @@
                 .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable && source.units > 1)
                 .map((source) => ({
                     source,
-                    path: this.findAlliedPath(playerId, source.id, destination.id),
+                    path: this.findReinforcementPath(playerId, source.id, destination.id),
                     units: Math.max(1, Math.floor((source.units - 1) * this.quickTransferRatio))
                 }))
                 .filter((candidate) => candidate.path && candidate.path.length > 1);
@@ -1723,7 +1729,8 @@
                 return { ok: false, error: "Une ligne continue doit relier deux territoires alliés." };
             }
             if (from.id === destination.id) return { ok: false, error: "Choisissez un autre territoire de destination." };
-            const path = this.findAlliedPath(playerId, from.id, destination.id);
+            const usesAirlift = this.canUseAirlift(playerId, from, destination);
+            const path = this.findReinforcementPath(playerId, from.id, destination.id);
             if (!path) return { ok: false, error: "Aucun itinéraire allié ne permet de contourner les montagnes." };
 
             const previousRoute = this.state.reinforcementRoutes.find((route) =>
@@ -1737,7 +1744,8 @@
                 toTerritoryId: destination.id,
                 path,
                 createdAt: this.state.elapsedMs,
-                relayAllReinforcements: Boolean(command.relayAllReinforcements)
+                relayAllReinforcements: Boolean(command.relayAllReinforcements),
+                usesAirlift
             });
             this.state.reinforcementRoutes.push(route);
             this.state.touch();
@@ -1784,7 +1792,7 @@
             const candidates = sourceIds.map((sourceId) => this.state.getTerritory(sourceId))
                 .filter((source) => source && source.id !== destination.id && source.ownerId === playerId && !source.isImpassable &&
                     (!newProductionOnly || source.productionMode === "units"))
-                .map((source) => ({ source, path: this.findAlliedPath(playerId, source.id, destination.id) }))
+                .map((source) => ({ source, path: this.findReinforcementPath(playerId, source.id, destination.id) }))
                 .filter((candidate) => candidate.path && candidate.path.length > 1);
             if (!candidates.length) {
                 return { ok: false, error: "Aucune source sélectionnée ne possède un itinéraire allié valide." };
@@ -1838,7 +1846,7 @@
                 source.id !== destination.id &&
                 !source.isImpassable &&
                 source.productionMode === "units" &&
-                Boolean(this.findAlliedPath(normalizedPlayerId, source.id, destination.id)));
+                Boolean(this.findReinforcementPath(normalizedPlayerId, source.id, destination.id)));
         }
 
         convergeContinuousReinforcements(command) {
@@ -1935,7 +1943,7 @@
                 candidate.active && candidate.fromTerritoryId === territory.id && candidate.ownerId === territory.ownerId);
             if (!route || producedUnits < 1) return;
 
-            const path = this.findAlliedPath(route.ownerId, route.fromTerritoryId, route.toTerritoryId);
+            const path = this.findReinforcementPath(route.ownerId, route.fromTerritoryId, route.toTerritoryId);
             if (!path) {
                 if (!route.isPaused) {
                     route.isPaused = true;
@@ -1955,6 +1963,9 @@
                 this.notify({ type: "REINFORCEMENT_ROUTE_RESUMED", routeId: route.id });
             }
             route.path = path;
+            route.usesAirlift = this.canUseAirlift(route.ownerId,
+                this.state.getTerritory(route.fromTerritoryId),
+                this.state.getTerritory(route.toTerritoryId));
 
             const result = this.sendReinforcementRoute({
                 type: "SEND_REINFORCEMENT_ROUTE",
@@ -1979,7 +1990,7 @@
                 candidate.fromTerritoryId === territory.id);
             if (!route || army.relayCount >= 8) return false;
 
-            const path = this.findAlliedPath(route.ownerId, territory.id, route.toTerritoryId);
+            const path = this.findReinforcementPath(route.ownerId, territory.id, route.toTerritoryId);
             if (!path || path.length < 2) return false;
             const visited = new Set(army.visitedTerritoryIds.map(Number));
             if (army.fromTerritoryId !== null) visited.add(Number(army.fromTerritoryId));
@@ -2007,6 +2018,7 @@
             }
 
             route.path = path;
+            route.usesAirlift = this.canUseAirlift(route.ownerId, territory, this.state.getTerritory(route.toTerritoryId));
             route.unitsDispatched += army.units;
             route.unitsRelayed += army.units;
             this.notify({
@@ -2026,6 +2038,24 @@
 
         findAlliedPath(ownerId, fromTerritoryId, toTerritoryId) {
             return this.findPathForFaction(ownerId, fromTerritoryId, toTerritoryId, true);
+        }
+
+        canUseAirlift(ownerId, from, destination) {
+            return Boolean(from && destination &&
+                from.id !== destination.id &&
+                !from.isImpassable &&
+                !destination.isImpassable &&
+                from.terrain === "airport" &&
+                destination.terrain === "airport" &&
+                from.ownerId === Number(ownerId) &&
+                this.areAllied(destination.ownerId, ownerId));
+        }
+
+        findReinforcementPath(ownerId, fromTerritoryId, toTerritoryId) {
+            const from = this.state.getTerritory(fromTerritoryId);
+            const destination = this.state.getTerritory(toTerritoryId);
+            if (this.canUseAirlift(ownerId, from, destination)) return [from.id, destination.id];
+            return this.findAlliedPath(ownerId, fromTerritoryId, toTerritoryId);
         }
 
         findPathForFaction(ownerId, fromTerritoryId, toTerritoryId, includeAllies) {
@@ -2067,6 +2097,14 @@
             const railroadMultiplier = this.hasRailroadConnection(from, to) ? this.railroadTravelSpeedMultiplier : 1;
             const speed = 92 * (faction ? faction.bonuses.travelSpeedMultiplier : 1) * technologyMultiplier * railroadMultiplier;
             return C.Geometry.clamp((distance / speed) * 1000, railroadMultiplier > 1 ? 900 : 1500, 6500);
+        }
+
+        getAirliftTravelDuration(from, to, faction) {
+            const distance = C.Geometry.distance(from.center, to.center);
+            const technologyMultiplier = 1 + C.getFactionTechnologyBonus(faction, "travelSpeedMultiplier");
+            const factionMultiplier = faction ? faction.bonuses.travelSpeedMultiplier : 1;
+            const speed = 92 * factionMultiplier * technologyMultiplier * this.airliftTravelSpeedMultiplier;
+            return C.Geometry.clamp((distance / speed) * 1000, 1200, 6500);
         }
 
         hasRailroadConnection(from, to) {
@@ -2685,6 +2723,91 @@
                 second.statistics.territoriesCaptured - first.statistics.territoriesCaptured);
         }
 
+        createNetworkArmySnapshot(army) {
+            const dynamic = {
+                id: army.id,
+                ownerId: army.ownerId,
+                fromTerritoryId: army.fromTerritoryId,
+                toTerritoryId: army.toTerritoryId,
+                units: army.units,
+                durationMs: army.durationMs,
+                elapsedMs: army.elapsedMs,
+                start: army.start,
+                end: army.end
+            };
+            if (army.route.length) dynamic.route = army.route.slice();
+            if (army.finalTerritoryId !== army.toTerritoryId) dynamic.finalTerritoryId = army.finalTerritoryId;
+            if (army.isConvoy) dynamic.isConvoy = true;
+            if (army.isAirlift) dynamic.isAirlift = true;
+            if (army.reinforcementRouteId !== null) dynamic.reinforcementRouteId = army.reinforcementRouteId;
+            if (army.logisticsPurpose) dynamic.logisticsPurpose = army.logisticsPurpose;
+            if (army.isBarbarian) dynamic.isBarbarian = true;
+            if (army.worldEventId !== null) dynamic.worldEventId = army.worldEventId;
+            if (army.visitedTerritoryIds.length) dynamic.visitedTerritoryIds = army.visitedTerritoryIds.slice();
+            if (army.relayCount) dynamic.relayCount = army.relayCount;
+            return dynamic;
+        }
+
+        createNetworkArmyPatch(dynamic) {
+            const extra = {};
+            const fromCenter = this.state.getTerritory(dynamic.fromTerritoryId)?.center;
+            const toCenter = this.state.getTerritory(dynamic.toTerritoryId)?.center;
+            if (!fromCenter || Math.abs(fromCenter.x - dynamic.start.x) > 0.01 || Math.abs(fromCenter.y - dynamic.start.y) > 0.01) {
+                extra.s = [dynamic.start.x, dynamic.start.y];
+            }
+            if (!toCenter || Math.abs(toCenter.x - dynamic.end.x) > 0.01 || Math.abs(toCenter.y - dynamic.end.y) > 0.01) {
+                extra.e = [dynamic.end.x, dynamic.end.y];
+            }
+            if (dynamic.route?.length) extra.r = dynamic.route.slice();
+            if (dynamic.finalTerritoryId !== undefined) extra.f = dynamic.finalTerritoryId;
+            if (dynamic.isConvoy) extra.c = 1;
+            if (dynamic.isAirlift) extra.a = 1;
+            if (dynamic.reinforcementRouteId !== undefined) extra.l = dynamic.reinforcementRouteId;
+            if (dynamic.logisticsPurpose) extra.p = dynamic.logisticsPurpose;
+            if (dynamic.isBarbarian) extra.b = 1;
+            if (dynamic.worldEventId !== undefined) extra.w = dynamic.worldEventId;
+            if (dynamic.visitedTerritoryIds?.length) extra.v = dynamic.visitedTerritoryIds.slice();
+            if (dynamic.relayCount) extra.n = dynamic.relayCount;
+            const patch = [
+                dynamic.id,
+                dynamic.ownerId,
+                dynamic.fromTerritoryId,
+                dynamic.toTerritoryId,
+                dynamic.units,
+                Math.round(dynamic.durationMs),
+                Math.round(dynamic.elapsedMs)
+            ];
+            if (Object.keys(extra).length) patch.push(extra);
+            return patch;
+        }
+
+        mergeNetworkArmyPatch(patch) {
+            const extra = patch[7] || {};
+            const fromCenter = this.state.getTerritory(patch[2])?.center;
+            const toCenter = this.state.getTerritory(patch[3])?.center;
+            return {
+                id: patch[0],
+                ownerId: patch[1],
+                fromTerritoryId: patch[2],
+                toTerritoryId: patch[3],
+                units: patch[4],
+                durationMs: patch[5],
+                elapsedMs: patch[6],
+                start: extra.s ? { x: extra.s[0], y: extra.s[1] } : { ...fromCenter },
+                end: extra.e ? { x: extra.e[0], y: extra.e[1] } : { ...toCenter },
+                ...(extra.r ? { route: extra.r.slice() } : {}),
+                ...(extra.f !== undefined ? { finalTerritoryId: extra.f } : {}),
+                ...(extra.c ? { isConvoy: true } : {}),
+                ...(extra.a ? { isAirlift: true } : {}),
+                ...(extra.l !== undefined ? { reinforcementRouteId: extra.l } : {}),
+                ...(extra.p ? { logisticsPurpose: extra.p } : {}),
+                ...(extra.b ? { isBarbarian: true } : {}),
+                ...(extra.w !== undefined ? { worldEventId: extra.w } : {}),
+                ...(extra.v ? { visitedTerritoryIds: extra.v.slice() } : {}),
+                ...(extra.n ? { relayCount: extra.n } : {})
+            };
+        }
+
         createNetworkSnapshot() {
             return {
                 teamSignals: this.state.teamSignals.map((signal) => ({ ...signal })),
@@ -2705,34 +2828,43 @@
                 nextVolcanicEruptionAtMs: this.state.nextVolcanicEruptionAtMs,
                 volcanicWarningIssued: this.state.volcanicWarningIssued,
                 scheduledVolcanicTerritoryIds: this.state.scheduledVolcanicTerritoryIds.slice(),
-                territories: this.state.territories.map((territory) => ({
-                    id: territory.id,
-                    ownerId: territory.ownerId,
-                    units: territory.units,
-                    productionProgress: territory.productionProgress,
-                    installationProgressMs: territory.installationProgressMs,
-                    isCapital: territory.isCapital,
-                    airstrikeCooldownMs: territory.airstrikeCooldownMs,
-                    airstrikeLastAction: territory.airstrikeLastAction ? { ...territory.airstrikeLastAction } : null,
-                    productionMode: territory.productionMode,
-                    productionModeChangedAtMs: territory.productionModeChangedAtMs,
-                    railroad: territory.railroad,
-                    railroadConstructionActive: territory.railroadConstructionActive,
-                    railroadConstructionProgressMs: territory.railroadConstructionProgressMs,
-                    railroadPreviousProductionMode: territory.railroadPreviousProductionMode,
-                    buildings: (territory.buildings || []).slice(),
-                    buildingConstruction: territory.buildingConstruction ? { ...territory.buildingConstruction } : null,
-                    minefield: Boolean(territory.minefield),
-                    minefieldConstructionActive: Boolean(territory.minefieldConstructionActive),
-                    minefieldConstructionProgressMs: territory.minefieldConstructionProgressMs,
-                    minefieldLastTrigger: territory.minefieldLastTrigger ? { ...territory.minefieldLastTrigger } : null,
-                    wonderId: territory.wonderId,
-                    wonderBuilderFactionId: territory.wonderBuilderFactionId,
-                    wonderConstruction: territory.wonderConstruction ? { ...territory.wonderConstruction } : null,
-                    wonderActivationRemainingMs: territory.wonderActivationRemainingMs,
-                    wonderActionProgressMs: territory.wonderActionProgressMs,
-                    wonderLastAction: territory.wonderLastAction ? { ...territory.wonderLastAction } : null
-                })),
+                territories: this.state.territories.map((territory) => {
+                    const dynamic = {
+                        id: territory.id,
+                        ownerId: territory.ownerId,
+                        units: territory.units,
+                        productionProgress: territory.productionProgress,
+                        productionMode: territory.productionMode
+                    };
+                    if (territory.installationProgressMs) dynamic.installationProgressMs = territory.installationProgressMs;
+                    if (territory.isCapital) dynamic.isCapital = true;
+                    if (territory.airstrikeCooldownMs) dynamic.airstrikeCooldownMs = territory.airstrikeCooldownMs;
+                    if (territory.airstrikeLastAction) dynamic.airstrikeLastAction = { ...territory.airstrikeLastAction };
+                    if (territory.productionModeChangedAtMs) dynamic.productionModeChangedAtMs = territory.productionModeChangedAtMs;
+                    if (territory.railroad) dynamic.railroad = true;
+                    if (territory.railroadConstructionActive) {
+                        dynamic.railroadConstructionActive = true;
+                        dynamic.railroadConstructionProgressMs = territory.railroadConstructionProgressMs;
+                        if (territory.railroadPreviousProductionMode) dynamic.railroadPreviousProductionMode = territory.railroadPreviousProductionMode;
+                    }
+                    if (territory.buildings?.length) dynamic.buildings = territory.buildings.slice();
+                    if (territory.buildingConstruction) dynamic.buildingConstruction = { ...territory.buildingConstruction };
+                    if (territory.minefield) dynamic.minefield = true;
+                    if (territory.minefieldConstructionActive) {
+                        dynamic.minefieldConstructionActive = true;
+                        dynamic.minefieldConstructionProgressMs = territory.minefieldConstructionProgressMs;
+                    }
+                    if (territory.minefieldLastTrigger) dynamic.minefieldLastTrigger = { ...territory.minefieldLastTrigger };
+                    if (territory.wonderId) {
+                        dynamic.wonderId = territory.wonderId;
+                        dynamic.wonderBuilderFactionId = territory.wonderBuilderFactionId;
+                        dynamic.wonderActivationRemainingMs = territory.wonderActivationRemainingMs;
+                        dynamic.wonderActionProgressMs = territory.wonderActionProgressMs;
+                    }
+                    if (territory.wonderConstruction) dynamic.wonderConstruction = { ...territory.wonderConstruction };
+                    if (territory.wonderLastAction) dynamic.wonderLastAction = { ...territory.wonderLastAction };
+                    return dynamic;
+                }),
                 factions: this.state.factions.map((faction) => ({
                     id: faction.id,
                     capitalTerritoryId: faction.capitalTerritoryId,
@@ -2747,7 +2879,7 @@
                     constructedWonderId: faction.constructedWonderId,
                     statistics: { ...faction.statistics }
                 })),
-                armies: this.state.armies.map((army) => army.toJSON()),
+                armies: this.state.armies.map((army) => this.createNetworkArmySnapshot(army)),
                 reinforcementRoutes: this.state.reinforcementRoutes.map((route) => route.toJSON()),
                 worldEvents: this.state.worldEvents.map((event) => ({
                     ...event,
@@ -2761,6 +2893,80 @@
                     ? { matchTimeline: this.state.matchTimeline.toJSON() }
                     : {})
             };
+        }
+
+        createNetworkPatch(baseSnapshot, currentSnapshot = this.createNetworkSnapshot()) {
+            if (!baseSnapshot || !Array.isArray(baseSnapshot.territories)) return null;
+            const baseTerritories = new Map(baseSnapshot.territories.map((territory) => [Number(territory.id), territory]));
+            const territoryDetails = [];
+            const territoryState = currentSnapshot.territories.map((territory) => {
+                const base = baseTerritories.get(Number(territory.id));
+                const { ownerId, units, productionProgress, ...currentDetails } = territory;
+                let detailsChanged = !base;
+                if (base) {
+                    const baseDetails = { ...base };
+                    delete baseDetails.ownerId;
+                    delete baseDetails.units;
+                    delete baseDetails.productionProgress;
+                    detailsChanged = JSON.stringify(currentDetails) !== JSON.stringify(baseDetails);
+                }
+                if (detailsChanged) territoryDetails.push({ ...territory });
+                const state = [
+                    Number(territory.id),
+                    ownerId === null || ownerId === undefined ? null : Number(ownerId),
+                    Math.max(0, Math.floor(Number(units) || 0)),
+                    Math.max(0, Math.round((Number(productionProgress) || 0) * 1000) / 1000)
+                ];
+                if (!base || base.ownerId !== ownerId || base.units !== units ||
+                    Math.round((Number(base.productionProgress) || 0) * 1000) / 1000 !== state[3]) return state;
+                return null;
+            }).filter(Boolean);
+            const { territories, armies, ...dynamicState } = currentSnapshot;
+            return {
+                ...dynamicState,
+                baseRevision: Number(baseSnapshot.revision) || 0,
+                territoryState,
+                territoryDetails,
+                armyState: armies.map((army) => this.createNetworkArmyPatch(army))
+            };
+        }
+
+        mergeNetworkPatch(baseSnapshot, patch) {
+            if (!baseSnapshot || !patch || !Array.isArray(baseSnapshot.territories)) return null;
+            if (Number(patch.baseRevision) !== (Number(baseSnapshot.revision) || 0)) return null;
+            const states = new Map((patch.territoryState || []).map((state) => [Number(state[0]), state]));
+            const details = new Map((patch.territoryDetails || []).map((territory) => [Number(territory.id), territory]));
+            const territories = baseSnapshot.territories.map((baseTerritory) => {
+                const territory = details.has(Number(baseTerritory.id))
+                    ? { ...details.get(Number(baseTerritory.id)) }
+                    : { ...baseTerritory };
+                const state = states.get(Number(baseTerritory.id));
+                if (!state) return territory;
+                territory.ownerId = state[1] === null || state[1] === undefined ? null : Number(state[1]);
+                territory.units = Math.max(0, Math.floor(Number(state[2]) || 0));
+                territory.productionProgress = Math.max(0, Number(state[3]) || 0);
+                return territory;
+            });
+            const {
+                baseRevision,
+                territoryState,
+                territoryDetails,
+                armyState,
+                ...dynamicState
+            } = patch;
+            const armies = (armyState || []).map((army) => this.mergeNetworkArmyPatch(army));
+            return { ...baseSnapshot, ...dynamicState, territories, armies };
+        }
+
+        applyNetworkSnapshotEnvelope(baseSnapshot, patch = null) {
+            if (!baseSnapshot) return false;
+            let applied = false;
+            if (Number(baseSnapshot.revision) >= this.state.revision) {
+                applied = this.applyNetworkSnapshot(baseSnapshot) || applied;
+            }
+            if (!patch || Number(patch.revision) <= this.state.revision) return applied;
+            const mergedSnapshot = this.mergeNetworkPatch(baseSnapshot, patch);
+            return mergedSnapshot ? this.applyNetworkSnapshot(mergedSnapshot) || applied : applied;
         }
 
         applyNetworkSnapshot(snapshot) {

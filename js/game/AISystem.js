@@ -100,8 +100,7 @@
             if (!this.enabled) return;
             this.factionIds.forEach((factionId) => {
                 const faction = this.game.state.getFaction(factionId);
-                const owned = this.game.state.getTerritoriesOwnedBy(factionId);
-                if (faction && owned.length && !faction.research.activeTechnologyId) {
+                if (faction && !faction.research.activeTechnologyId && this.game.state.getTerritoriesOwnedBy(factionId).length) {
                     // Le laboratoire national choisit immédiatement la recherche suivante.
                     // Cette décision ne consomme jamais un créneau militaire.
                     this.chooseResearch(faction);
@@ -288,7 +287,7 @@
             for (const source of endangered) {
                 const destinations = owned.filter((territory) => territory.id !== source.id && !dangerIds.has(territory.id))
                     .map((territory) => {
-                        const path = this.game.findOwnedPath(faction.id, source.id, territory.id);
+                        const path = this.game.findReinforcementPath(faction.id, source.id, territory.id);
                         if (!path) return null;
                         const hostileNeighbors = territory.neighbors.filter((neighborId) => {
                             const neighbor = state.getTerritory(neighborId);
@@ -409,7 +408,7 @@
 
                 targets.slice(0, 4).forEach((targetEntry) => {
                     const target = targetEntry.territory;
-                    const path = this.game.findAlliedPath(faction.id, source.id, target.id);
+                    const path = this.game.findReinforcementPath(faction.id, source.id, target.id);
                     if (!path || path.length < 2) return;
                     candidates.push({
                         source,
@@ -1091,7 +1090,7 @@
             const donors = owned
                 .filter((territory) => territory.id !== target.territory.id && territory.units > profile.garrison + 10)
                 .map((territory) => {
-                    const path = this.game.findOwnedPath(faction.id, territory.id, target.territory.id);
+                    const path = this.game.findReinforcementPath(faction.id, territory.id, target.territory.id);
                     if (!path) return null;
                     const hostileNeighbor = territory.neighbors.some((neighborId) => {
                         const neighbor = state.getTerritory(neighborId);
@@ -1226,7 +1225,7 @@
 
             for (const candidate of candidates) {
                 const donors = donorEntries.map((entry) => {
-                    const path = this.game.findAlliedPath(faction.id, entry.territory.id, candidate.target.id);
+                    const path = this.game.findReinforcementPath(faction.id, entry.territory.id, candidate.target.id);
                     if (!path) return null;
                     const score = entry.surplus - (path.length - 1) * 2 - entry.hostileNeighbors * 9;
                     return { ...entry, path, score };
@@ -1586,7 +1585,7 @@
             const archipelagoOpening = this.isArchipelagoOpening(faction.id);
             return owned.map((territory) => {
                 if (territory.id === staging.id) return null;
-                const path = this.game.findOwnedPath(faction.id, territory.id, staging.id);
+                const path = this.game.findReinforcementPath(faction.id, territory.id, staging.id);
                 if (!path) return null;
                 const hostileNeighbors = territory.neighbors
                     .map((neighborId) => state.getTerritory(neighborId))
@@ -1646,7 +1645,7 @@
                 const source = state.getTerritory(staleRoute.fromTerritoryId);
                 const target = priorityTargets
                     .map((entry) => entry.territory)
-                    .find((candidate) => source && this.game.findAlliedPath(faction.id, source.id, candidate.id));
+                    .find((candidate) => source && this.game.findReinforcementPath(faction.id, source.id, candidate.id));
                 if (target) return this.createContinuousRoute(faction.id, source.id, target.id);
             }
 
@@ -1659,7 +1658,7 @@
                 priorityTargets.forEach((targetEntry) => {
                     const target = targetEntry.territory;
                     if (source.id === target.id) return;
-                    const path = this.game.findAlliedPath(faction.id, source.id, target.id);
+                    const path = this.game.findReinforcementPath(faction.id, source.id, target.id);
                     if (!path) return;
                     const production = this.game.getProductionMultiplier(source);
                     const targetCongestion = targetUseCounts.get(target.id) || 0;

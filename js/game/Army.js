@@ -2,7 +2,7 @@
     "use strict";
 
     class Army {
-        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, units, durationMs, start, end, route = [], finalTerritoryId = null, isConvoy = false, reinforcementRouteId = null, logisticsPurpose = null, isBarbarian = false, worldEventId = null, visitedTerritoryIds = [], relayCount = 0 }) {
+        constructor({ id, ownerId, fromTerritoryId, toTerritoryId, units, durationMs, start, end, route = [], finalTerritoryId = null, isConvoy = false, isAirlift = false, reinforcementRouteId = null, logisticsPurpose = null, isBarbarian = false, worldEventId = null, visitedTerritoryIds = [], relayCount = 0 }) {
             this.id = id;
             this.ownerId = ownerId;
             this.fromTerritoryId = fromTerritoryId;
@@ -15,6 +15,7 @@
             this.route = route.slice();
             this.finalTerritoryId = finalTerritoryId || toTerritoryId;
             this.isConvoy = isConvoy;
+            this.isAirlift = isAirlift;
             this.reinforcementRouteId = reinforcementRouteId;
             this.logisticsPurpose = logisticsPurpose;
             this.isBarbarian = isBarbarian;
@@ -41,6 +42,7 @@
                 route: this.route.slice(),
                 finalTerritoryId: this.finalTerritoryId,
                 isConvoy: this.isConvoy,
+                isAirlift: this.isAirlift,
                 reinforcementRouteId: this.reinforcementRouteId,
                 logisticsPurpose: this.logisticsPurpose,
                 isBarbarian: this.isBarbarian,

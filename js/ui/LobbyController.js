@@ -355,6 +355,10 @@
         }
 
         close() {
+            if (this.roomUnsubscribe) {
+                this.roomUnsubscribe();
+                this.roomUnsubscribe = null;
+            }
             document.body.classList.remove("lobby-open");
             document.body.classList.add("game-running");
             this.lobby.hidden = true;

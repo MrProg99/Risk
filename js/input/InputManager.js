@@ -23,6 +23,19 @@
 
         bindEvents() {
             this.canvas.addEventListener("pointermove", (event) => {
+                const activeButtonMask = this.rightDrag
+                    ? 2
+                    : this.middlePointerDown
+                        ? 4
+                        : this.lastPointerDown
+                            ? 1
+                            : 0;
+                if (activeButtonMask && (event.buttons & activeButtonMask) === 0) {
+                    // The browser no longer reports the initiating button as
+                    // pressed: its pointerup was lost outside the document.
+                    this.cancelActiveGesture(event);
+                }
+
                 if (this.rightDrag) {
                     this.emitTerritoryHover(null, event);
                     const drag = this.rightDrag;
@@ -171,13 +184,21 @@
             });
 
             this.canvas.addEventListener("pointercancel", (event) => {
-                this.lastPointerDown = null;
-                this.middlePointerDown = null;
-                this.rightDrag = null;
-                this.renderer.clearTransferPreview();
-                this.emitTerritoryHover(null, event);
-                this.releasePointer(event.pointerId);
-                this.canvas.style.cursor = "grab";
+                this.cancelActiveGesture(event);
+            });
+
+            // A pointer release can occur outside the canvas (window switch,
+            // contextual popup appearing under the pointer, browser chrome).
+            // Recover globally so a missed release can never lock map input.
+            window.addEventListener("pointerup", (event) => {
+                if (this.getActivePointerIds().includes(event.pointerId)) this.cancelActiveGesture(event);
+            });
+            window.addEventListener("blur", () => this.cancelActiveGesture());
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden) this.cancelActiveGesture();
+            });
+            this.canvas.addEventListener("lostpointercapture", (event) => {
+                if (this.getActivePointerIds().includes(event.pointerId)) this.cancelActiveGesture(event);
             });
 
             this.canvas.addEventListener("wheel", (event) => {
@@ -219,6 +240,26 @@
             } catch (_error) {
                 // La capture a pu disparaître lorsque le pointeur quitte la fenêtre.
             }
+        }
+
+        getActivePointerIds() {
+            return [
+                this.lastPointerDown?.pointerId,
+                this.middlePointerDown?.pointerId,
+                this.rightDrag?.pointerId
+            ].filter((pointerId) => pointerId !== undefined && pointerId !== null);
+        }
+
+        cancelActiveGesture(event = null) {
+            const pointerIds = this.getActivePointerIds();
+            this.lastPointerDown = null;
+            this.middlePointerDown = null;
+            this.rightDrag = null;
+            this.renderer.clearTransferPreview();
+            this.renderer.setHovered?.(null);
+            this.emitTerritoryHover(null, event);
+            pointerIds.forEach((pointerId) => this.releasePointer(pointerId));
+            this.canvas.style.cursor = "grab";
         }
 
         emitTerritoryHover(territory, event) {

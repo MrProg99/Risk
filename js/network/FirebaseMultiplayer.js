@@ -325,6 +325,17 @@
             return unsubscribe;
         }
 
+        watchPlayers(listener = () => {}) {
+            const playersRef = this.api.ref(this.database, `${ROOT}/${this.roomCode}/players`);
+            const unsubscribe = this.api.onValue(playersRef, (snapshot) => {
+                const players = snapshot.val() || {};
+                if (this.room) this.room = { ...this.room, players };
+                listener(players);
+            });
+            this.unsubscribers.push(unsubscribe);
+            return unsubscribe;
+        }
+
         async startRoom() {
             if (!this.room || this.room.meta.hostUid !== this.uid) throw new Error("Seul l’hôte peut lancer la partie.");
             const players = Object.values(this.room.players || {});
@@ -380,10 +391,28 @@
             return this.api.set(this.api.ref(this.database, `${ROOT}/${this.roomCode}/snapshot`), snapshot);
         }
 
+        publishFullSnapshot(snapshot) {
+            return this.api.set(this.api.ref(this.database, `${ROOT}/${this.roomCode}/snapshot`), {
+                protocolVersion: 2,
+                base: snapshot
+            });
+        }
+
+        publishSnapshotPatch(patch) {
+            return this.api.set(this.api.ref(this.database, `${ROOT}/${this.roomCode}/snapshot/delta`), patch);
+        }
+
         watchSnapshot(listener) {
             const snapshotRef = this.api.ref(this.database, `${ROOT}/${this.roomCode}/snapshot`);
             const unsubscribe = this.api.onValue(snapshotRef, (value) => {
-                if (value.exists()) listener(value.val());
+                if (!value.exists()) return;
+                const payload = value.val();
+                if (Number(payload?.protocolVersion) === 2 && payload.base) {
+                    listener(payload.base, payload.delta || null);
+                    return;
+                }
+                // Compatibilité avec les salons créés avant le protocole compact.
+                listener(payload, null);
             });
             this.unsubscribers.push(unsubscribe);
         }
