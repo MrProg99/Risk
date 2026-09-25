@@ -45,7 +45,9 @@
         }
 
         getConstructionLimit(ownedCount) {
-            return C.Geometry.clamp(Math.ceil(ownedCount / 4), 1, 10);
+            // Chaque chantier coupe la production locale pendant 40 à 45 s.
+            // Garder la majorité des villes actives évite de perdre le tempo militaire.
+            return C.Geometry.clamp(Math.ceil(ownedCount / 7), 1, 6);
         }
 
         canStartProductionSuspendingProject(territory, food) {

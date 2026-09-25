@@ -3655,11 +3655,20 @@
         farmAiOwned.forEach((territory) => { territory.units = 1; });
         check(farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned),
             "l’IA construit une ferme dès que possible même lorsque ses réserves alimentaires sont abondantes");
-        const additionalFarmSite = farmAiOwned.find((territory) => territory.id !== farmAiCandidate.id &&
+        farmAiGame.state.territories
+            .filter((territory) => !territory.isImpassable && territory.ownerId === null)
+            .slice(0, 8)
+            .forEach((territory) => {
+                territory.ownerId = 2;
+                territory.units = 1;
+                territory.productionMode = "research";
+            });
+        const expandedFarmOwned = farmAiGame.state.getTerritoriesOwnedBy(2);
+        const additionalFarmSite = expandedFarmOwned.find((territory) => territory.id !== farmAiCandidate.id &&
             !farmAiGame.isTerritoryUnderConstruction(territory));
         additionalFarmSite.terrain = "plain";
-        const parallelFarmStarted = farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned);
-        check(parallelFarmStarted && farmAiOwned.filter((territory) => territory.buildingConstruction?.buildingId === "farm").length === 2,
+        const parallelFarmStarted = farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, expandedFarmOwned);
+        check(parallelFarmStarted && expandedFarmOwned.filter((territory) => territory.buildingConstruction?.buildingId === "farm").length === 2,
             "l’IA peut lancer plusieurs fermes en parallèle sans attendre la fin du premier chantier");
 
         const railroadGame = new C.Game({
@@ -3781,7 +3790,7 @@
         balancedBuildFaction.research.completedTechnologyIds.push("construction-railroad", "construction-agriculture");
         balancedBuildGame.state.territories
             .filter((territory) => !territory.isImpassable && (territory.ownerId === null || territory.ownerId === 2))
-            .slice(0, 10)
+            .slice(0, 15)
             .forEach((territory) => {
                 territory.ownerId = 2;
                 territory.terrain = "plain";
@@ -3789,6 +3798,10 @@
                 territory.productionMode = "research";
             });
         const balancedBuildOwned = balancedBuildGame.state.getTerritoriesOwnedBy(2);
+        check(balancedBuildGame.aiSystem.getConstructionLimit(20) === 3 &&
+            balancedBuildGame.aiSystem.getConstructionLimit(40) === 6 &&
+            balancedBuildGame.aiSystem.getConstructionLimit(100) === 6,
+            "l’IA limite les chantiers simultanés afin de préserver le recrutement militaire");
         const firstBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
         const secondBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
         const thirdBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
