@@ -116,7 +116,7 @@ La recherche **Réseau ferroviaire**, dans l’axe Construction après les Chaî
 
 À la fin des travaux, l’affectation précédente — recrutement, nourriture ou recherche — est restaurée automatiquement. Deux territoires voisins possédant tous les deux une voie ferrée forment une liaison qui accélère les déplacements de **35 %**. Les montagnes et les lacs restent infranchissables : une voie ne crée jamais de passage à travers un obstacle. Une infrastructure terminée demeure lors d’une conquête, tandis qu’un chantier inachevé est annulé.
 
-L’IA recherche et construit aussi son réseau. Elle privilégie les capitales, les sources logistiques, les sites stratégiques et les raccordements à une voie existante, mais n’ouvre pas de chantier au contact immédiat de l’ennemi ni lorsque sa réserve alimentaire deviendrait dangereuse. Les travaux, leur progression et les statistiques de construction sont inclus dans les instantanés multijoueurs Firebase; aucune modification des règles Firebase n’est nécessaire.
+L’IA construit son réseau dès que la recherche est débloquée, en privilégiant les capitales, les sources logistiques, les sites stratégiques et les raccordements à une voie existante. Elle peut aménager un territoire en recrutement, nourriture ou recherche, y compris près du front, mais évite une armée ennemie déjà en approche et respecte les positions réservées à une offensive. Ses chantiers peuvent avancer en parallèle dans une limite proportionnelle à la taille de l’empire; si les fermes sont aussi débloquées, elle leur conserve un créneau libre. Elle évite seulement de provoquer une pénurie grave pendant les travaux. La progression et les statistiques sont incluses dans les instantanés multijoueurs Firebase; aucune modification des règles Firebase n’est nécessaire.
 
 ### Champs de mines
 
@@ -130,7 +130,7 @@ L’IA recherche, prépare et exploite aussi ces défenses. Elle privilégie les
 
 La recherche **Agriculture intensive** autorise désormais la construction d’une **Ferme aménagée** sur les territoires de type Plaine. Le chantier dure **40 secondes** et suspend temporairement toute production locale, comme les travaux ferroviaires. Une fois terminée, la ferme ajoute **50 nourritures** lorsque le territoire est affecté à la nourriture; elle ne fournit aucun bonus supplémentaire pendant le recrutement ou la recherche. Une ferme peut cohabiter avec une voie ferrée, mais les deux chantiers ne peuvent pas être menés simultanément sur le même territoire.
 
-L’IA prépare ces fermes lorsque sa couverture alimentaire le justifie. Toute plaine possédée est admissible : capitale, front, hub de renfort, voie ferrée, installation, site rare ou territoire de recherche. Ces fonctions continuent pendant les 40 secondes du chantier seulement lorsqu’elles sont compatibles avec la règle générale qui suspend la production locale. L’IA limite encore le nombre de fermes selon la taille de son empire et ne construit rien lorsque ses réserves sont déjà abondantes. Les fermes terminées restent après une conquête; les chantiers inachevés sont annulés.
+L’IA construit les fermes dès que la recherche est débloquée, même si ses réserves alimentaires sont abondantes. Toute plaine possédée est admissible : capitale, front, hub de renfort, voie ferrée, installation, site rare ou territoire de recherche. Plusieurs chantiers peuvent progresser simultanément, selon la taille de l’empire; si le réseau ferroviaire est aussi débloqué, elle lui conserve un créneau libre. Le chantier suspend la production locale pendant 40 secondes; l’IA évite donc de retirer trop de nourriture à son armée en construisant. Les fermes terminées restent après une conquête; les chantiers inachevés sont annulés.
 
 Le catalogue [buildings.js](js/data/buildings.js) centralise le terrain autorisé, la recherche requise, la durée, l’icône et les effets de chaque bâtiment. `Territory` conserve une liste de bâtiments et un chantier sérialisable, tandis que la commande générique `BUILD_TERRITORY_BUILDING` permet d’ajouter plus tard d’autres constructions propres aux mines, industries, forteresses ou centres scientifiques sans coupler leur logique au Canvas.
 
@@ -254,6 +254,8 @@ tests/
 ```
 
 Les règles Realtime Database sont fournies comme fragment isolé dans `firebase/frontieres.rules.fragment.json` afin de préserver les namespaces Firebase déjà utilisés par les autres jeux du projet.
+
+L’IA est répartie entre `AIResearch.js` (choix des technologies et laboratoires), `AIConstruction.js` (nourriture, fermes, mines, rails et merveilles) et `AICombat.js` (attaques, défenses, capacités et logistique). `AISystem.js` coordonne leurs cadences indépendantes et conserve l’interface publique existante. Un contexte partagé transmet les besoins agricoles à Recherche et les positions réservées par Combat à Construction. Les trois modules utilisent toujours les commandes validées par `Game`, y compris lorsque l’hôte pilote les IA d’une partie multijoueur.
 
 La logique de `Game` et `GameState` ne connaît pas le Canvas. Une action passe par une commande sérialisable :
 

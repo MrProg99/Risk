@@ -21,6 +21,9 @@ global.window = globalThis;
     "../js/game/MapGenerator.js",
     "../js/game/CombatSystem.js",
     "../js/game/EventSystem.js",
+    "../js/game/AIResearch.js",
+    "../js/game/AIConstruction.js",
+    "../js/game/AICombat.js",
     "../js/game/AISystem.js",
     "../js/game/TeamSignalSystem.js",
     "../js/game/Game.js"

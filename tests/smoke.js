@@ -338,6 +338,36 @@
         independentAi.update(100);
         check(Boolean(independentFaction.research.activeTechnologyId) && economicMaintenanceRuns === 1 && independentAi.thinkTimers.get(2) > 59000,
             "la recherche et l’entretien économique de l’IA avancent sans attendre ni consommer sa prochaine décision tactique");
+        let researchAllocations = 0;
+        let constructionProjects = 0;
+        independentAi.research.allocationTimers.set(2, 0);
+        independentAi.construction.projectTimers.set(2, 0);
+        independentAi.manageResearchAllocation = () => { researchAllocations += 1; return true; };
+        independentAi.manageWonderConstruction = () => { constructionProjects += 1; return true; };
+        independentAi.update(100);
+        check(researchAllocations === 1 && constructionProjects === 1 && independentAi.thinkTimers.get(2) > 59000,
+            "Recherche et Construction continuent leurs décisions pendant que Combat attend son prochain créneau");
+
+        const coordinatedAiGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false, timeScale: 1 });
+        coordinatedAiGame.newGame(424245);
+        const coordinatedAi = coordinatedAiGame.aiSystem;
+        const coordinatedFaction = coordinatedAiGame.state.getFaction(2);
+        const coordinatedCapital = coordinatedAiGame.state.getTerritoriesOwnedBy(2)[0];
+        coordinatedFaction.research.completedTechnologyIds = ["construction-1", "construction-2"];
+        coordinatedCapital.units = 260;
+        coordinatedAi.runEconomicMaintenance(2);
+        check(coordinatedAi.chooseResearch(coordinatedFaction) &&
+            coordinatedFaction.research.activeTechnologyId === "construction-agriculture",
+            "Construction signale une forte pénurie et Recherche privilégie alors Agriculture intensive");
+        coordinatedFaction.research.completedTechnologyIds.push("construction-railroad");
+        coordinatedCapital.units = 20;
+        coordinatedAi.offensivePlans.set(2, { stagingTerritoryId: coordinatedCapital.id, contributorIds: [] });
+        const coordinatedOwned = coordinatedAiGame.state.getTerritoriesOwnedBy(2);
+        const protectedProject = coordinatedAi.manageRailroadConstruction(coordinatedFaction, coordinatedOwned);
+        coordinatedAi.offensivePlans.delete(2);
+        const freeProject = coordinatedAi.manageRailroadConstruction(coordinatedFaction, coordinatedOwned);
+        check(!protectedProject && freeProject && coordinatedCapital.railroadConstructionActive,
+            "Combat réserve son point de rassemblement; Construction peut y bâtir dès que la réservation est levée");
         check(state.territories.filter((territory) => territory.rareSite).length === 6, "six sites stratégiques rares sont placés");
         const generatedCannons = state.territories.filter((territory) => territory.installation?.type === "cannon");
         check(generatedCannons.length === 2, "exactement deux canons rares sont placés sur la grande carte");
@@ -3623,7 +3653,14 @@
         check(farmAiDecision && farmAiCandidate.buildingConstruction?.buildingId === "farm", "l’IA peut bâtir sa ferme sur toute plaine possédée, même capitale, hub, site stratégique, voie ferrée ou centre de recherche");
         farmAiGame.cancelBuildingConstruction(farmAiCandidate);
         farmAiOwned.forEach((territory) => { territory.units = 1; });
-        check(!farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned), "l’IA ne construit aucune ferme lorsqu’elle possède déjà une grande réserve alimentaire");
+        check(farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned),
+            "l’IA construit une ferme dès que possible même lorsque ses réserves alimentaires sont abondantes");
+        const additionalFarmSite = farmAiOwned.find((territory) => territory.id !== farmAiCandidate.id &&
+            !farmAiGame.isTerritoryUnderConstruction(territory));
+        additionalFarmSite.terrain = "plain";
+        const parallelFarmStarted = farmAiGame.aiSystem.manageFarmConstruction(farmAiFaction, farmAiOwned);
+        check(parallelFarmStarted && farmAiOwned.filter((territory) => territory.buildingConstruction?.buildingId === "farm").length === 2,
+            "l’IA peut lancer plusieurs fermes en parallèle sans attendre la fin du premier chantier");
 
         const railroadGame = new C.Game({
             playerId: 1,
@@ -3720,6 +3757,54 @@
         });
         railroadAiGame.resolveArmyArrival(railroadCapture.army);
         check(aiRailroadTerritory.ownerId === 1 && !aiRailroadTerritory.railroadConstructionActive && !aiRailroadTerritory.railroad, "la capture d’un chantier inachevé annule proprement les travaux");
+        const parallelRailGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false });
+        parallelRailGame.newGame(929293);
+        const parallelRailFaction = parallelRailGame.state.getFaction(2);
+        parallelRailFaction.research.completedTechnologyIds.push("construction-railroad");
+        parallelRailGame.state.territories
+            .filter((territory) => !territory.isImpassable && (territory.ownerId === null || territory.ownerId === 2))
+            .slice(0, 8)
+            .forEach((territory) => {
+                territory.ownerId = 2;
+                territory.units = 1;
+                territory.productionMode = "research";
+            });
+        const parallelRailOwned = parallelRailGame.state.getTerritoriesOwnedBy(2);
+        const firstParallelRail = parallelRailGame.aiSystem.manageRailroadConstruction(parallelRailFaction, parallelRailOwned);
+        const secondParallelRail = parallelRailGame.aiSystem.manageRailroadConstruction(parallelRailFaction, parallelRailOwned);
+        check(firstParallelRail && secondParallelRail &&
+            parallelRailOwned.filter((territory) => territory.railroadConstructionActive).length === 2,
+            "l’IA poursuit son réseau en parallèle et peut construire aussi sur un territoire de recherche");
+        const balancedBuildGame = new C.Game({ playerId: 1, activeFactionIds: [1, 2], aiFactionIds: [2], enableAI: false, enableWorldEvents: false });
+        balancedBuildGame.newGame(929294);
+        const balancedBuildFaction = balancedBuildGame.state.getFaction(2);
+        balancedBuildFaction.research.completedTechnologyIds.push("construction-railroad", "construction-agriculture");
+        balancedBuildGame.state.territories
+            .filter((territory) => !territory.isImpassable && (territory.ownerId === null || territory.ownerId === 2))
+            .slice(0, 10)
+            .forEach((territory) => {
+                territory.ownerId = 2;
+                territory.terrain = "plain";
+                territory.units = 1;
+                territory.productionMode = "research";
+            });
+        const balancedBuildOwned = balancedBuildGame.state.getTerritoriesOwnedBy(2);
+        const firstBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
+        const secondBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
+        const thirdBalancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
+        const balancedFarm = balancedBuildGame.aiSystem.manageFarmConstruction(balancedBuildFaction, balancedBuildOwned);
+        check(firstBalancedRail && secondBalancedRail && !thirdBalancedRail && balancedFarm,
+            "les rails laissent un créneau libre à une ferme dès que les deux recherches sont disponibles");
+        balancedBuildOwned.forEach((territory) => {
+            if (territory.railroadConstructionActive) balancedBuildGame.cancelRailroadConstruction(territory);
+            if (territory.buildingConstruction) balancedBuildGame.cancelBuildingConstruction(territory);
+        });
+        const firstBalancedFarm = balancedBuildGame.aiSystem.manageFarmConstruction(balancedBuildFaction, balancedBuildOwned);
+        const secondBalancedFarm = balancedBuildGame.aiSystem.manageFarmConstruction(balancedBuildFaction, balancedBuildOwned);
+        const thirdBalancedFarm = balancedBuildGame.aiSystem.manageFarmConstruction(balancedBuildFaction, balancedBuildOwned);
+        const balancedRail = balancedBuildGame.aiSystem.manageRailroadConstruction(balancedBuildFaction, balancedBuildOwned);
+        check(firstBalancedFarm && secondBalancedFarm && !thirdBalancedFarm && balancedRail,
+            "les fermes laissent aussi un créneau libre au développement ferroviaire");
         check(C.TECHNOLOGY_BRANCHES.find((branch) => branch.id === "construction").technologyIds.includes("construction-railroad"), "la recherche Réseau ferroviaire apparaît dans l’arbre Construction");
 
         const minefieldGame = new C.Game({
